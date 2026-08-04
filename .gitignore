@@ -1,0 +1,36 @@
+# Secrets et identifiants — ne doivent jamais entrer dans un dépôt public
+*.pem
+*.key
+*.crt
+id_rsa*
+id_ed25519*
+*.vault
+*.vault.yml
+*.vault.yaml
+vault-password*
+.env
+.env.*
+
+# Inventaires et variables Ansible pouvant porter des valeurs locales
+inventory/host_vars/*.local.yml
+inventory/group_vars/*.local.yml
+*.retry
+
+# Artefacts locaux (Execution Environments, images, caches) — non versionnés
+# par design : voir décision D1 dans docs/machine-facts.md, tout ce qui
+# n'existe qu'ici doit être re-téléchargeable ou reconstructible.
+*.tar
+*.tar.gz
+context/
+*.log
+
+# Environnements Python locaux
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Éditeurs / OS
+.DS_Store
+*.swp
+.idea/
