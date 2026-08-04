@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: gpu_mux
+  description: >-
+    Écrit gpu_mux_mode via asusctl armoury (D2bis/D2ter) après une série de
+    gardes en lecture seule, capture un instantané pré-bascule, et confirme
+    l'écriture par pending_reboot — jamais par une relecture de
+    current_value. Ne redémarre jamais la machine, ne touche jamais
+    dgpu_disable, ne démarre ni n'active supergfxd.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

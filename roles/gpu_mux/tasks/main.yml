@@ -1,0 +1,246 @@
+---
+# Ce rôle écrit gpu_mux_mode et s'arrête — il ne redémarre JAMAIS la
+# machine, n'écrit JAMAIS dans dgpu_disable, ne démarre ni n'active
+# supergfxd, n'installe aucun paquet. La bascule n'est prouvée qu'après un
+# redémarrage déclenché manuellement, hors de ce rôle : voir
+# docs/gpu-mux-recovery.md.
+
+# --- Garde 1 : dgpu_disable doit valoir 0 -----------------------------
+# Le pilote refuse la commutation MUX si la dGPU est désactivée. Lue en
+# premier et vérifiée avant toute autre action : voir CLAUDE.md § Matériel
+# spécifique — GPU / MUX.
+
+- name: Relever dgpu_disable réel (sauf si une valeur est forcée pour test)
+  ansible.builtin.command:
+    cmd: "cat {{ gpu_mux_dgpu_disable_dir }}/current_value"
+  register: gpu_mux_dgpu_disable_raw
+  changed_when: false
+  check_mode: false
+  when: gpu_mux_force_dgpu_disable_value is not defined
+
+- name: >-
+    Déterminer la valeur effective de dgpu_disable (réelle, ou forcée pour
+    la démonstration d'échec (b) — jamais écrite, seulement lue/simulée)
+  ansible.builtin.set_fact:
+    gpu_mux_dgpu_disable_value: >-
+      {{ gpu_mux_force_dgpu_disable_value
+         if gpu_mux_force_dgpu_disable_value is defined
+         else gpu_mux_dgpu_disable_raw.stdout }}
+
+- name: Échouer bruyamment si dgpu_disable n'est pas à 0 (avant toute écriture)
+  ansible.builtin.assert:
+    that:
+      - gpu_mux_dgpu_disable_value | string == "0"
+    fail_msg: >-
+      dgpu_disable vaut {{ gpu_mux_dgpu_disable_value }}, pas 0 : le pilote
+      refuse la commutation MUX tant que la dGPU est désactivée. Ce rôle
+      n'écrit jamais dans dgpu_disable — corriger cet attribut manuellement
+      (hors de ce rôle) avant de relancer.
+    success_msg: "dgpu_disable = 0, commutation MUX possible."
+
+# --- Garde 2 : l'attribut gpu_mux_mode existe et accepte la valeur cible
+
+- name: Vérifier l'existence de l'attribut gpu_mux_mode
+  ansible.builtin.stat:
+    path: "{{ gpu_mux_mode_dir }}/current_value"
+  register: gpu_mux_mode_attribute_stat
+
+- name: Relever gpu_mux_mode/possible_values
+  ansible.builtin.command:
+    cmd: "cat {{ gpu_mux_mode_dir }}/possible_values"
+  register: gpu_mux_mode_possible_values
+  changed_when: false
+  check_mode: false
+  when: gpu_mux_mode_attribute_stat.stat.exists
+
+- name: Relever gpu_mux_mode/current_value (état avant écriture)
+  ansible.builtin.command:
+    cmd: "cat {{ gpu_mux_mode_dir }}/current_value"
+  register: gpu_mux_mode_current
+  changed_when: false
+  check_mode: false
+  when: gpu_mux_mode_attribute_stat.stat.exists
+
+- name: >-
+    Échouer bruyamment si gpu_mux_mode est absent ou si la valeur cible
+    n'est pas dans possible_values
+  ansible.builtin.assert:
+    that:
+      - gpu_mux_mode_attribute_stat.stat.exists
+      - (gpu_mux_target_value | string) in (gpu_mux_mode_possible_values.stdout | default('') | split(';'))
+    fail_msg: >-
+      {{ "gpu_mux_mode introuvable sous " ~ gpu_mux_mode_dir
+         if not gpu_mux_mode_attribute_stat.stat.exists
+         else "Valeur cible " ~ gpu_mux_target_value ~ " absente de possible_values (" ~ (gpu_mux_mode_possible_values.stdout | default('inconnu')) ~ ") — vérifier gpu_mux_target_value avant de relancer." }}
+    success_msg: >-
+      gpu_mux_mode présent, valeur cible {{ gpu_mux_target_value }} valide
+      parmi {{ gpu_mux_mode_possible_values.stdout }}.
+
+# --- Garde 3 : pending_reboot doit valoir 0 avant écriture --------------
+# Une modification firmware déjà en attente rendrait la confirmation
+# post-écriture inexploitable : on ne pourrait plus distinguer un
+# pending_reboot=1 dû à CE rôle d'un pending_reboot=1 déjà présent avant.
+
+- name: Relever pending_reboot avant écriture
+  ansible.builtin.command:
+    cmd: "cat {{ gpu_mux_pending_reboot_path }}"
+  register: gpu_mux_pending_reboot_before
+  changed_when: false
+  check_mode: false
+
+- name: Échouer bruyamment si pending_reboot n'est pas à 0 avant écriture
+  ansible.builtin.assert:
+    that:
+      - gpu_mux_pending_reboot_before.stdout | string == "0"
+    fail_msg: >-
+      pending_reboot vaut déjà {{ gpu_mux_pending_reboot_before.stdout }}
+      avant toute écriture de ce rôle : une modification firmware est déjà
+      en attente (d'une source antérieure, hors de ce rôle). Continuer
+      rendrait la confirmation post-écriture inexploitable — impossible de
+      distinguer ce pending_reboot de celui que produirait cette exécution.
+      Redémarrer d'abord pour purger l'état en attente, puis relancer.
+    success_msg: "pending_reboot = 0, aucune bascule déjà en attente."
+
+# --- Instantané pré-bascule (trace non versionnée) ----------------------
+
+- name: Relever les connecteurs DRM par carte
+  ansible.builtin.shell:
+    cmd: >-
+      for f in /sys/class/drm/card*-*/status; do
+      printf '%s: %s\n' "$f" "$(cat "$f")"; done
+  register: gpu_mux_drm_status
+  changed_when: false
+  check_mode: false
+
+- name: Relever /dev/dri/by-path/
+  ansible.builtin.command:
+    cmd: ls -la /dev/dri/by-path/
+  register: gpu_mux_dri_by_path
+  changed_when: false
+  check_mode: false
+
+- name: Relever la sortie nvidia-smi
+  ansible.builtin.command:
+    cmd: nvidia-smi
+  register: gpu_mux_nvidia_smi
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Relever la sortie kscreen-doctor -o (modes et sortie active)
+  ansible.builtin.command:
+    cmd: kscreen-doctor -o
+  register: gpu_mux_kscreen
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Assembler l'instantané d'état avant bascule
+  ansible.builtin.set_fact:
+    gpu_mux_pre_state:
+      horodatage: "{{ ansible_facts.date_time.iso8601 }}"
+      gpu_mux_mode_current_value_avant: "{{ gpu_mux_mode_current.stdout }}"
+      gpu_mux_target_value: "{{ gpu_mux_target_value }}"
+      pending_reboot_avant: "{{ gpu_mux_pending_reboot_before.stdout }}"
+      dgpu_disable_value: "{{ gpu_mux_dgpu_disable_value }}"
+      connecteurs_drm: "{{ gpu_mux_drm_status.stdout_lines }}"
+      dev_dri_by_path: "{{ gpu_mux_dri_by_path.stdout_lines }}"
+      nvidia_smi: "{{ gpu_mux_nvidia_smi.stdout_lines }}"
+      kscreen_doctor: "{{ gpu_mux_kscreen.stdout_lines }}"
+
+- name: S'assurer que le répertoire de trace existe (non versionné)
+  ansible.builtin.file:
+    path: "{{ gpu_mux_trace_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Écrire l'instantané d'état avant bascule dans le fichier de trace
+  ansible.builtin.copy:
+    content: "{{ gpu_mux_pre_state | to_nice_json }}\n"
+    dest: "{{ gpu_mux_trace_dir }}/pre-bascule-{{ ansible_facts.date_time.iso8601_basic_short }}.json"
+    mode: "0600"
+  register: gpu_mux_trace_file
+
+# --- Écriture de la valeur cible -----------------------------------------
+# Chemin retenu : asusctl armoury set (lu dans `asusctl armoury set --help`,
+# jamais présumé) — cohérent avec D2ter (asusd/asus-armoury, pas
+# supergfxd). Jamais exécutée en --check : Ansible ignore par défaut les
+# tâches command sous --check sauf check_mode:false, qu'on évite ICI
+# volontairement (contrairement aux lectures ci-dessus) pour que --check ne
+# puisse jamais écrire.
+
+- name: >-
+    Écrire la valeur cible dans gpu_mux_mode via asusctl armoury (jamais en
+    mode --check)
+  ansible.builtin.command:
+    cmd: "asusctl armoury set gpu_mux_mode {{ gpu_mux_target_value }}"
+  register: gpu_mux_write_result
+  changed_when: true
+  when: not ansible_check_mode
+
+# --- Confirmation post-écriture : pending_reboot, jamais current_value --
+# PIÈGE DE VALIDATION : relire gpu_mux_mode/current_value juste après
+# l'écriture renvoie l'ANCIENNE valeur jusqu'au redémarrage — la méthode
+# ACPI de lecture ne reflète pas le changement avant reboot. Une tâche qui
+# vérifierait par relecture immédiate de current_value produirait un FAUX
+# NÉGATIF (elle verrait "toujours 0" et conclurait à tort que l'écriture a
+# échoué, alors qu'elle a réussi et attend simplement le redémarrage). La
+# SEULE confirmation valide avant reboot est le passage de pending_reboot
+# de 0 à 1 — c'est pour cela qu'aucune tâche ci-dessous ne relit
+# current_value après l'écriture.
+
+- name: Relire pending_reboot après écriture (uniquement hors --check)
+  ansible.builtin.command:
+    cmd: "cat {{ gpu_mux_pending_reboot_path }}"
+  register: gpu_mux_pending_reboot_after
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: >-
+    Confirmer la bascule par pending_reboot (0 → 1) — PAS par une relecture
+    de current_value, voir le commentaire ci-dessus
+  ansible.builtin.assert:
+    that:
+      - gpu_mux_pending_reboot_after.stdout | string == "1"
+    fail_msg: >-
+      pending_reboot vaut toujours {{ gpu_mux_pending_reboot_after.stdout }}
+      après l'écriture ({{ gpu_mux_write_result.rc | default('?') }}) : le
+      firmware n'a pas enregistré de changement en attente. Ne PAS
+      contourner en relisant gpu_mux_mode/current_value — cette lecture
+      resterait à l'ancienne valeur même si l'écriture avait réussi
+      (piège ACPI documenté dans docs/gpu-mux-recovery.md), donc son
+      absence de changement ici ne prouve rien par elle-même. Vérifier la
+      sortie de la tâche d'écriture ci-dessus avant de relancer.
+    success_msg: >-
+      pending_reboot est passé de {{ gpu_mux_pending_reboot_before.stdout }}
+      à {{ gpu_mux_pending_reboot_after.stdout }} : bascule enregistrée par
+      le firmware, EN ATTENTE DE REDÉMARRAGE.
+  when: not ansible_check_mode
+
+# --- Rapport final --------------------------------------------------------
+# La bascule n'est prouvée qu'après redémarrage : ce rôle ne se déclare
+# jamais en succès sur la seule écriture. Le message dit explicitement
+# « en attente de redémarrage », jamais « appliqué ».
+
+- name: Rapporter l'état (mode simulation --check)
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée, aucun redémarrage nécessaire.
+      gpu_mux_mode resterait à {{ gpu_mux_mode_current.stdout }},
+      pending_reboot à {{ gpu_mux_pending_reboot_before.stdout }}. Instantané
+      d'état écrit à titre de test dans
+      {{ gpu_mux_trace_file.dest | default('(chemin non résolu en --check)') }}.
+  when: ansible_check_mode
+
+- name: Rapporter l'état (exécution réelle)
+  ansible.builtin.debug:
+    msg:
+      - "BASCULE EN ATTENTE DE REDÉMARRAGE — PAS APPLIQUÉE tant que la machine n'a pas redémarré."
+      - "gpu_mux_mode/current_value avant écriture : {{ gpu_mux_mode_current.stdout }} (une relecture immédiate resterait identique jusqu'au reboot — ce n'est PAS un signe d'échec)."
+      - "pending_reboot : {{ gpu_mux_pending_reboot_before.stdout }} → {{ gpu_mux_pending_reboot_after.stdout }}."
+      - "dgpu_disable (jamais écrit par ce rôle) : {{ gpu_mux_dgpu_disable_value }}."
+      - "Instantané pré-bascule : {{ gpu_mux_trace_file.dest }}."
+      - "Chemin de retour avant tout redémarrage : docs/gpu-mux-recovery.md (TTY local, SSH entrant via roles/recovery/)."
+      - "Prochaine étape : redémarrage — décision manuelle, hors de ce rôle."
+  when: not ansible_check_mode

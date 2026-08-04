@@ -1,0 +1,6 @@
+# Instantanés d'état pré-bascule — jamais versionnés (contiennent la sortie
+# brute de nvidia-smi, kscreen-doctor, etc., propre à un instant donné sur
+# cette machine). Seul ce .gitignore est suivi, pour que le répertoire
+# existe dans un clone frais sans qu'un rôle ait besoin de le créer.
+*
+!.gitignore

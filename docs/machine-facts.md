@@ -112,6 +112,20 @@ contexte strictement lecture seule sans confirmation préalable.
     enabled, enable it with `systemctl enable supergfxd` » /
     `org.freedesktop.DBus.Error.ServiceUnknown: The name is not activatable`.
     (`supergfxctl -g`)
+  - `asus-shutdown.service` (« ASUS Deferred Shutdown Handler ») : unité
+    `disabled` mais `active (running)` depuis le démarrage de session
+    (démarrée transitivement, pas via `systemctl enable`),
+    `CapabilityBoundingSet=CAP_SYS_MODULE CAP_SYS_ADMIN`. Découverte le
+    2026-08-04 en cherchant la cause d'un `pending_reboot` resté à `0`
+    après écriture de `gpu_mux_mode` — voir « Décisions » (D2bis) et
+    `docs/gpu-mux-recovery.md` § Résultats observés pour le détail complet.
+    `asusd.service` déclare `Before=asus-shutdown.service` ;
+    `asus-shutdown.service` est lui-même ordonné `Before=shutdown.target
+    reboot.target halt.target` — cohérent avec un mécanisme d'application
+    différée des attributs `asus-armoury` au moment de l'arrêt, pas
+    immédiatement à l'écriture. (`systemctl cat asusd.service`,
+    `systemctl cat asus-shutdown.service`, `systemctl status
+    asus-shutdown.service`)
 - Attributs `asus-armoury` disponibles : `boot_sound`, `charge_mode`,
   `dgpu_disable`, `gpu_mux_mode`, `mini_led_mode`, `nv_dynamic_boost`,
   `nv_temp_target`, `panel_overdrive`, `ppt_pl1_spl`, `ppt_pl2_sppt`,
@@ -253,14 +267,27 @@ supprimer la contention compositeur/inférence et rendre l'enveloppe 150 W au
 calcul. Le gain VRAM (1079 MiB mesurés sur 16376 au moment de la décision)
 est secondaire. Note : la mesure VRAM refaite dans cet inventaire (1045 MiB /
 16376 MiB) est un nouveau relevé ponctuel, pas une reconduction du chiffre
-d'origine — voir « GPU » ci-dessus. État constaté ce jour (`gpu_mux_mode=0`,
-panneau principal `eDP-2` câblé sur la carte NVIDIA) : c'est l'état cohérent
-attendu avant bascule vers Optimus/Hybrid, pas une anomalie — voir « GPU »
-pour la sémantique de `gpu_mux_mode`. Bascule non encore appliquée.
-Préalable posé le 2026-08-04 : chemin de retour documenté et testé dans
+d'origine — voir « GPU » ci-dessus. État constaté avant toute écriture
+(`gpu_mux_mode=0`, panneau principal `eDP-2` câblé sur la carte NVIDIA) :
+c'était l'état cohérent attendu avant bascule vers Optimus/Hybrid, pas une
+anomalie — voir « GPU » pour la sémantique de `gpu_mux_mode`. Préalable
+posé le 2026-08-04 : chemin de retour documenté et testé dans
 [`docs/gpu-mux-recovery.md`](gpu-mux-recovery.md) (rôle `roles/recovery/`),
-avant toute écriture réelle dans `gpu_mux_mode`. Bascule elle-même toujours
-non appliquée à la date de cet inventaire.
+avant toute écriture réelle dans `gpu_mux_mode`.
+
+Écriture réellement tentée le 2026-08-04 (rôle `roles/gpu_mux/`) :
+`asusctl armoury set gpu_mux_mode 1` exécuté avec succès (code retour 0),
+mais `pending_reboot` n'est pas passé à `1` dans la fenêtre observée — le
+journal `asusd` montre la valeur mise en file d'attente (« delayed apply »)
+plutôt qu'appliquée de façon synchrone, probablement via
+`asus-shutdown.service` (voir « GPU » § Services, et
+`docs/gpu-mux-recovery.md` § Résultats observés pour le détail complet et
+les deux points non résolus qui en découlent). Le rôle s'est donc arrêté
+en échec sur sa propre garde plutôt que de déclarer un succès non prouvé —
+comportement voulu, pas un bug du rôle. **Bascule toujours non appliquée à
+la date de cet inventaire ; aucun redémarrage n'a eu lieu.** Prochaine
+étape : redémarrage, décision et déclenchement manuels, hors de ce
+livrable.
 
 **D2ter (2026-08-04) — bascule sans supergfxd, via `asusctl armoury`.**
 Motif : `asusd` est déjà actif ; le README de `supergfxctl` signale un
@@ -459,3 +486,55 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   exacte d'une reproduction de commande, recevabilité d'une source externe
   faisant autorité, retrait d'un marqueur uniquement après vérification
   effective — jamais par nettoyage).
+- **2026-08-04 — amendement D4 et dette Ansible (rattrapé ici : cette
+  entrée manquait à sa propre série, ajoutée après coup sans en changer la
+  date réelle).** D4 amendée (hostname et nom d'utilisateur de ce poste
+  personnel explicitement acceptés, adressage réseau — y compris RFC 1918
+  — toujours interdit en dur) suite à un écart signalé par cette série
+  elle-même entre la formulation d'origine et la pratique constatée depuis
+  le premier commit. Point ouvert ajouté sur la clé OpenPGP Terra
+  (déclenchement asymétrique de l'import selon le contexte d'exécution,
+  empreinte complète consignée). Dette technique sur l'outillage Ansible
+  EE-first consignée (`ansible-navigator`/`ansible-runner`/`ansible-lint`
+  absents des dépôts activés) avec note datée sur D3. Titre de la section
+  ScreenPad Plus corrigé dans `docs/gpu-mux-recovery.md` (le corps n'a pas
+  changé). Aucune installation, aucun import de clé, aucune modification
+  de dépôt.
+- **2026-08-04 — tentative de bascule vers Optimus/Hybrid (rôle
+  `roles/gpu_mux/`).** Résolution en lecture seule d'abord :
+  `asusctl armoury set --help` lu avant d'écrire la moindre tâche —
+  syntaxe `asusctl armoury set <property> <value>` confirmée, pas
+  présumée ; `asusctl armoury list` déclare exactement les 11 attributs
+  présents sous `attributes/` (`pending_reboot` mis à part, simple
+  indicateur, pas une propriété pilotable). Pré-vol : rôle `recovery`
+  ré-exécuté réellement, entièrement idempotent (`changed=0`) ; direction
+  SSH entrante fermée ce jour par preuve locale (`journalctl -u sshd -g
+  'Accepted'`, connexion par clé publique acceptée depuis la machine
+  distante) — voir `docs/gpu-mux-recovery.md`, qui porte ce marqueur
+  fermé, pas ce fichier.
+  Rôle `roles/gpu_mux/` validé avant écriture réelle : `--syntax-check`
+  passé, `--check` sans écriture ni vérification post-écriture (gardées
+  par `when: not ansible_check_mode`), deux échecs forcés casqués avant
+  toute action (valeur cible hors `possible_values` ; `dgpu_disable`
+  simulé à `1`, jamais écrit réellement).
+  Écriture réelle exécutée : `asusctl armoury set gpu_mux_mode 1` a
+  réussi (code retour 0), mais `pending_reboot` n'est pas passé à `1`
+  dans la fenêtre observée — le rôle s'est arrêté en échec sur sa propre
+  garde plutôt que de déclarer un succès non prouvé. Cause identifiée en
+  lecture seule : le journal `asusd` montre la valeur mise en file
+  d'attente (« delayed apply ») plutôt qu'appliquée de façon synchrone.
+  Service `asus-shutdown.service` découvert à cette occasion (voir « GPU »
+  § Services) et retenu comme piste d'application réelle, sans être
+  confirmé par lecture de code source — deux points non résolus en
+  découlent, consignés et comptés dans `docs/gpu-mux-recovery.md`, pas
+  ici. Instantané pré-bascule capturé dans un fichier de trace non
+  versionné (`roles/gpu_mux/trace/`, ignoré via un `.gitignore` propre à
+  ce répertoire plutôt que le `.gitignore` racine, pour rester strictement
+  dans le périmètre `roles/gpu_mux/`).
+  Confirmé en fin de série : `dgpu_disable=0` inchangé, `supergfxd`
+  toujours `inactive`/`disabled` (jamais démarré ni activé), aucun paquet
+  installé, aucun dépôt modifié, aucune clé GPG importée, **aucun
+  redémarrage**. Bascule toujours non appliquée à la date de cet
+  inventaire — décision de redémarrer laissée à l'opérateur, liste de
+  commandes de vérification post-redémarrage préparée dans
+  `docs/gpu-mux-recovery.md` sans être exécutée.

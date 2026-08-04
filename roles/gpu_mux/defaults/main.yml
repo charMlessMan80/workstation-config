@@ -1,0 +1,29 @@
+---
+# Valeur cible de gpu_mux_mode : 1 = Optimus/Hybrid (décision D2bis dans
+# docs/machine-facts.md). Configurable pour permettre la démonstration
+# d'échec forcé (a) sans modifier ce fichier :
+# `-e gpu_mux_target_value=9` doit casser sur l'assertion possible_values.
+gpu_mux_target_value: 1
+
+# Chemins sysfs — utilisés pour LIRE l'état et les gardes. L'écriture
+# elle-même ne passe jamais par ces chemins : voir tasks/main.yml, décision
+# retenue après lecture de `asusctl armoury set --help` (asusctl sait écrire
+# gpu_mux_mode avec la syntaxe `asusctl armoury set <property> <value>`,
+# c'est le chemin retenu, cohérent avec D2ter — pas de repli sysfs direct
+# nécessaire sur ce poste).
+gpu_mux_attributes_dir: /sys/class/firmware-attributes/asus-armoury/attributes
+gpu_mux_mode_dir: "{{ gpu_mux_attributes_dir }}/gpu_mux_mode"
+gpu_mux_dgpu_disable_dir: "{{ gpu_mux_attributes_dir }}/dgpu_disable"
+gpu_mux_pending_reboot_path: "{{ gpu_mux_attributes_dir }}/pending_reboot"
+
+# Réservée à la démonstration d'échec forcé (b) : si définie (par exemple
+# `-e gpu_mux_force_dgpu_disable_value=1`), cette valeur remplace la lecture
+# réelle de dgpu_disable pour simuler une dGPU désactivée SANS jamais y
+# écrire ni la lire différemment en usage normal. Ne jamais définir cette
+# variable en usage réel — sa seule raison d'être est de prouver que la
+# garde casse avant toute écriture.
+# gpu_mux_force_dgpu_disable_value: (indéfinie par défaut)
+
+# Répertoire de trace — contient un instantané de l'état juste avant
+# bascule (non versionné, voir .gitignore).
+gpu_mux_trace_dir: "{{ role_path }}/trace"
