@@ -13,10 +13,20 @@ sans comprendre pourquoi elle a été posée.
 
 - **Ne jamais affirmer sans source lue sur la machine.** Si un fait n'a pas
   été confirmé par une commande exécutée dans la session en cours, il se
-  marque `# À VÉRIFIER : <où le confirmer>` plutôt que d'être énoncé comme
+  marque `@VERIF : <où le confirmer>` plutôt que d'être énoncé comme
   acquis. Motif : une machine de dev évolue (mises à jour, changements
   manuels) ; une mémoire ou une supposition périme silencieusement, une
   commande datée ne ment pas sur ce qu'elle a vu.
+- **Reproduire une commande, c'est exécuter la commande exacte, pas une
+  variante.** Motif : une variante qui échoue autrement, ou qui réussit,
+  produit un diagnostic qui a toutes les apparences du sourcing — code de
+  retour, message, trace — mais qui porte sur un autre objet que celui
+  annoncé. C'est un défaut plus difficile à repérer qu'une affirmation non
+  sourcée, parce qu'il ressemble à une vérification : sur ce dépôt,
+  `journalctl -b0 -g` sans motif et `dnf repolist` sans argument ont d'abord
+  été pris pour des reproductions valides de `journalctl -b0 -g
+  'drm\|amdgpu\|nvidia'` et `dnf repolist enabled` — deux commandes
+  différentes, deux diagnostics faux.
 - **Un chiffre non sourcé ne se pose pas.** Version, taille, quantité de
   VRAM, priorité de dépôt — chaque nombre dans `docs/machine-facts.md` porte
   la commande qui l'a produit. Motif : un chiffre approximatif recopié de
@@ -39,14 +49,21 @@ sans comprendre pourquoi elle a été posée.
 
 ## Avant d'agir
 
-- **Résolution en lecture seule avant toute édition.** Avant de modifier un
-  fichier ou d'exécuter une commande qui change l'état du système, vérifier
-  d'abord ce que l'outil fait déjà lui-même (aide intégrée, `--dry-run`,
-  option de simulation) plutôt que de le déduire ou de le tester en
-  conditions réelles. Motif : cette machine ne porte aucune donnée
-  professionnelle mais reste un poste de travail quotidien ; une commande
-  supposée passive qui ne l'est pas (ex. import de clé GPG déclenché par un
-  simple `repoinfo`) doit être détectée avant d'agir, pas après.
+- **Avant d'écrire du code ou de la configuration, déterminer ce que l'outil
+  gère déjà lui-même.** Consulter l'aide intégrée, la doc du produit ou son
+  comportement par défaut avant de réimplémenter une vérification, une
+  interdiction ou un réglage qu'il applique déjà nativement. Motif : la
+  sur-couverture coûte autant que le manque — réécrire ce qu'un
+  installateur fait déjà, ouvrir un port purement local, coder à la main une
+  garde que le produit impose lui-même, sont des efforts gaspillés qui
+  ajoutent une source de divergence à maintenir plutôt que d'en retirer une.
+- **Vérifier qu'une commande annoncée comme passive l'est réellement, avant
+  de l'exécuter.** Une lecture peut déclencher un effet de bord (import de
+  clé, écriture de cache, invite interactive) sans le signaler à l'avance.
+  Motif : sur ce poste, `dnf repoinfo terra` a déclenché une invite d'import
+  de clé GPG alors qu'elle était censée être une simple consultation —
+  l'effet de bord doit être anticipé, ou à défaut vérifié immédiatement
+  après coup, pas découvert plus tard au milieu d'une série de commandes.
 - **Le gestionnaire `command-not-found` de dnf installe sur réponse
   machinale.** Tester `command -v X >/dev/null && X ...` avant d'invoquer un
   binaire dont la présence n'est pas confirmée. Motif : `supergfxctl` a été

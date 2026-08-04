@@ -34,3 +34,9 @@ __pycache__/
 .DS_Store
 *.swp
 .idea/
+
+# Configuration locale de l'outil Claude Code — allowlist de permissions
+# propre à cette machine/session. Le dépôt est public et ne doit pas
+# dépendre d'une exclusion posée dans la config git globale de l'utilisateur
+# (~/.config/git/ignore), qui ne suit pas un clone.
+.claude/settings.local.json

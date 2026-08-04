@@ -2,9 +2,12 @@
 
 Inventaire en lecture seule du poste de développement. Chaque fait est accompagné
 de la commande qui l'a produit, exécutée le 2026-08-04. Aucun chiffre n'est
-consigné sans cette source. Les marqueurs `# À VÉRIFIER` signalent un point que
-ces commandes n'ont pas permis d'établir — ils ne doivent pas être supprimés
-sans avoir été effectivement vérifiés.
+consigné sans cette source. Un jeton dédié, préfixé par une arobase, signale
+en tête de ligne un point que ces commandes n'ont pas permis d'établir — il
+ne doit être retiré qu'après avoir été effectivement vérifié, jamais par
+confort de lecture. `grep -c` sur ce jeton dans ce fichier ne doit compter
+que ces points réellement ouverts ; les mentions en prose qui parlent du
+mécanisme lui-même (comme ce paragraphe) l'évitent délibérément.
 
 Voir aussi [`CLAUDE.md`](../CLAUDE.md) pour les règles qui gouvernent la mise à
 jour de ce document.
@@ -126,21 +129,26 @@ contexte strictement lecture seule sans confirmation préalable.
     échoue (`No such file or directory`, code retour 1). C'est le fichier au
     niveau supérieur qui fait foi. (`cat .../attributes/pending_reboot`)
   - `asusctl` ne restitue que les valeurs numériques (`current: [(0),1]`),
-    sans étiquette « Optimus » / « Ultimate » / « dGPU ». La correspondance
-    entre `0`/`1` et un mode nommé n'a pas pu être établie par une commande
-    locale. **# À VÉRIFIER : correspondance numérique de `gpu_mux_mode`
-    (documentation asus-linux.org ou doc noyau `asus-armoury`, hors de portée
-    de ce poste en lecture seule).**
+    sans étiquette « Optimus » / « Ultimate » / « dGPU » — cette
+    correspondance n'est donc pas établie par une commande locale sur ce
+    poste. Elle est documentée dans le noyau :
+    `Documentation/ABI/testing/sysfs-platform-asus-wmi` (référence externe,
+    non lue sur cette machine) donne `0` = dGPU discrète (MUX direct vers la
+    RTX 4090, panneau non piloté par l'iGPU), `1` = Optimus/Hybrid (rendu
+    déchargé sur l'iGPU), avec redémarrage requis après commutation. Cette
+    même documentation marque l'attribut équivalent
+    `/sys/devices/platform/asus-nb-wmi/gpu_mux_mode` comme déprécié au
+    profit de `asus-armoury` / `firmware-attributes` — c'est le motif du
+    choix de ce chemin sysfs dans ce dépôt plutôt que l'ancien chemin
+    `asus-nb-wmi`. Localement, `possible_values=0;1` et `type=enumeration`
+    corroborent une bascule binaire, sans contredire cette lecture.
   - Constat croisé avec la section Affichage ci-dessous : à la date de cet
     inventaire, le panneau principal `eDP-2` est rattaché à `card2` (bus PCI
-    `01:00.0`, pilote `nvidia`), et non à `card1` (AMD, `09:00.0`), alors que
-    `gpu_mux_mode` vaut déjà `0` et que `pending_reboot` vaut `0` (aucun
-    changement en attente). **# À VÉRIFIER : si `0` correspond bien au mode
-    Optimus/Hybrid visé par D2bis, ce constat DRM est incohérent avec cette
-    décision — soit la bascule n'a pas encore été appliquée à la date de cet
-    inventaire, soit la correspondance numérique supposée est inversée. À
-    revérifier après un cycle `asusctl armoury set gpu_mux_mode` + redémarrage,
-    puis nouvelle lecture des connecteurs DRM.**
+    `01:00.0`, pilote `nvidia`), et non à `card1` (AMD, `09:00.0`),
+    `gpu_mux_mode=0`, `pending_reboot=0`. Avec la sémantique ci-dessus,
+    c'est l'état cohérent attendu **avant** toute bascule vers
+    Optimus/Hybrid, pas une anomalie : décision D2bis prise le 2026-08-04,
+    non encore appliquée à la date de cet inventaire (voir « Décisions »).
 - Règle udev `/usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules` (déposée par
   le paquet `supergfxctl`, pas par `asusd`) : bascule `power/control` à
   `auto` sur bind des fonctions PCI NVIDIA (classes `0x030000` et
@@ -239,15 +247,17 @@ d'exécution (EE) doivent être re-téléchargeables ou reconstructibles.
 **D2 — [RETIRÉ le 2026-08-04].** ÉTAIT : supergfxd désactivé, dGPU active en
 permanence. Motif d'origine : prévisibilité. Retiré au profit de D2bis.
 
-**D2bis (2026-08-04) — mode graphique Optimus/Hybrid.** Plasma sur l'iGPU
-AMD, RTX 4090 réservée au calcul. Motif : supprimer la contention
-compositeur/inférence et rendre l'enveloppe 150 W au calcul. Le gain VRAM
-(1079 MiB mesurés sur 16376 au moment de la décision) est secondaire. Note :
-la mesure VRAM refaite dans cet inventaire (1045 MiB / 16376 MiB) est un
-nouveau relevé ponctuel, pas une reconduction du chiffre d'origine — voir
-« GPU » ci-dessus. Voir aussi le constat croisé DRM/`gpu_mux_mode` en section
-GPU, qui questionne si cette bascule est effectivement en vigueur au moment
-de cet inventaire.
+**D2bis — mode graphique Optimus/Hybrid : décidée le 2026-08-04, non
+appliquée.** Plasma sur l'iGPU AMD, RTX 4090 réservée au calcul. Motif :
+supprimer la contention compositeur/inférence et rendre l'enveloppe 150 W au
+calcul. Le gain VRAM (1079 MiB mesurés sur 16376 au moment de la décision)
+est secondaire. Note : la mesure VRAM refaite dans cet inventaire (1045 MiB /
+16376 MiB) est un nouveau relevé ponctuel, pas une reconduction du chiffre
+d'origine — voir « GPU » ci-dessus. État constaté ce jour (`gpu_mux_mode=0`,
+panneau principal `eDP-2` câblé sur la carte NVIDIA) : c'est l'état cohérent
+attendu avant bascule vers Optimus/Hybrid, pas une anomalie — voir « GPU »
+pour la sémantique de `gpu_mux_mode`. Bascule non encore appliquée :
+livrable GPU-2 en attente.
 
 **D2ter (2026-08-04) — bascule sans supergfxd, via `asusctl armoury`.**
 Motif : `asusd` est déjà actif ; le README de `supergfxctl` signale un
@@ -268,8 +278,9 @@ adresse interne, aucun nom d'hôte réel.
 
 **D5 — Claude Code installé via le dépôt dnf officiel signé.** Canal stable,
 mises à jour par `dnf upgrade`. Confirmé par le contenu du fichier repo
-(`gpgcheck=1`, `baseurl=.../stable`) — voir « Chaîne Ansible » ci-dessus pour
-l'écart observé avec le canal annoncé par `claude doctor`.
+(`gpgcheck=1`, `baseurl=.../stable`). Sans rapport avec la chaîne Ansible :
+un écart entre ce dépôt et le canal `latest` annoncé par `claude doctor` est
+observé et documenté en « Points ouverts ».
 
 **D6 — `tuned-ppd` remplacé par `power-profiles-daemon`.** Transaction 7
 (`dnf swap tuned-ppd power-profiles-daemon --allowerasing`), confirmée :
@@ -280,10 +291,12 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
 ## Points ouverts
 
 - **`terra` activé** : dépôt tiers, priorité 99 relevée (voir « Dépôts » et
-  sa note de méthode), peut masquer des paquets Fedora du fait de sa
-  priorité plus agressive que la valeur par défaut (`99` est en réalité la
-  priorité par défaut de dnf pour un dépôt sans directive `priority=` — donc
-  pas spécialement agressive ici, mais reste à surveiller au cas par cas).
+  sa note de méthode) — c'est la priorité par défaut de dnf pour un dépôt
+  sans directive `priority=` ; Terra n'est donc pas structurellement
+  prioritaire sur Fedora. Le risque réel n'est pas la priorité du dépôt lui-
+  même, mais qu'un paquet homonyme de version supérieure disponible sur
+  Terra prenne le dessus sur son équivalent Fedora lors d'une résolution de
+  dépendances.
 - **`rpmfusion-free-tainted`** activé délibérément (transaction 18), lié à la
   chaîne multimédia. Établi, pas un point ouvert au sens strict — conservé
   ici pour traçabilité car demandé explicitement.
@@ -306,25 +319,30 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
 - **`claude doctor` annonce le canal `latest`** alors que le dépôt dnf pointe
   `stable` : écart confirmé par lecture croisée (`claude doctor` +
   `/etc/yum.repos.d/claude-code.repo`), sans effet apparent observé.
-  **# À VÉRIFIER : cause de l'écart entre canal annoncé et dépôt configuré
-  (documentation officielle Claude Code, hors de portée de ce poste).**
-- **Commandes ayant échoué pendant l'inventaire manuel initial de
-  l'utilisateur** :
-  - `journalctl -b0 -g` (sans motif de recherche) : reproduit dans cette
-    série — échec explicite et non silencieux, code retour 1, message
-    `journalctl: option requires an argument -- 'g'`. `-g`/`--grep` exige un
-    motif ; l'invocation correcte est `journalctl -b0 -g MOTIF`.
-  - `dnf repolist` (syntaxe dnf4 sur dnf5) : **non reproduit** dans cette
-    série — la commande a renvoyé un code 0 avec une sortie identique à
-    `dnf repo list --enabled`, ce qui suggère que dnf5 fournit `repolist`
-    comme alias de compatibilité. **# À VÉRIFIER : cause de l'écart entre
-    l'échec rapporté lors de l'inventaire manuel initial et le succès
-    constaté ici (contexte différent au moment de l'échec d'origine ?
-    version de dnf5 changée entre-temps ? à confirmer si le comportement
-    réapparaît).**
-- **Sémantique numérique de `gpu_mux_mode`** (quelle valeur correspond à
-  Optimus/Hybrid, laquelle à dGPU/Ultimate) et **cohérence avec l'état DRM
-  observé** : voir les deux marqueurs `# À VÉRIFIER` en section GPU.
+  `@VERIF : cause de l'écart entre canal annoncé et dépôt configuré —
+  documentation officielle Claude Code, hors de portée de ce poste.`
+- **Commandes rapportées en échec lors de l'inventaire manuel initial de
+  l'utilisateur, reproduites ici à l'identique** :
+  - `journalctl -b0 -g 'drm\|amdgpu\|nvidia'` : renvoie `-- No entries --`,
+    code de retour 0 dans cette série (l'utilisateur rapportait un code 1
+    sans message — écart de code non expliqué, mais la cause de fond est
+    établie et identique). Cause : `-g`/`--grep` de journalctl interprète le
+    motif en PCRE, où `\|` est un pipe **littéral**, pas une alternance — la
+    chaîne réellement recherchée était donc `drm|amdgpu|nvidia` telle
+    quelle, absente du journal. Confirmé par comparaison directe sur le
+    même journal : `grep -c 'drm|amdgpu|nvidia'` (littéral) → 0 occurrence,
+    contre `grep -Ec 'drm|amdgpu|nvidia'` (alternance) → 114 occurrences.
+    L'invocation correcte pour une alternance est `-g 'drm|amdgpu|nvidia'`,
+    sans échapper le `|`.
+  - `dnf repolist enabled` : reproduit à l'identique — échec réellement
+    silencieux confirmé, stdout et stderr tous deux vides, code de retour 0.
+    Cause établie par comparaison : `dnf repolist fedora` renvoie
+    exactement l'entrée du dépôt `fedora`, ce qui montre que dnf5 traite
+    l'argument positionnel de `repolist` comme un motif d'ID de dépôt, pas
+    comme le mot-clé `enabled` de la syntaxe dnf4. Aucun dépôt ne s'appelle
+    littéralement `enabled`, d'où une commande qui ne retourne rien sans
+    jamais signaler d'erreur. La syntaxe dnf5 correcte est
+    `dnf repolist --enabled` (ou `dnf repo list --enabled`).
 
 ## Journal des séries
 
@@ -335,6 +353,12 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   Incident de méthode : `dnf repoinfo terra` a déclenché une invite d'import
   de clé GPG — vérifié a posteriori comme sans effet (clé déjà présente
   avant l'exécution de la commande), documenté dans la section « Dépôts ».
-  Nombre de marqueurs `# À VÉRIFIER` laissés dans ce document à l'issue de
-  cette série : voir validation dans le message de livraison (ne pas
-  dupliquer ce chiffre ici, il se recompte avec `grep -c`).
+- **2026-08-04 — corrections post-revue.** Deux diagnostics de la série
+  précédente reposaient sur des commandes substituées plutôt que reproduites
+  à l'identique (`journalctl`, `dnf repolist`) — corrigés en section
+  « Points ouverts » avec les commandes exactes et leurs causes établies.
+  Sémantique de `gpu_mux_mode` fermée (voir « GPU »), incohérence D2bis/DRM
+  requalifiée en état attendu avant bascule non encore appliquée (voir
+  « Décisions »). Le décompte des points réellement ouverts ne se
+  reconstruit qu'avec `grep -c` sur ce fichier — il n'est pas dupliqué ici,
+  pour ne pas devenir une deuxième source qui se périme au prochain commit.
