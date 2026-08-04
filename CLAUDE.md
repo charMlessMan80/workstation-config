@@ -11,22 +11,37 @@ sans comprendre pourquoi elle a été posée.
 
 ## Sourcing des faits
 
-- **Ne jamais affirmer sans source lue sur la machine.** Si un fait n'a pas
-  été confirmé par une commande exécutée dans la session en cours, il se
-  marque `@VERIF : <où le confirmer>` plutôt que d'être énoncé comme
-  acquis. Motif : une machine de dev évolue (mises à jour, changements
-  manuels) ; une mémoire ou une supposition périme silencieusement, une
-  commande datée ne ment pas sur ce qu'elle a vu.
+- **Ne jamais affirmer sans source lue sur la machine — ou sans source
+  externe faisant autorité, nommée précisément et marquée comme externe.**
+  Si un fait n'a été confirmé ni par une commande exécutée dans la session
+  en cours, ni par une référence externe recevable, il se marque
+  `@VERIF : <où le confirmer>` plutôt que d'être énoncé comme acquis. Une
+  référence externe est recevable si c'est de la documentation amont, le
+  code source du projet concerné, ou une ABI/spécification officielle
+  (ex. `Documentation/ABI/testing/sysfs-platform-asus-wmi` pour la
+  sémantique de `gpu_mux_mode`) — nommée avec assez de précision pour être
+  retrouvée, et signalée comme externe dans le fait consigné, jamais
+  fondue avec une lecture locale. Ce qui reste interdit sans exception :
+  la mémoire et la plausibilité. Motif : cette règle, avant amendement,
+  interdisait formellement ce qui a pourtant été fait légitimement pour
+  fermer le marqueur `gpu_mux_mode` — corriger l'écart entre la règle
+  écrite et la pratique correcte plutôt que de laisser la règle se faire
+  contourner en silence la prochaine fois.
 - **Reproduire une commande, c'est exécuter la commande exacte, pas une
-  variante.** Motif : une variante qui échoue autrement, ou qui réussit,
-  produit un diagnostic qui a toutes les apparences du sourcing — code de
-  retour, message, trace — mais qui porte sur un autre objet que celui
-  annoncé. C'est un défaut plus difficile à repérer qu'une affirmation non
-  sourcée, parce qu'il ressemble à une vérification : sur ce dépôt,
-  `journalctl -b0 -g` sans motif et `dnf repolist` sans argument ont d'abord
-  été pris pour des reproductions valides de `journalctl -b0 -g
-  'drm\|amdgpu\|nvidia'` et `dnf repolist enabled` — deux commandes
-  différentes, deux diagnostics faux.
+  variante — y compris ses options de formatage et ses redirections.**
+  `-o cat`, `--no-pager`, un pipe en bout de chaîne : ce sont elles qui
+  déterminent ce qui est observable, pas un détail cosmétique. Motif : une
+  variante qui échoue autrement, ou qui réussit, produit un diagnostic qui
+  a toutes les apparences du sourcing — code de retour, message, trace —
+  mais qui porte sur un autre objet que celui annoncé. C'est un défaut plus
+  difficile à repérer qu'une affirmation non sourcée, parce qu'il ressemble
+  à une vérification : sur ce dépôt, `journalctl -b0 -g` sans motif et
+  `dnf repolist` sans argument ont d'abord été pris pour des reproductions
+  valides de `journalctl -b0 -g 'drm\|amdgpu\|nvidia'` et
+  `dnf repolist enabled` — deux commandes différentes, deux diagnostics
+  faux. Un `-o cat` qui supprime `-- No entries --`, ou un pipe qui
+  substitue le code de retour du dernier maillon à celui de la commande
+  qu'on croit observer, sont la même erreur sous une autre forme.
 - **Un chiffre non sourcé ne se pose pas.** Version, taille, quantité de
   VRAM, priorité de dépôt — chaque nombre dans `docs/machine-facts.md` porte
   la commande qui l'a produit. Motif : un chiffre approximatif recopié de
@@ -46,6 +61,20 @@ sans comprendre pourquoi elle a été posée.
   s'applique silencieusement sans qu'on l'ait choisie. Motif : confondre
   « commenté » et « valeur par défaut acceptée consciemment » fait perdre la
   trace d'une décision qui n'a jamais été prise.
+- **Un marqueur `@VERIF` ne se retire qu'après vérification effective,
+  jamais par nettoyage.** Reformuler un paragraphe, migrer un jeton,
+  réorganiser une section : aucune de ces opérations n'est une
+  vérification, et aucune ne justifie qu'un marqueur disparaisse. Motif :
+  la garde équivalente vivait dans le préambule de `docs/machine-facts.md`
+  et a disparu par effet de bord lors de la migration du jeton
+  `À VÉRIFIER` vers `@VERIF` — ce paragraphe contenait l'ancien jeton, donc
+  réécrit avec le reste, sans que quiconque ait décidé de retirer la garde
+  elle-même. Une règle qui ne vit que dans un fichier de faits est
+  vulnérable à toute réécriture de ce fichier ; sa place est ici, dans un
+  fichier de règles, pas dans celui qu'elle est censée contraindre.
+  Corollaire : un compteur de marqueurs qui baisse doit s'expliquer par des
+  vérifications faites, pas par des reformulations — si l'explication
+  manque, traiter la baisse comme suspecte jusqu'à preuve du contraire.
 
 ## Avant d'agir
 

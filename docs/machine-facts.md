@@ -256,8 +256,11 @@ est secondaire. Note : la mesure VRAM refaite dans cet inventaire (1045 MiB /
 d'origine — voir « GPU » ci-dessus. État constaté ce jour (`gpu_mux_mode=0`,
 panneau principal `eDP-2` câblé sur la carte NVIDIA) : c'est l'état cohérent
 attendu avant bascule vers Optimus/Hybrid, pas une anomalie — voir « GPU »
-pour la sémantique de `gpu_mux_mode`. Bascule non encore appliquée :
-livrable GPU-2 en attente.
+pour la sémantique de `gpu_mux_mode`. Bascule non encore appliquée.
+Préalable posé le 2026-08-04 : chemin de retour documenté et testé dans
+[`docs/gpu-mux-recovery.md`](gpu-mux-recovery.md) (rôle `roles/recovery/`),
+avant toute écriture réelle dans `gpu_mux_mode`. Bascule elle-même toujours
+non appliquée à la date de cet inventaire.
 
 **D2ter (2026-08-04) — bascule sans supergfxd, via `asusctl armoury`.**
 Motif : `asusd` est déjà actif ; le README de `supergfxctl` signale un
@@ -362,3 +365,22 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   « Décisions »). Le décompte des points réellement ouverts ne se
   reconstruit qu'avec `grep -c` sur ce fichier — il n'est pas dupliqué ici,
   pour ne pas devenir une deuxième source qui se périme au prochain commit.
+- **2026-08-04 — chemin de retour avant bascule MUX.** Création de
+  `docs/gpu-mux-recovery.md` et du rôle `roles/recovery/` (cible
+  `localhost`) : préparent et vérifient un chemin de retour SSH — service
+  installé, activé, démarré, `authorized_keys` non vide, état firewalld
+  relevé — avant toute bascule réelle de `gpu_mux_mode`. Le rôle a été
+  exécuté réellement dans cette série (`sshd` : `active/disabled` →
+  `active/enabled`) ainsi qu'en `--check` et en échec forcé à deux reprises
+  (paquet SSH absent simulé, `authorized_keys` introuvable simulé) — les
+  deux gardes cassent avec le message attendu. Confirmé après coup et à
+  nouveau en fin de série par lecture directe : `gpu_mux_mode=0`,
+  `pending_reboot=0`, `dgpu_disable=0` inchangés, `supergfxd` toujours
+  `inactive`/`disabled` — ce rôle n'a jamais touché à ces attributs. Deux
+  points restent non résolus dans `docs/gpu-mux-recovery.md` (direction de
+  la connexion SSH entrante, survie du ScreenPad Plus après bascule) : ils
+  y sont marqués et comptés, pas ici, pour éviter une deuxième source. Trois
+  amendements apportés à `CLAUDE.md` § Sourcing à cette occasion (portée
+  exacte d'une reproduction de commande, recevabilité d'une source externe
+  faisant autorité, retrait d'un marqueur uniquement après vérification
+  effective — jamais par nettoyage).

@@ -1,0 +1,29 @@
+---
+# Aucune valeur ci-dessous n'est spécifique à une machine réelle (décision D4
+# — dépôt public). Toutes sont pensées pour être surchargées par l'appelant
+# (inventaire, group_vars, ou -e en ligne de commande) ; les valeurs
+# concrètes n'entrent jamais dans un fichier versionné.
+
+# Nom du paquet fournissant le serveur SSH sur ce poste (Fedora :
+# openssh-server). Ce rôle échoue bruyamment si absent — il ne l'installe
+# jamais : voir tasks/main.yml et docs/gpu-mux-recovery.md.
+recovery_ssh_package_name: openssh-server
+
+# Nom du service systemd correspondant.
+recovery_ssh_service: sshd
+
+# Emplacement du trousseau de clés autorisées sur CE poste (celui qu'on
+# prépare à récupérer) — pas sur la machine distante qui doit s'y connecter.
+recovery_authorized_keys_path: "{{ ansible_facts.env.HOME }}/.ssh/authorized_keys"
+
+# Nom du service firewalld correspondant à SSH.
+recovery_firewall_service: ssh
+
+# Exemple neutre (RFC 5737, plage TEST-NET-3 réservée à la documentation) —
+# machine distante censée pouvoir se connecter EN RETOUR vers ce poste après
+# une bascule MUX ratée. Ce rôle ne vérifie PAS que cette machine peut
+# effectivement le faire : il ne peut établir qu'une connexion sortante
+# depuis ce poste, ce qui ne prouve rien sur le sens inverse. Voir le
+# marqueur @VERIF correspondant dans docs/gpu-mux-recovery.md.
+recovery_remote_host: 203.0.113.10
+recovery_remote_user: example-user

@@ -1,0 +1,11 @@
+---
+# Playbook d'exécution/test du rôle recovery, ciblant localhost.
+# `role: "{{ playbook_dir }}"` charge ce répertoire lui-même comme rôle
+# (tasks/, defaults/, meta/ y sont déjà en place) — évite de dépendre d'un
+# roles_path externe à ce dépôt pour un rôle qui n'a de sens que local.
+- name: Recovery — chemin de retour SSH avant bascule MUX GPU
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - role: "{{ playbook_dir }}"

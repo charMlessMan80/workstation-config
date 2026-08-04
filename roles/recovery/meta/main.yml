@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: recovery
+  description: >-
+    Vérifie et prépare un chemin de retour SSH sur ce poste avant une
+    bascule du MUX GPU (voir docs/gpu-mux-recovery.md). N'installe rien,
+    ne bascule jamais gpu_mux_mode, ne démarre jamais supergfxd, ne modifie
+    jamais firewalld.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

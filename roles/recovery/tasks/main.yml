@@ -1,0 +1,100 @@
+---
+# Ce rôle ne bascule JAMAIS le MUX GPU : il ne touche à aucun attribut sous
+# /sys/class/firmware-attributes/asus-armoury/, n'active ni ne démarre
+# supergfxd, et ne redémarre pas la machine. Objectif unique : garantir
+# qu'un chemin de retour SSH est prêt avant qu'un humain ne déclenche la
+# bascule décrite dans docs/gpu-mux-recovery.md.
+
+- name: Relever les paquets installés sur ce poste
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: >-
+    Échouer bruyamment si le paquet SSH serveur n'est pas installé
+    (jamais installé automatiquement par ce rôle)
+  ansible.builtin.assert:
+    that:
+      - recovery_ssh_package_name in ansible_facts.packages
+    fail_msg: >-
+      Le paquet « {{ recovery_ssh_package_name }} » n'est pas installé sur
+      ce poste. Ce rôle ne l'installe pas : l'installation d'un serveur SSH
+      est une décision, pas un effet de bord d'un rôle de récupération.
+      Installer explicitement avec « dnf install {{ recovery_ssh_package_name }} »
+      puis relancer ce rôle.
+    success_msg: "Paquet « {{ recovery_ssh_package_name }} » présent."
+
+- name: Activer et démarrer le service SSH sur ce poste
+  ansible.builtin.systemd:
+    name: "{{ recovery_ssh_service }}"
+    enabled: true
+    state: started
+  register: recovery_sshd_state
+
+- name: Vérifier la présence du fichier authorized_keys sur ce poste
+  ansible.builtin.stat:
+    path: "{{ recovery_authorized_keys_path }}"
+  register: recovery_authorized_keys_stat
+
+- name: >-
+    Compter les clés publiques présentes (lignes non vides, non commentées —
+    jamais leur contenu)
+  ansible.builtin.command:
+    cmd: >-
+      grep -Ecv '^[[:space:]]*(#.*)?$' {{ recovery_authorized_keys_path | ansible.builtin.quote }}
+  register: recovery_authorized_keys_count
+  changed_when: false
+  failed_when: false
+  check_mode: false  # lecture seule : à exécuter même sous --check, sinon
+  # la tâche est ignorée en simulation (comportement par défaut d'Ansible
+  # pour le module command) et l'assertion suivante produit un faux négatif.
+  when: recovery_authorized_keys_stat.stat.exists
+
+- name: Asserter qu'au moins une clé publique est présente dans authorized_keys
+  ansible.builtin.assert:
+    that:
+      - recovery_authorized_keys_stat.stat.exists
+      - (recovery_authorized_keys_count.stdout | default('0') | int) > 0
+    fail_msg: >-
+      Aucune clé publique utilisable trouvée dans
+      {{ recovery_authorized_keys_path }}. Le chemin de retour SSH décrit
+      dans docs/gpu-mux-recovery.md ne peut pas fonctionner sans clé
+      autorisée sur CE poste : ajouter la clé publique de la machine
+      distante à ce fichier avant toute bascule MUX.
+    success_msg: >-
+      {{ recovery_authorized_keys_count.stdout | default('0') }} clé(s)
+      publique(s) trouvée(s) dans {{ recovery_authorized_keys_path }}.
+
+- name: >-
+    Relever l'état de firewalld pour le service SSH (lecture seule, ne
+    modifie jamais la configuration du pare-feu)
+  ansible.builtin.command:
+    cmd: "firewall-cmd --query-service={{ recovery_firewall_service }}"
+  register: recovery_firewall_ssh
+  changed_when: false
+  check_mode: false  # lecture seule : mêmes raisons que la tâche grep ci-dessus.
+  # firewall-cmd --query-service renvoie 0 (autorisé) ou 1 (non autorisé) :
+  # les deux sont des constats valides, pas des échecs de CE rôle.
+  failed_when: recovery_firewall_ssh.rc not in [0, 1]
+  # noqa: command-instead-of-module — aucun module ansible.builtin ne
+  # couvre firewalld ; le module dédié vit dans community.general, non
+  # installé sur ce poste (voir docs/machine-facts.md). command en lecture
+  # seule (changed_when: false) est le compromis le plus sobre plutôt que
+  # d'ajouter une dépendance de collection pour une seule requête.
+
+- name: Relever l'adresse IPv4 de ce poste
+  ansible.builtin.set_fact:
+    recovery_local_ipv4: "{{ ansible_facts.default_ipv4.address | default('inconnue — relever avec `ip -brief addr show`') }}"
+
+- name: Rapporter l'état du chemin de retour SSH
+  ansible.builtin.debug:
+    msg:
+      - "sshd actif : {{ recovery_sshd_state.status.ActiveState | default('inconnu') }}"
+      - "sshd activé au démarrage (changé par ce rôle) : {{ recovery_sshd_state.enabled | default('inconnu') }}"
+      - "authorized_keys : {{ recovery_authorized_keys_count.stdout | default('0') }} clé(s) sur {{ recovery_authorized_keys_path }}"
+      - "firewalld / service {{ recovery_firewall_service }} autorisé sur la zone active : {{ recovery_firewall_ssh.rc == 0 }}"
+      - "adresse IPv4 de ce poste : {{ recovery_local_ipv4 }}"
+      - >-
+        RAPPEL — ce rôle ne prouve pas que {{ recovery_remote_host }}
+        peut se connecter EN RETOUR vers ce poste : seule une connexion
+        entrante réelle, initiée depuis cette machine distante, le prouve
+        (@VERIF, voir docs/gpu-mux-recovery.md).
