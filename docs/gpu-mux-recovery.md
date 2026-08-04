@@ -94,7 +94,7 @@ distante elle-même, en s'y connectant réellement — hors de portée de ce
 poste et de ce rôle. À vérifier avant de compter sur ce chemin en
 conditions réelles, pas après.`
 
-## Hypothèse ScreenPad Plus (`card1-DP-3`) — vérifiée en partie, pas prouvée
+## ScreenPad Plus (`card1-DP-3`) — rattachement DRM établi, survie post-bascule non prouvée
 
 Le ScreenPad Plus est l'écran secondaire de ce Zephyrus Duo. Rattachement
 vérifié ce jour :

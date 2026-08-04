@@ -14,10 +14,16 @@ fait pas autorité pour la production.
 
 ## Avertissements
 
-- **Machine de développement personnelle.** Aucune donnée d'entreprise,
-  aucun secret, aucune adresse ou nom d'hôte réel n'est présent dans ce
-  dépôt (décision D4). Si vous trouvez le contraire, c'est un bug — ouvrez
-  une issue.
+- **Machine de développement personnelle.** Aucune donnée professionnelle,
+  aucun secret (clé privée, jeton, mot de passe), aucun adressage
+  d'infrastructure interne, aucun nom de serveur ou de domaine
+  professionnel n'est présent dans ce dépôt. Le hostname et le nom
+  d'utilisateur de ce poste personnel, en revanche, sont assumés et
+  apparaissent tels quels (décision D4, amendée le 2026-08-04 dans
+  `docs/machine-facts.md`) : les expurger casserait la traçabilité des
+  faits sourcés sans rien protéger, l'identité de l'auteur figurant de
+  toute façon dans chaque commit. Si vous trouvez un secret ou une donnée
+  d'entreprise, c'est un bug — ouvrez une issue.
 - **Le dépôt est public par choix.** Il documente une machine réelle à un
   instant donné ; certains constats (`docs/machine-facts.md`) sont datés et
   peuvent être périmés. Chaque fait y porte la commande qui l'a produit —

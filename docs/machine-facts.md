@@ -274,10 +274,30 @@ démarrage, ce qui couperait la dGPU. Corroboré ce jour : `supergfxctl -g`
 l'image d'Execution Environment. L'`ansible-core` système (2.20.7 /
 Python 3.14) sert à l'édition et ne fait pas autorité : il est plus récent
 que la cible AAP 2.6 et accepterait des constructions que la production
-refuse.
+refuse. Note datée (2026-08-04) : la cible EE-first est maintenue, mais son
+moyen d'installation reste à déterminer — `ansible-navigator` n'est pas
+empaqueté dans les dépôts Fedora 44 activés sur ce poste (voir « Points
+ouverts »), les options ouvertes sont `pipx`, un venv dédié, ou l'exécution
+directe des EE en `podman run`. `@VERIF : voie d'installation de la chaîne
+Ansible EE-first, à trancher au livrable dédié.` Motif : une décision dont
+le moyen d'exécution n'existe pas encore doit le dire, sinon elle se
+découvre inapplicable au moment de l'appliquer.
 
-**D4 — dépôt public.** Aucun secret, aucune donnée d'entreprise, aucune
-adresse interne, aucun nom d'hôte réel.
+**D4 (2026-08-04, amendée) — dépôt public.** Interdits : secrets de toute
+nature (clés privées, jetons, mots de passe), données d'entreprise,
+adressage d'infrastructure interne (IP, sous-réseaux, VLAN), noms de
+serveurs ou de domaines professionnels, identifiants de comptes de service.
+Acceptés explicitement : hostname et nom d'utilisateur de ce poste
+personnel, ainsi que l'identité de l'auteur dans l'historique git. Motif de
+l'amendement : ces identifiants sont indissociables des faits consignés
+(chemins `graphRoot` de podman, `$HOME`, sorties de commandes) ; les
+expurger dégraderait la traçabilité sans rien protéger, puisque l'identité
+de l'auteur figure déjà dans chaque commit. [AMENDÉE le 2026-08-04] ÉTAIT :
+« Aucun secret, aucune donnée d'entreprise, aucune adresse interne, aucun
+nom d'hôte réel. » — formulation inapplicable en pratique, violée dès le
+commit `d7f93be` (hostname `Zephyrus-MM`, chemin `graphRoot` contenant le
+nom d'utilisateur, tous deux en section « Conteneurs »/« Système ») sans que
+la revue le détecte à l'époque.
 
 **D5 — Claude Code installé via le dépôt dnf officiel signé.** Canal stable,
 mises à jour par `dnf upgrade`. Confirmé par le contenu du fichier repo
@@ -300,6 +320,27 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   même, mais qu'un paquet homonyme de version supérieure disponible sur
   Terra prenne le dessus sur son équivalent Fedora lors d'une résolution de
   dépendances.
+- **Clé OpenPGP Terra — import déclenché de façon asymétrique selon le
+  contexte d'exécution.** Un `dnf` non privilégié (cette session, utilisateur
+  courant) déclenche une demande d'import de la clé `0xDE226D6F`
+  (« Terra 44 <security@fyralabs.com> ») dès qu'une opération touche les
+  métadonnées du dépôt — voir l'incident `dnf repoinfo terra` documenté en
+  section « Dépôts ». Une exécution privilégiée ne la déclenche pas : le
+  trousseau système la connaît déjà, très probablement depuis la
+  transaction 5 (`dnf install --nogpgcheck --repofrompath terra…
+  terra-release`, voir « Chaîne Ansible » et l'historique dnf), qui a
+  installé `terra-release` sans vérification de signature — c'est
+  vraisemblablement l'origine de cette clé dans le trousseau système, mais
+  la transaction elle-même ne mentionne pas d'import de clé, seulement
+  l'installation du paquet porteur. Trousseaux et caches de confiance dnf5
+  sont donc distincts entre exécution privilégiée et non privilégiée sur ce
+  poste. Empreinte complète capturée lors de l'incident :
+  `AE09157A4DE88B497EA1D5D300CDAB43DE226D6F`. `@VERIF : empreinte complète
+  de la clé Terra à comparer à celle publiée par Fyra Labs avant tout
+  (ré)import ; l'ID court 0xDE226D6F ne prouve rien à lui seul.` Aucune
+  action dans ce livrable : rien n'est importé, aucun dépôt n'est modifié
+  ou désactivé — Terra n'est requis par aucun composant de la chaîne
+  actuelle.
 - **`rpmfusion-free-tainted`** activé délibérément (transaction 18), lié à la
   chaîne multimédia. Établi, pas un point ouvert au sens strict — conservé
   ici pour traçabilité car demandé explicitement.
@@ -346,6 +387,33 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
     littéralement `enabled`, d'où une commande qui ne retourne rien sans
     jamais signaler d'erreur. La syntaxe dnf5 correcte est
     `dnf repolist --enabled` (ou `dnf repo list --enabled`).
+- **Dette technique — outillage Ansible EE-first non installable tel quel.**
+  Relevé ce jour, dépôt `terra` désactivé pour la requête (aucune
+  modification, aucun import) : `ansible-builder-3.1.0-8.fc44` est
+  disponible dans le dépôt `fedora` ; `ansible-navigator`, `ansible-runner`
+  et `ansible-lint` sont **absents** des dépôts Fedora 44 activés sur ce
+  poste. `pipx-1.15.0-2.fc44` (dépôt `updates`) et
+  `python3-pip-26.0.1-2.fc44` (dépôt `fedora`) sont disponibles mais non
+  installés ; `python3 -m pip` échoue (`No module named pip`).
+  (`dnf --disablerepo=terra list --available ansible-builder
+  ansible-navigator ansible-runner ansible-lint pipx python3-pip`,
+  `rpm -q pipx python3-pip`, `python3 -m pip --version`)
+  Deux conséquences :
+  - `roles/recovery/` — et le rôle `gpu_mux` qui exécutera la bascule
+    elle-même, pas encore écrit à la date de cet inventaire — sont/seront
+    des **rôles d'amorçage validés manuellement** (`--syntax-check`,
+    `--check`, exécution réelle, démonstrations d'échec forcé), pas passés
+    au lint : `ansible-lint` n'existe sur aucune voie d'installation testée
+    sur ce poste à ce jour. À repasser au lint une fois la chaîne Ansible
+    établie.
+    Motif de l'ordre retenu : le basculement MUX conditionne CDI, les
+    conteneurs et la construction des EE — outiller Ansible avant de
+    basculer reviendrait à bâtir l'outillage sur une couche (le mode
+    graphique) qui va elle-même changer.
+  - Voir la note datée ajoutée à D3, qui porte son propre marqueur non
+    résolu : la cible EE-first est maintenue, mais son moyen d'installation
+    (`pipx`, venv dédié, ou `podman run` direct des EE) reste à trancher au
+    livrable dédié à la chaîne Ansible.
 
 ## Journal des séries
 
@@ -370,8 +438,15 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   `localhost`) : préparent et vérifient un chemin de retour SSH — service
   installé, activé, démarré, `authorized_keys` non vide, état firewalld
   relevé — avant toute bascule réelle de `gpu_mux_mode`. Le rôle a été
-  exécuté réellement dans cette série (`sshd` : `active/disabled` →
-  `active/enabled`) ainsi qu'en `--check` et en échec forcé à deux reprises
+  exécuté réellement dans cette série. Changement réel produit : `sshd`
+  passe de `active`/`disabled` à `active`/`enabled`. Avant ce rôle, `sshd`
+  tournait déjà (`active`) mais n'était pas activé au démarrage
+  (`disabled`) — la connectivité SSH fonctionnait sur le boot courant mais
+  n'aurait pas survécu à un redémarrage. Motif de la distinction :
+  `is-active` et `is-enabled` sont deux faits systemd indépendants ; un test
+  de connexion SSH réussi avant bascule aurait prouvé l'état courant, pas
+  l'état après le redémarrage qu'une bascule MUX ratée impose justement.
+  Rôle exécuté aussi en `--check` et en échec forcé à deux reprises
   (paquet SSH absent simulé, `authorized_keys` introuvable simulé) — les
   deux gardes cassent avec le message attendu. Confirmé après coup et à
   nouveau en fin de série par lecture directe : `gpu_mux_mode=0`,

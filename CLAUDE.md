@@ -111,6 +111,33 @@ sans comprendre pourquoi elle a été posée.
   Motif : une garde qui n'a été testée que dans le sens qui marche n'est pas
   une garde, c'est une supposition.
 
+## Dépôt public (D4)
+
+- **Interdits, sans exception : secrets (clés privées, jetons, mots de
+  passe), données d'entreprise, adressage d'infrastructure interne (IP,
+  sous-réseaux, VLAN), noms de serveurs ou domaines professionnels,
+  identifiants de comptes de service. Acceptés explicitement : hostname et
+  nom d'utilisateur de ce poste personnel, identité de l'auteur dans
+  l'historique git.** Voir décision D4 (amendée le 2026-08-04) dans
+  `docs/machine-facts.md`. Motif : la formulation d'origine de D4 (« aucune
+  adresse interne, aucun nom d'hôte réel ») était inapplicable en pratique
+  — violée dès le premier commit sans que la revue le détecte, parce que le
+  hostname et les chemins `$HOME` sont indissociables d'un inventaire
+  sourcé par des commandes réelles. Expurger ces identifiants dégraderait
+  la traçabilité sans rien protéger, puisque l'identité complète de
+  l'auteur figure déjà dans chaque commit.
+- **L'adressage IP reste interdit en dur, y compris en RFC 1918.** Une IP
+  privée (`10.x`, `172.16-31.x`, `192.168.x`) n'est pas neutre au sens de
+  D4 : elle décrit un réseau réel, même local. Toute valeur de ce genre
+  passe par une variable avec un exemple RFC 5737 (`192.0.2.0/24`,
+  `198.51.100.0/24`, `203.0.113.0/24` — plages réservées à la
+  documentation) dans `defaults/`, jamais en dur dans un fichier versionné
+  — voir `roles/recovery/defaults/main.yml` (`recovery_remote_host`) pour
+  le patron à reproduire. Motif : contrairement au hostname ou au nom
+  d'utilisateur de ce poste, une adresse IP décrit une topologie réseau,
+  potentiellement partagée avec d'autres machines non couvertes par
+  l'acceptation explicite ci-dessus — la distinction n'est pas cosmétique.
+
 ## Matériel spécifique — GPU / MUX
 
 - **`dgpu_disable` doit rester à `0`.** Le pilote refuse la commutation MUX
