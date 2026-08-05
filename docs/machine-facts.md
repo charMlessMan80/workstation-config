@@ -430,6 +430,14 @@ duplication des données elles-mêmes). Risque assumé : machine de
 développement, le dépôt distant fait foi. Corollaire contraignant : rien qui
 n'existe qu'ici ne doit avoir de valeur — modèles, images, environnements
 d'exécution (EE) doivent être re-téléchargeables ou reconstructibles.
+**Corollaire précisé le 2026-08-05** : ce dépôt est désormais poussé sur
+un distant — fait qui se lit dans `git` (état de la branche par rapport
+à `origin`), donc non reconsigné ici par ailleurs. Le corollaire qui
+importe n'est pas « existe sur un distant » (un fait ponctuel, déjà
+vrai) mais **« poussé après chaque livrable »** : D1 n'est satisfaite que
+si l'écart entre l'état local et l'état distant reste petit — un dépôt
+distant qui existe mais retarde de plusieurs livrables ne protège pas
+mieux qu'un dépôt qui n'existerait pas.
 
 **D2 — [RETIRÉ le 2026-08-04].** ÉTAIT : supergfxd désactivé, dGPU active en
 permanence. Motif d'origine : prévisibilité. Retiré au profit de D2bis.
@@ -994,3 +1002,50 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   en sondes délibérées et assumées comme réveillant le périphérique,
   `strings`, `modinfo`, `systemctl show/is-active/is-enabled`,
   `ansible-playbook --syntax-check`).
+- **2026-08-05 — accès GPU depuis Podman rootless, résolution en lecture
+  seule (série suivante).** Nouveau document
+  [`docs/gpu-containers.md`](gpu-containers.md). Établi avant toute
+  conclusion : Podman 5.8.4 consomme CDI nativement (`--cdi-spec-dir`,
+  répertoires par défaut `/etc/cdi` et `/var/run/cdi`, aucun des deux
+  peuplé sur ce poste) — aucun composant tiers requis pour la
+  consommation, seule la spécification manque. `nvidia-container-toolkit`
+  absent des dépôts Fedora/RPM Fusion/`updates` activés et de Terra
+  (recherché avec `--disablerepo=terra` et `--repo=terra --assumeno`,
+  aucune invite déclenchée — l'avertissement « Signing key not found »
+  obtenu en session non privilégiée corrobore, sans le contredire, le
+  point ouvert déjà consigné sur l'asymétrie d'import de la clé Terra).
+  Dépôt officiel NVIDIA identifié comme nécessaire pour la voie CDI, avec
+  un problème de confiance documenté par la communauté Fedora
+  (vérifications OpenPGP partiellement ignorées, rapporté sur le forum
+  Fedora) — traité avec plus de prudence que Terra, pas la même. Deux
+  nouveaux points non résolus dans `docs/gpu-containers.md` : provenance
+  exacte du paquet `nvidia-ctk` (COPR Fedora AI/ML non consultable, page
+  bloquée par un mur anti-robot lors de cette série) ; effet réel d'un
+  conteneur avec périphériques NVIDIA montés sur la veille runtime D3
+  (99,97 % établi dans `docs/dgpu-power.md`), non mesurable sans lancer
+  un conteneur, hors périmètre de cette série. Périphériques `/dev/nvidia*`
+  et `/dev/dri/renderD129` confirmés en mode `666` (aucun obstacle
+  rootless pour un usage calcul) ; `/dev/dri/card0` restreint au groupe
+  `video` (absent des groupes de l'utilisateur) mais accessible par ACL
+  `uaccess` de `systemd-logind`, liée à la session de siège active — sans
+  conséquence pour un usage calcul, qui n'en a pas besoin. Recommandation
+  argumentée : CDI natif avec le paquet minimal (`nvidia-ctk` seul, pas
+  le toolkit complet avec hook redondant) — décision sur la source du
+  paquet différée, hors périmètre.
+  **Deux consignations ajoutées à cette occasion** : corollaire de D1
+  précisé (« poussé après chaque livrable », pas « existe sur un
+  distant » — voir § Décisions, D1) ; rappel que la correction du
+  dispositif de trace de `roles/gpu_mux/` (état post-écriture non
+  capturé, consignée dans la série du 2026-08-05 précédente) **reste
+  due**, non appliquée dans celle-ci non plus — périmètre strictement
+  documentaire.
+  Confirmé en fin de série : aucun paquet installé, aucune image
+  téléchargée, aucun conteneur lancé, aucune clé GPG importée, aucun
+  dépôt modifié, aucun fichier hors dépôt écrit. Commandes exécutées :
+  lectures uniquement (`podman info`, `podman run --help`, `man`/`zcat`
+  sur les pages de manuel, `ls`/`getfacl`/`udevadm info` sur les
+  périphériques, `grep` sur `/etc/subuid`/`/etc/subgid`, `lsmod`,
+  `dnf --disablerepo=terra --assumeno list --available` et
+  `dnf --repo=terra --assumeno list --available` sur des motifs ciblés,
+  recherche et lecture de documentation externe (wiki KDE, dépôt GitHub
+  KWin, documentation NVIDIA, discussion Fedora), marquée comme telle.
