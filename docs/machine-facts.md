@@ -66,6 +66,22 @@ Le champ priorité ci-dessus reste donc établi, mais la commande qui l'a produi
 n'était pas anodine ; elle ne doit pas être réutilisée telle quelle dans un
 contexte strictement lecture seule sans confirmation préalable.
 
+**Récidive le 2026-08-05, commande différente, même invite.** Reproduire
+fidèlement `dnf repoquery --file '*/nvidia-ctk'` (commande citée par
+l'opérateur, reproduite sans `--disablerepo=terra` ni `--assumeno` pour
+rester fidèle) a de nouveau déclenché `Is this ok [y/N]:` pour la même
+clé Terra. Session non interactive (pas d'entrée standard) : l'invite
+s'est résolue par fin de flux, pas par une réponse — vérifié après coup
+par `rpm -q gpg-pubkey` (aucune entrée datée du 2026-08-05) et recherche
+de tout fichier récent sous `~/.cache`/`/etc/pki/rpm-gpg` (rien
+d'apparenté à un trousseau importé). **Aucune clé importée**, mais la
+leçon de méthode se généralise : ce n'est pas une commande précise
+(`repoinfo`) qui déclenche l'invite, c'est **toute commande dnf non
+privilégiée qui touche les métadonnées de Terra**, quelle qu'elle soit —
+`--assumeno` doit être systématique sur ce dépôt en session non
+privilégiée, pas seulement sur les commandes déjà identifiées comme
+risquées. Détail complet dans `docs/gpu-containers.md` § 7.5.
+
 ## GPU
 
 - Pilote : `NVIDIA-SMI 610.43.03`, `KMD Version 610.43.03`, `CUDA UMD Version
@@ -588,6 +604,42 @@ installation de `power-profiles-daemon-0.30-3.fc44`, suppression de
 `tuned-ppd` et de la chaîne `tuned` associée. Motif : cohérence avec `asusd`,
 qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
 
+**D7 (2026-08-05) — source du NVIDIA Container Toolkit : COPR
+`@ai-ml/nvidia-container-toolkit`, restreint par `includepkgs`.**
+Décision de l'opérateur. Motif : le dépôt officiel NVIDIA présente un
+problème de signature documenté par la communauté (vérifications
+OpenPGP partiellement ignorées, erreur `repomd.xml` rapportée sur le
+forum Fedora — voir `docs/gpu-containers.md` § 2) ; le COPR est
+construit et signé par l'infrastructure Fedora, avec des mainteneurs
+identifiables (SIG Fedora AI/ML, canal Matrix
+`#ai-ml:fedoraproject.org`). `includepkgs` limite l'exposition aux
+seuls paquets du toolkit, pas à l'ensemble du COPR.
+**Implémentation bloquée à la date de cette décision** : la Phase 1 de
+résolution (`docs/gpu-containers.md` § 7) a établi le contenu exact des
+paquets (aucune variante `-base`, le hook d'exécution est
+incompressible depuis cette source) et l'empreinte complète de la clé
+(`0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`), mais **aucune
+corroboration indépendante de cette empreinte n'a été trouvée** — la
+consigne de cette même série prescrivait l'arrêt dans ce cas précis
+(situation structurellement proche de la clé Terra, en plus défavorable
+: aucune seconde publication ne semble exister pour cette clé
+auto-générée par projet COPR). Aucune écriture n'a eu lieu (`/etc/`
+inchangé, aucun paquet installé, `roles/gpu_cdi/` non créé). Point non
+résolu compté dans `docs/gpu-containers.md`, pas ici, pour ne pas
+dupliquer le marqueur.
+
+**D8 (2026-08-05) — SELinux reste en `Enforcing`.** Décision de
+l'opérateur. Aucun `setenforce 0`, aucun mode permissif, même
+temporaire ; résolution par lecture des refus AVC réels et réponse
+ciblée (`ausearch`/`journalctl -t setroubleshoot`), pas par ajustement
+préventif copié d'une documentation externe. **Non encore mise à
+l'épreuve** : la Phase 3 qui l'exercerait (lancement réel d'un
+conteneur avec périphériques NVIDIA montés) dépend de la Phase 2
+(paquet installé), elle-même bloquée par D7 ci-dessus.
+`getenforce` reconfirmé `Enforcing` en début de cette série, avant toute
+tentative — aucun changement à signaler puisqu'aucune action n'a
+été entreprise.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1049,3 +1101,28 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   `dnf --repo=terra --assumeno list --available` sur des motifs ciblés,
   recherche et lecture de documentation externe (wiki KDE, dépôt GitHub
   KWin, documentation NVIDIA, discussion Fedora), marquée comme telle.
+- **2026-08-05 — CDI natif par COPR, arrêt en Phase 1 (série suivante).**
+  D7 et D8 consignées (§ Décisions) sur décision de l'opérateur. Phase 1
+  de résolution exécutée intégralement en lecture seule
+  (`docs/gpu-containers.md` § 7) : COPR `@ai-ml/nvidia-container-toolkit`
+  identifié, contenu réel des paquets vérifié pour `fedora-44-x86_64`
+  (aucune variante `-base` dans ce COPR, contrairement au dépôt officiel
+  NVIDIA — hypothèse de la série précédente invalidée par lecture des
+  fichiers du paquet, pas supposée), empreinte complète de la clé GPG
+  obtenue par import dans un trousseau temporaire isolé
+  (`0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`). **Aucune corroboration
+  indépendante de cette empreinte trouvée** malgré plusieurs pistes
+  (page du projet bloquée par pare-robot, recherche de l'empreinte
+  elle-même, API COPR) — arrêt déclaré conformément à la consigne de
+  cette même série, avant toute écriture. Conséquence : **Phases 2 à 5
+  non exécutées** — aucun rôle `roles/gpu_cdi/` créé, aucun fichier
+  écrit dans `/etc/yum.repos.d/` ni `/etc/cdi/`, aucun paquet installé,
+  SELinux non touché (`getenforce` reconfirmé `Enforcing`, inchangé
+  faute d'action), aucun conteneur lancé. Incident de méthode : la
+  reproduction fidèle d'une commande citée par l'opérateur a de nouveau
+  déclenché l'invite d'import de clé Terra (§ Dépôts, note de méthode
+  mise à jour) — résolue sans import grâce à la session non
+  interactive, pas grâce à une garde explicite ; leçon généralisée à
+  toute commande dnf non privilégiée touchant Terra, pas seulement aux
+  commandes déjà identifiées. Aucune écriture système dans cette série :
+  `docs/gpu-containers.md` et ce fichier sont les seuls modifiés.

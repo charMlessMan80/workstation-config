@@ -165,10 +165,10 @@ une lecture locale) :
   Fedora. Contenu exact et détail de la clé **non vérifiés dans cette
   série** : la page du dépôt a renvoyé un mur anti-robot (Anubis/Techaro)
   à la tentative de consultation, aucune clé ni contenu de paquet n'a pu
-  être lu. `@VERIF : contenu exact, mainteneur et clé de signature du
-  COPR ai-ml/nvidia-container-toolkit — à vérifier via 'dnf copr list'
-  ou une consultation directe avant tout ajout, la page web n'ayant pas
-  répondu lors de cette série.`
+  être lu. **[PARTIELLEMENT RÉSOLU le 2026-08-05]** Contenu et paquets
+  établis (§ 7.1-7.2) ; empreinte de clé obtenue mais sa corroboration
+  indépendante reste un point non résolu — voir § 7.3 pour le marqueur
+  actif, qui remplace celui-ci.
 - **Alternative non creusée dans cette série** : le dépôt CUDA officiel
   NVIDIA (mentionné dans le même fil comme ayant potentiellement une
   meilleure hygiène de signature) — hors périmètre de cette résolution,
@@ -454,11 +454,220 @@ signature du COPR `ai-ml/nvidia-container-toolkit` (point non résolu, § 2), à
 lever avant de choisir la source du paquet, indépendamment du choix déjà
 tranché ci-dessus entre CDI natif et alternatives.
 
+## 7. Suite (2026-08-05) — D7/D8, Phase 1 exécutée, **arrêt avant écriture**
+
+**Décisions de l'opérateur, consignées telles quelles** (détail complet
+et motif dans `docs/machine-facts.md` § Décisions, D7 et D8) : source du
+toolkit = COPR `@ai-ml/nvidia-container-toolkit`, restreint par
+`includepkgs` ; SELinux reste en `Enforcing`, résolution par refus réels
+observés, pas par ajustement préventif.
+
+Ce qui suit est la Phase 1 de résolution (identification du COPR,
+paquets, hypothèse base/complet, empreinte de clé) — **exécutée
+entièrement en lecture seule**, avant toute écriture dans `/etc/`. Les
+Phases 2 à 5 (rôle `roles/gpu_cdi/`, dépôt écrit, paquet installé,
+spécification CDI générée, SELinux, tests) **ne sont pas exécutées dans
+cette série** — voir § 7.5 pour le motif exact de cet arrêt, imposé par
+la consigne elle-même (§ 1.3 de la demande).
+
+### 7.1 — Identification du COPR et paquets fournis pour `fedora-44-x86_64`
+
+Groupe `@ai-ml`, projet `nvidia-container-toolkit`. Fichier de dépôt tel
+que `dnf copr enable @ai-ml/nvidia-container-toolkit` l'installerait —
+**lu à sa source publique, jamais activé** :
+
+```
+$ curl -s https://copr.fedorainfracloud.org/coprs/g/ai-ml/nvidia-container-toolkit/repo/fedora-44/ai-ml-nvidia-container-toolkit-fedora-44.repo
+[copr:copr.fedorainfracloud.org:group_ai-ml:nvidia-container-toolkit]
+name=Copr repo for nvidia-container-toolkit owned by @ai-ml
+baseurl=https://download.copr.fedorainfracloud.org/results/@ai-ml/nvidia-container-toolkit/fedora-$releasever-$basearch/
+type=rpm-md
+skip_if_unavailable=True
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/@ai-ml/nvidia-container-toolkit/pubkey.gpg
+repo_gpgcheck=0
+enabled=1
+```
+(Récupéré par requête HTTP externe, pas par `dnf copr enable` — aucun
+fichier n'a été écrit dans `/etc/yum.repos.d/` pour cette lecture.)
+`repo_gpgcheck=0` : seules les signatures des **paquets** sont vérifiées
+(`gpgcheck=1`), pas celle du `repomd.xml` lui-même — propriété du modèle
+de dépôt COPR par défaut, pas une option choisie par ce projet en
+particulier.
+
+Contenu réel pour `fedora-44-x86_64`, build `10501685`
+(`nvidia-container-toolkit-1.19.1-1.fc44`, soumis 2026-05-22, état
+`succeeded`), lu par accès direct au répertoire de résultats publié
+(`download.copr.fedorainfracloud.org/results/@ai-ml/nvidia-container-toolkit/fedora-44-x86_64/10501685-nvidia-container-toolkit/`) :
+
+```
+nvidia-container-toolkit-1.19.1-1.fc44.x86_64.rpm
+nvidia-container-toolkit-1.19.1-1.fc44.src.rpm
+nvidia-container-toolkit-selinux-1.19.1-1.fc44.noarch.rpm
+nvidia-container-toolkit-debuginfo-1.19.1-1.fc44.x86_64.rpm
+nvidia-container-toolkit-debugsource-1.19.1-1.fc44.x86_64.rpm
+nvidia-container-toolkit-operator-extensions-1.19.1-1.fc44.x86_64.rpm
+nvidia-container-toolkit-operator-extensions-debuginfo-1.19.1-1.fc44.x86_64.rpm
+```
+`operator-extensions` = intégration Kubernetes (device plugin), sans
+objet pour Podman seul. `debuginfo`/`debugsource` = symboles de
+débogage, sans objet. `.src.rpm` = source, non installable tel quel.
+
+### 7.2 — Hypothèse « `-base` suffit » : **vérifiée, et infirmée pour cette source précise**
+
+Contenu réel du paquet binaire `nvidia-container-toolkit` (fichiers,
+pas suppositions), obtenu via un dépôt éphémère
+(`--repofrompath`, jamais persisté dans `/etc/yum.repos.d/`) :
+
+```
+$ dnf repoquery --repofrompath=coprtmp,https://download.copr.fedorainfracloud.org/results/@ai-ml/nvidia-container-toolkit/fedora-44-x86_64/ \
+    --repo=coprtmp --assumeno -l nvidia-container-toolkit
+/usr/bin/nvidia-cdi-hook
+/usr/bin/nvidia-container-runtime
+/usr/bin/nvidia-container-runtime-hook
+/usr/bin/nvidia-ctk
+/usr/bin/nvidia-ctk-installer
+/etc/cdi
+[...documentation, licences...]
+```
+
+**Ce COPR ne construit pas de variante `-base`** — contrairement au
+dépôt officiel NVIDIA (§ 2, qui distingue bien les deux). Le seul paquet
+binaire principal (`nvidia-container-toolkit`) contient `nvidia-ctk`
+**et** les deux hooks d'exécution (`nvidia-container-runtime`,
+`nvidia-container-runtime-hook`), inutilisés avec Podman/CDI natif mais
+**indissociables au niveau du paquet** — `dnf` ne permet pas d'installer
+un sous-ensemble de fichiers d'un paquet. **L'hypothèse de la
+résolution précédente (choisir un paquet `-base` pour éviter le hook) ne
+s'applique pas à cette source** : le hook sera installé, inerte, quel
+que soit le choix. Ce n'est pas une sur-couverture qu'on peut éviter ici
+— seulement une sur-couverture qu'on choisit de ne jamais invoquer.
+
+`nvidia-container-toolkit-selinux` (`noarch`) contient un module SELinux
+compilé : `/usr/share/selinux/packages/targeted/nvidia-container.pp` —
+pertinent pour la Phase 3 (D8) si un refus réel en justifie le
+chargement ; **installer ce paquet n'active pas la politique** (un `.pp`
+sur disque n'est chargé qu'après `semodule -i` explicite), donc son
+inclusion dans `includepkgs` ne préempte pas la Phase 3.
+
+### 7.3 — Empreinte de la clé GPG : obtenue, **corroboration indépendante non trouvée**
+
+Empreinte complète, calculée localement à partir du fichier de clé
+publié à l'URL déclarée par le dépôt (`.../pubkey.gpg` ci-dessus),
+importée dans un **trousseau temporaire isolé** — jamais le trousseau
+système, aucune confiance accordée :
+
+```
+$ gpg --homedir <tmp isolé> --no-default-keyring --import pubkey.gpg
+gpg: key 1C34CABF2CC19B05: public key "@ai-ml_nvidia-container-toolkit
+     (None) <@ai-ml#nvidia-container-toolkit@copr.fedorahosted.org>" imported
+$ gpg --homedir <tmp isolé> --no-default-keyring --list-keys --with-fingerprint --with-colons
+fpr:::::::::0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05:
+```
+
+**Empreinte complète : `0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`.**
+
+**Tentatives de corroboration indépendante, toutes infructueuses** —
+consignées pour que la prochaine série n'ait pas à les rejouer à
+l'identique sans le savoir :
+1. Page du projet COPR (`copr.fedorainfracloud.org/coprs/g/ai-ml/...`,
+   deux tentatives, deux onglets) : bloquée par le pare-robot Anubis du
+   frontend Fedora, aucun contenu récupéré.
+2. Recherche web de l'empreinte complète elle-même
+   (`0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`) : aucune occurrence
+   trouvée, sur aucun site.
+3. API COPR (`api_3/project`, `api_3/package/list`, `api_3/build/list`) :
+   fournit les métadonnées de build, jamais l'empreinte de clé en clair.
+4. Aucune seconde publication indépendante identifiée (pas de page wiki
+   Fedora dédiée à la SIG `ai-ml` listant cette empreinte, pas de
+   mention dans les discussions Fedora trouvées par recherche).
+
+**Ce que cela signifie, précisément** : la clé n'est publiée que via
+l'infrastructure COPR elle-même (le fichier `.repo` déclare l'URL de la
+clé, et cette URL sert la clé — même serveur, même domaine, sécurisé par
+TLS). Rien de trouvé, dans cette série, ne permet de vérifier cette
+empreinte par un second canal indépendant de cette même infrastructure.
+**C'est structurellement différent du cas Terra** (où la clé existe et
+est publiée par Fyra Labs de façon vérifiable en principe, mais où
+l'obstacle est une asymétrie de visibilité selon le contexte
+d'exécution sur *cette* machine) : ici, aucune seconde publication ne
+semble exister du tout pour cette clé auto-générée par projet COPR. Ce
+n'est pas nécessairement anormal pour un COPR (chaque projet a sa
+propre clé, régénérée si le projet est recréé, et la sécurité repose sur
+le TLS vers l'infrastructure Fedora plutôt que sur une empreinte
+publiée séparément) — mais **ce n'est pas ce qu'établit la correspondance
+demandée**, et la consigne est explicite sur la conduite à tenir dans ce
+cas.
+
+`@VERIF : correspondance indépendante de l'empreinte de la clé COPR
+@ai-ml/nvidia-container-toolkit (0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05)
+— à établir avant toute activation du dépôt. Pistes non épuisées : canal
+Matrix des mainteneurs (#ai-ml:fedoraproject.org, mentionné comme contact
+du projet), consultation de la page du projet depuis un navigateur
+authentifié (le pare-robot Anubis a bloqué les tentatives automatisées),
+ou décision explicite de l'opérateur d'accepter le modèle de confiance
+TLS-seul propre à l'infrastructure COPR comme suffisant pour ce projet.`
+
+### 7.4 — Liste `includepkgs` — établie, **non appliquée**
+
+Si le point 7.3 est levé, la liste minimale justifiée serait :
+
+```
+includepkgs=nvidia-container-toolkit,nvidia-container-toolkit-selinux
+```
+- `nvidia-container-toolkit` : seul paquet fournissant `nvidia-ctk`
+  (§ 7.2) — nécessaire, avec le hook inerte comme sur-couverture
+  incompressible depuis cette source.
+- `nvidia-container-toolkit-selinux` : module SELinux vendeur,
+  disponible pour la Phase 3 sans être chargé par sa seule installation
+  (§ 7.2) — inclus par prudence, pas par anticipation d'un refus non
+  encore observé.
+- Exclus délibérément : `-debuginfo`, `-debugsource`,
+  `-operator-extensions` (Kubernetes, sans objet), `.src` (non
+  installable par ce mécanisme).
+
+### 7.5 — Arrêt signalé, conformément à la consigne
+
+**Les Phases 2 à 5 ne sont pas exécutées.** Aucun fichier n'a été écrit
+dans `/etc/yum.repos.d/` ni `/etc/cdi/`, aucun paquet installé, aucune
+politique SELinux touchée, aucun conteneur lancé, `roles/gpu_cdi/` n'a
+pas été créé. Motif : la demande elle-même prescrit cet arrêt précis
+(« Si tu ne peux pas établir la correspondance, arrête-toi et
+signale-le ») pour le cas exactement rencontré en § 7.3.
+
+**Incident de méthode à consigner** : la reproduction de la commande
+citée par l'opérateur (`dnf repoquery --file '*/nvidia-ctk'`, sans
+`--disablerepo=terra` ni `--assumeno`, pour corroborer fidèlement —
+CLAUDE.md § Sourcing) a déclenché la même invite d'import de clé Terra
+que l'incident déjà documenté (`dnf repoinfo terra`, 2026-08-04) :
+`Is this ok [y/N]:`. La session n'étant pas interactive (pas d'entrée
+standard), l'invite a été résolue par une fin de flux, pas par une
+réponse — comportement de repli sûr de `dnf5`, **vérifié après coup, pas
+supposé** : `rpm -q gpg-pubkey` (aucune entrée datée du 2026-08-05,
+liste identique à avant), et recherche de tout fichier de moins de 15
+minutes sous `~/.cache` et `/etc/pki/rpm-gpg` (rien qui ressemble à un
+trousseau importé). **Aucune clé n'a été importée**, mais l'invite
+elle-même n'aurait pas dû pouvoir apparaître sans un filet de sécurité
+explicite — reproduire une commande exacte demandée par l'opérateur ne
+dispense pas d'ajouter `--assumeno` quand la commande touche un dépôt à
+`gpgcheck` incertain, ce que cette série aurait dû faire d'emblée par
+cohérence avec elle-même.
+
+**Chemins possibles, pas une décision prise ici** : accepter
+explicitement le modèle de confiance TLS-seul de COPR pour ce projet
+précis (auquel cas Phase 1 est close et la Phase 2 peut démarrer, sous
+réserve d'une élévation de privilège que ce compte ne peut pas fournir
+sans assistance — voir la note pratique de la demande) ; ou chercher
+la corroboration par le canal Matrix des mainteneurs avant de trancher ;
+ou reconsidérer la source retenue en D7 à la lumière de cette limite
+structurelle du COPR. **Cette série ne choisit pas entre ces chemins.**
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode
   d'isolement de l'effet de mesure, réutilisée en § 5 de ce document.
 - [`docs/machine-facts.md`](machine-facts.md) — inventaire Conteneurs,
-  attributs `asus-armoury`, point ouvert sur la clé Terra.
+  attributs `asus-armoury`, point ouvert sur la clé Terra, décisions D7
+  et D8.
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici,
   notamment la classe de source externe et la prudence dépôt tiers.
