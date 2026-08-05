@@ -162,18 +162,29 @@
   register: gpu_mux_trace_file
 
 # --- Écriture de la valeur cible -----------------------------------------
-# Chemin retenu : asusctl armoury set (lu dans `asusctl armoury set --help`,
-# jamais présumé) — cohérent avec D2ter (asusd/asus-armoury, pas
-# supergfxd). Jamais exécutée en --check : Ansible ignore par défaut les
-# tâches command sous --check sauf check_mode:false, qu'on évite ICI
-# volontairement (contrairement aux lectures ci-dessus) pour que --check ne
-# puisse jamais écrire.
+# Chemin retenu : écriture directe dans current_value, PAS asusctl armoury
+# set. Révocation partielle de D2ter (2026-08-05, voir docs/machine-facts.md
+# § Décisions) : asusd met gpu_mux_mode en file d'attente mémoire pour
+# application différée par asus-shutdown.service — unité désactivée sur ce
+# système, donc jamais consommée, et pending_reboot reste à 0 même quand la
+# demande a été acceptée par asusd (code retour 0). Cette indirection
+# échangeait une confirmation vérifiable contre une intention non
+# persistée. Le refus de supergfxd (motif d'origine de D2ter) est
+# MAINTENU : l'écriture directe l'évite tout autant qu'asusctl le faisait.
+# Le fichier cible est root:root 0644 : cette tâche seule requiert
+# `become: true` (sudo), aucune autre tâche de ce rôle n'a besoin de
+# privilège puisque les autres attributs ne sont que lus. Jamais exécutée
+# en --check : Ansible ignore par défaut les tâches command/shell sous
+# --check sauf check_mode:false, qu'on évite ICI volontairement
+# (contrairement aux lectures ci-dessus) pour que --check ne puisse jamais
+# écrire.
 
 - name: >-
-    Écrire la valeur cible dans gpu_mux_mode via asusctl armoury (jamais en
-    mode --check)
-  ansible.builtin.command:
-    cmd: "asusctl armoury set gpu_mux_mode {{ gpu_mux_target_value }}"
+    Écrire directement la valeur cible dans gpu_mux_mode/current_value
+    (jamais en mode --check)
+  ansible.builtin.shell:
+    cmd: "echo {{ gpu_mux_target_value }} > {{ gpu_mux_mode_dir }}/current_value"
+  become: true
   register: gpu_mux_write_result
   changed_when: true
   when: not ansible_check_mode
@@ -205,17 +216,22 @@
       - gpu_mux_pending_reboot_after.stdout | string == "1"
     fail_msg: >-
       pending_reboot vaut toujours {{ gpu_mux_pending_reboot_after.stdout }}
-      après l'écriture ({{ gpu_mux_write_result.rc | default('?') }}) : le
-      firmware n'a pas enregistré de changement en attente. Ne PAS
-      contourner en relisant gpu_mux_mode/current_value — cette lecture
-      resterait à l'ancienne valeur même si l'écriture avait réussi
-      (piège ACPI documenté dans docs/gpu-mux-recovery.md), donc son
-      absence de changement ici ne prouve rien par elle-même. Vérifier la
-      sortie de la tâche d'écriture ci-dessus avant de relancer.
+      après l'écriture directe ({{ gpu_mux_write_result.rc | default('?') }}) :
+      contrairement à la voie asusctl (révoquée le 2026-08-05, voir D2ter
+      dans docs/machine-facts.md), il n'y a plus d'indirection en file
+      d'attente entre cette tâche et le firmware — si pending_reboot ne
+      passe pas à 1 ici, l'écriture n'a probablement pas eu lieu. Ne PAS
+      contourner en relisant gpu_mux_mode/current_value : cette lecture
+      resterait à l'ancienne valeur même si l'écriture avait réellement
+      réussi (piège ACPI documenté dans docs/gpu-mux-recovery.md), donc son
+      absence de changement ne prouve rien par elle-même dans un sens
+      comme dans l'autre. Vérifier la sortie de la tâche d'écriture
+      ci-dessus (code retour, `become` a-t-il pu s'élever ?) avant de
+      relancer — ne PAS tenter de contournement.
     success_msg: >-
       pending_reboot est passé de {{ gpu_mux_pending_reboot_before.stdout }}
-      à {{ gpu_mux_pending_reboot_after.stdout }} : bascule enregistrée par
-      le firmware, EN ATTENTE DE REDÉMARRAGE.
+      à {{ gpu_mux_pending_reboot_after.stdout }} : écriture directe
+      confirmée par le firmware, EN ATTENTE DE REDÉMARRAGE.
   when: not ansible_check_mode
 
 # --- Rapport final --------------------------------------------------------

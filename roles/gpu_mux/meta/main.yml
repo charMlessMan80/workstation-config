@@ -2,11 +2,12 @@
 galaxy_info:
   role_name: gpu_mux
   description: >-
-    Écrit gpu_mux_mode via asusctl armoury (D2bis/D2ter) après une série de
-    gardes en lecture seule, capture un instantané pré-bascule, et confirme
+    Écrit gpu_mux_mode par écriture directe dans current_value (D2bis,
+    D2ter révoquée en partie le 2026-08-05) après une série de gardes en
+    lecture seule, capture un instantané pré-bascule, et confirme
     l'écriture par pending_reboot — jamais par une relecture de
     current_value. Ne redémarre jamais la machine, ne touche jamais
-    dgpu_disable, ne démarre ni n'active supergfxd.
+    dgpu_disable, ne démarre ni n'active supergfxd ni asus-shutdown.
   license: MIT
   min_ansible_version: "2.15"
   platforms:

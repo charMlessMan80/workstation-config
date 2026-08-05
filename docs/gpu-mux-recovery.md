@@ -128,11 +128,11 @@ Depuis un TTY local ou une session SSH entrante fonctionnelle (chemins
 ci-dessus) :
 
 ```sh
-# Chemin officiel — cohérent avec D2ter (asusd/asus-armoury, pas supergfxd)
-asusctl armoury set gpu_mux_mode 0
-
-# Repli si asusd/asusctl est indisponible pour une raison quelconque :
-# écriture directe, chemin complet
+# Chemin retenu depuis le 2026-08-05 (D2ter révoquée en partie, voir
+# « Résultats observés » ci-dessous et docs/machine-facts.md § Décisions) :
+# écriture directe, PAS `asusctl armoury set` — asusd met la valeur en
+# file d'attente mémoire pour asus-shutdown.service, désactivé sur ce
+# système, donc jamais appliquée, sans que la commande ne le signale.
 echo 0 | sudo tee /sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value
 ```
 
@@ -202,34 +202,43 @@ d'attente. Plus de deux minutes après (relevé à 23:07, écriture à 23:04),
 aucune évolution : ni `pending_reboot`, ni `gpu_mux_mode/current_value`,
 ni nouvelle ligne dans le journal `asusd`.
 
-Piste identifiée pour l'application réelle de cette file d'attente,
-établie par lecture de fichiers d'unité systemd, pas du code source
-d'`asusd`/`asus-shutdown` — la nuance est portée par le marqueur qui suit :
-`asusd.service` déclare `Before=asus-shutdown.service` ; l'unité
-`asus-shutdown.service` (« ASUS Deferred Shutdown Handler », active depuis
-le démarrage de session, capacités `CAP_SYS_ADMIN`/`CAP_SYS_MODULE`) est
-elle-même ordonnée `Before=shutdown.target reboot.target halt.target`.
-Cette combinaison est cohérente avec un mécanisme où les attributs mis en
-file d'attente par `asusd` sont réellement écrits au firmware par
-`asus-shutdown` au moment de l'arrêt/redémarrage, pas avant.
+**Marqueur fermé le 2026-08-05 — mécanisme d'application de la file
+d'attente établi.** Piste confirmée, en lecture seule, sans redémarrer
+`asusd` ni écrire quoi que ce soit : `asusd.service` déclare
+`Before=asus-shutdown.service` ; l'unité `asus-shutdown.service` (« ASUS
+Deferred Shutdown Handler », capacités `CAP_SYS_ADMIN`/`CAP_SYS_MODULE`)
+est elle-même ordonnée `Before=shutdown.target reboot.target
+halt.target`. Mais `systemctl is-enabled asus-shutdown.service` →
+`disabled` : cette unité, seule consommatrice possible de la file
+d'attente, ne s'exécute donc jamais dans le cycle d'arrêt sur ce système.
+Confirmé par ailleurs : `/var/lib/asusd/` n'existe pas et
+`/etc/asusd/asusd.ron` date d'avant la mise en file (pas de persistance
+disque non plus) ; `asusctl armoury get gpu_mux_mode` ne restitue aucune
+valeur en attente (`current: [(0),1]`, identique à avant l'écriture) —
+`asusd` n'expose donc pas cette file ailleurs qu'en mémoire vive.
+**Conclusion : la file est purement en mémoire, son unique consommateur
+est désactivé, elle n'est donc jamais appliquée.** `pending_reboot` restait
+à `0` à raison : rien n'a jamais été écrit dans sysfs par ce chemin.
 
-`@VERIF : mécanisme exact d'application de la file d'attente « delayed
-apply » côté asusd/asus-shutdown. Établi ici par inférence à partir de
-l'ordonnancement et des capacités systemd (asusd.service, asus-shutdown.service),
-pas par lecture du code source d'asusd ou d'asus-shutdown — à confirmer
-en amont (dépôt asusctl/asusd) ou par observation directe du journal
-d'asus-shutdown pendant un redémarrage réel.`
+**Conséquence retenue (voir décision D2ter, révocation partielle du
+2026-08-05, dans `docs/machine-facts.md`) : abandon d'`asusctl armoury
+set` au profit d'une écriture directe dans `current_value`.** Cette
+indirection par `asusd` échangeait une confirmation vérifiable
+(`pending_reboot`) contre une intention non persistée — un repli
+silencieux caractérisé, au sens de `CLAUDE.md` § Sourcing des faits :
+`asusctl` retournait un code de retour 0 sans jamais signaler que la
+demande resterait sans suite tant qu'`asus-shutdown` ne tourne pas.
+L'écriture directe restaure `pending_reboot` comme preuve exploitable
+avant redémarrage — voir `roles/gpu_mux/tasks/main.yml`.
 
-**Conséquence pour la confirmation avant reboot.** La garde documentée
-plus haut (« la confirmation avant reboot est `pending_reboot` ») reste la
-méthode correcte *si* `pending_reboot` finit par passer à `1` avant le
-redémarrage — ce qui n'a pas été observé ici dans la fenêtre de temps
-couverte par cette série. Il est possible que `pending_reboot` ne passe à
-`1` qu'au moment même de l'arrêt (juste avant que `asus-shutdown` agisse),
-auquel cas cette confirmation pré-reboot spécifique n'est tout simplement
-pas observable en dehors d'un redémarrage réel sur cette version d'asusd —
-à vérifier lors du prochain redémarrage (voir « Commandes de vérification
-post-redémarrage » ci-dessous, à exécuter par l'opérateur).
+Point non résolu, consigné et compté dans `docs/machine-facts.md` §
+Points ouverts plutôt qu'ici (c'est une question sur le comportement
+général d'`asus-shutdown.service`, pas spécifique à cette procédure de
+retour) : le rôle exact de cette unité (capacités `CAP_SYS_MODULE`,
+`SystemCallFilter=@module`) reste incertain — hypothèse non confirmée d'un
+déchargement des modules NVIDIA avant commutation, qui rendrait une
+écriture directe potentiellement incomplète si ce travail s'avérait
+nécessaire.
 
 **Rôle `roles/gpu_mux/` : cas nominal et échecs forcés, tous vérifiés le
 même jour, avant l'écriture réelle ci-dessus :**
@@ -252,6 +261,88 @@ même jour, avant l'écriture réelle ci-dessus :**
 (jamais écrit par ce rôle, ni par les tests) ; `supergfxd` toujours
 `inactive`/`disabled` (jamais démarré ni activé) ; aucun paquet installé ;
 aucun dépôt modifié ; aucune clé GPG importée ; **aucun redémarrage**.
+
+## Résultats observés — révocation partielle de D2ter et second essai (2026-08-05)
+
+**État final à l'issue de cette série : l'écriture directe n'a pas pu être
+tentée sur le matériel — bloquée avant tout accès root par l'absence d'un
+moyen d'authentification `sudo` dans cette session.** Ce n'est pas une
+garde qui a cassé : c'est une limite d'environnement, distincte, à traiter
+différemment (voir plus bas). Aucun redémarrage n'a eu lieu.
+
+**Nettoyage de l'état courant — investigation en lecture seule (garde 2
+de la demande).** Sans redémarrer `asusd` ni écrire quoi que ce soit :
+
+- `journalctl -u asusd -g 'watch|mux|inotify'` montre qu'`asusd` fait un
+  « Reload » de `gpu_mux_mode` **uniquement à son propre démarrage**
+  (`Reload called on GPU attribute gpu_mux_mode: doing nothing` /
+  `No saved value for attribute gpu_mux_mode: skipping.`), et que le seul
+  `inotify watch` actif qu'il déclare cible son fichier de configuration
+  (`Starting inotify watch for asusd config file`), pas les attributs
+  sysfs sous `asus-armoury`.
+- Établi : aucune preuve, dans le journal, qu'`asusd` surveille ou
+  réapplique `gpu_mux_mode/current_value` en continu.
+- **Non établi** : je n'ai pas pu inspecter les descripteurs de fichiers
+  ouverts par le processus `asusd` (`/proc/<pid>/fd/`, `fdinfo`) faute de
+  privilège (`sudo -n` refusé, pas de mot de passe disponible dans cette
+  session) — un `inotify_add_watch` actif sur le répertoire
+  `gpu_mux_mode/` sans trace dans les journaux de niveau `INFO`/`DEBUG`
+  affichés ne peut donc pas être formellement exclu, seulement jugé
+  improbable au vu de ce qui précède.
+- Conclusion retenue : le risque d'interférence n'a pas été jugé assez
+  probable pour justifier l'arrêt prévu par la consigne — mais la limite
+  ci-dessus (pas d'accès aux fd du processus) est consignée telle quelle,
+  pas comme une certitude.
+
+**Rôle `roles/gpu_mux/` adapté — mécanisme d'écriture seul remplacé,
+gardes inchangées :**
+
+- `--syntax-check` : passé.
+- `--check` : la nouvelle tâche d'écriture (`ansible.builtin.shell`,
+  `become: true`) et la vérification post-écriture restent ignorées sous
+  `--check` (`when: not ansible_check_mode`) — aucune tentative
+  d'élévation de privilège en simulation.
+- Échec forcé (a) — `-e gpu_mux_target_value=9` : casse sur
+  `possible_values`, avant toute tentative d'écriture. Rejoué à
+  l'identique, même résultat.
+- Échec forcé (b) — `-e gpu_mux_force_dgpu_disable_value=1` : casse avant
+  la lecture réelle de `dgpu_disable`. Rejoué à l'identique, même
+  résultat. `dgpu_disable` réel confirmé toujours à `0`.
+- **Pré-vol** : rôle `recovery` ré-exécuté réellement, de nouveau
+  entièrement idempotent (`changed=0`). Preuve de connexion entrante
+  rejouée : `journalctl -u sshd -g 'Accepted'` montre une nouvelle
+  connexion par clé publique acceptée depuis la machine distante, en plus
+  de celles de la série précédente.
+
+**Exécution réelle — blocage avant toute écriture.** Toutes les gardes en
+lecture seule passent (`dgpu_disable=0`, attribut présent, cible valide,
+`pending_reboot=0`), l'instantané pré-bascule est capturé normalement.
+La tâche d'écriture elle-même échoue immédiatement :
+
+```
+[ERROR]: Task failed: Premature end of stream waiting for become success.
+>>> Standard Error
+sudo: a password is required
+```
+
+Code retour 2, échec propre et immédiat (pas de blocage, pas de tentative
+partielle) — le fichier cible est `root:root 0644`
+(`ls -la .../gpu_mux_mode/current_value`), et `sudo -n true` avait déjà
+établi l'absence de `sudo` sans mot de passe pour ce compte
+(`groups=mahieumi,wheel` — membre de `wheel`, mais pas de règle `NOPASSWD`
+configurée). Je n'ai ni demandé ni utilisé de mot de passe : ce n'est pas
+un blocage que je peux lever depuis cette session sans que tu fournisses
+explicitement un moyen d'authentification (`--ask-become-pass` en
+exécutant toi-même le rôle, ou une règle `sudoers` `NOPASSWD` limitée à ce
+fichier, à ta décision — pas la mienne).
+
+**Confirmations finales de cette série** : `gpu_mux_mode=0` et
+`pending_reboot=0` inchangés (aucune écriture n'a pu atteindre le
+matériel) ; `dgpu_disable=0` inchangé ; `asus-shutdown` et `supergfxd`
+toujours `disabled` (`is-enabled`), jamais démarrés ni activés par cette
+série ; aucun paquet installé (`sudo` déjà présent de base,
+`sudo-1.9.17-8.p2.fc44`, pas installé par cette série) ; aucun dépôt
+modifié ; aucune clé GPG importée ; **aucun redémarrage**.
 
 ## Commandes de vérification post-redémarrage (à exécuter par l'opérateur, pas par cette série)
 

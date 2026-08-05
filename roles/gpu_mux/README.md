@@ -1,7 +1,8 @@
 # roles/gpu_mux
 
-Rôle Ansible ciblant `localhost`. Écrit `gpu_mux_mode` via `asusctl armoury`
-pour basculer vers Optimus/Hybrid (décisions D2bis/D2ter, voir
+Rôle Ansible ciblant `localhost`. Écrit `gpu_mux_mode` par **écriture
+directe dans `current_value`** pour basculer vers Optimus/Hybrid
+(décisions D2bis, D2ter révoquée en partie le 2026-08-05 — voir
 [`docs/machine-facts.md`](../../docs/machine-facts.md)) après une série de
 gardes en lecture seule. Procédure complète, gardes détaillées et résultats
 observés sont dans
@@ -16,7 +17,9 @@ duplique pas ce contenu.
 3. Échoue bruyamment si `pending_reboot != 0` avant toute écriture.
 4. Capture un instantané de l'état avant bascule dans un fichier de trace
    **non versionné** (`trace/`, voir `.gitignore`).
-5. Écrit la valeur cible via `asusctl armoury set gpu_mux_mode <valeur>`.
+5. Écrit directement la valeur cible dans
+   `gpu_mux_mode/current_value` (`become: true`, seule tâche privilégiée du
+   rôle — le fichier est `root:root 0644`).
 6. Confirme par `pending_reboot` (0 → 1) — jamais par une relecture de
    `current_value`, qui renvoie l'ancienne valeur jusqu'au redémarrage (voir
    le commentaire dans `tasks/main.yml` et
@@ -25,7 +28,9 @@ duplique pas ce contenu.
 ## Ce que ce rôle ne fait jamais
 
 - Il n'écrit jamais dans `dgpu_disable`.
-- Il ne démarre ni n'active `supergfxd`.
+- Il ne démarre ni n'active `supergfxd` ni `asus-shutdown` — les deux
+  restent `disabled` sur ce poste, ce que cette série a explicitement
+  vérifié sans les toucher.
 - Il n'installe aucun paquet.
 - Il ne modifie aucun dépôt, n'importe aucune clé GPG.
 - **Il ne redémarre jamais la machine.** La bascule reste *en attente de

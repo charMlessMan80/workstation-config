@@ -5,12 +5,14 @@
 # `-e gpu_mux_target_value=9` doit casser sur l'assertion possible_values.
 gpu_mux_target_value: 1
 
-# Chemins sysfs — utilisés pour LIRE l'état et les gardes. L'écriture
-# elle-même ne passe jamais par ces chemins : voir tasks/main.yml, décision
-# retenue après lecture de `asusctl armoury set --help` (asusctl sait écrire
-# gpu_mux_mode avec la syntaxe `asusctl armoury set <property> <value>`,
-# c'est le chemin retenu, cohérent avec D2ter — pas de repli sysfs direct
-# nécessaire sur ce poste).
+# Chemins sysfs — utilisés pour LIRE l'état et les gardes, ET pour
+# l'écriture elle-même depuis le 2026-08-05 (révocation partielle de
+# D2ter, voir docs/machine-facts.md § Décisions et tasks/main.yml) :
+# `asusctl armoury set` a été abandonné parce qu'asusd met gpu_mux_mode en
+# file d'attente mémoire pour asus-shutdown.service, désactivé sur ce
+# système — la file n'est donc jamais consommée et pending_reboot ne
+# bouge pas, malgré un code de retour 0. L'écriture directe restaure
+# pending_reboot comme preuve exploitable.
 gpu_mux_attributes_dir: /sys/class/firmware-attributes/asus-armoury/attributes
 gpu_mux_mode_dir: "{{ gpu_mux_attributes_dir }}/gpu_mux_mode"
 gpu_mux_dgpu_disable_dir: "{{ gpu_mux_attributes_dir }}/dgpu_disable"

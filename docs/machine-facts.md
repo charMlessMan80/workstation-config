@@ -297,6 +297,22 @@ démarrage, ce qui couperait la dGPU. Corroboré ce jour : `supergfxctl -g`
 `asus-armoury` est bien celui en usage réel sur cette machine, pas
 `supergfxctl`.
 
+**D2ter — révocation partielle (2026-08-05).** La bascule MUX se fait par
+**écriture directe** dans
+`/sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value`,
+et non par `asusctl armoury set`. Le refus de `supergfxd` (motif
+d'origine : conflit entre commutateurs GPU) est **maintenu** — l'écriture
+directe l'évite tout autant. Motif de la révocation : `asusd` met la
+valeur en file d'attente mémoire pour application différée par
+`asus-shutdown.service`, unité qui est `disabled` sur ce système ; la file
+n'est persistée nulle part et `pending_reboot` reste à `0`. L'indirection
+par `asusd` échange une confirmation vérifiable contre une intention non
+persistée — repli silencieux caractérisé. L'écriture directe restaure
+`pending_reboot` comme preuve avant redémarrage. [RÉVOQUÉE EN PARTIE le
+2026-08-05] ÉTAIT : « bascule sans supergfxd, via `asusctl armoury` »
+(texte complet ci-dessus, conservé) — la partie « via `asusctl armoury` »
+est révoquée, la partie « sans supergfxd » reste en vigueur.
+
 **D3 — chaîne Ansible EE-first.** `ansible-navigator` exécute et vérifie dans
 l'image d'Execution Environment. L'`ansible-core` système (2.20.7 /
 Python 3.14) sert à l'édition et ne fait pas autorité : il est plus récent
@@ -340,6 +356,19 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
 
 ## Points ouverts
 
+- **Rôle exact d'`asus-shutdown.service`** (« ASUS Deferred Shutdown
+  Handler », capacités `CapabilityBoundingSet=CAP_SYS_MODULE CAP_SYS_ADMIN`,
+  `SystemCallFilter=@system-service @module` — voir « GPU » § Services).
+  `@VERIF : hypothèse non confirmée d'un déchargement des modules NVIDIA
+  avant commutation MUX. Si ce travail est effectivement nécessaire,
+  l'écriture directe dans gpu_mux_mode/current_value (voir D2ter,
+  révocation partielle du 2026-08-05) pourrait produire une bascule
+  incomplète — le déchargement ne serait alors plus fait par personne. La
+  documentation ABI du noyau (Documentation/ABI/testing/sysfs-platform-asus-wmi,
+  référence externe, non lue sur cette machine) ne mentionne qu'un
+  redémarrage après écriture, sans préparation particulière décrite. À
+  confirmer par lecture du code source d'asus-shutdown, ou par observation
+  directe de son journal pendant un redémarrage réel.`
 - **`terra` activé** : dépôt tiers, priorité 99 relevée (voir « Dépôts » et
   sa note de méthode) — c'est la priorité par défaut de dnf pour un dépôt
   sans directive `priority=` ; Terra n'est donc pas structurellement
@@ -538,3 +567,35 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   inventaire — décision de redémarrer laissée à l'opérateur, liste de
   commandes de vérification post-redémarrage préparée dans
   `docs/gpu-mux-recovery.md` sans être exécutée.
+- **2026-08-05 — révocation partielle de D2ter, écriture directe.**
+  Diagnostic de la série précédente confirmé par investigation en lecture
+  seule, sans redémarrer `asusd` ni écrire : `asus-shutdown.service`
+  (seule consommatrice possible de la file d'attente `gpu_mux_mode`
+  d'`asusd`) est `disabled` ; `/var/lib/asusd/` n'existe pas ; `asusd.ron`
+  date d'avant la mise en file ; `asusctl armoury get gpu_mux_mode` ne
+  restitue aucune valeur en attente. La file est donc purement en mémoire
+  et n'est jamais consommée — voir D2ter (révocation partielle) et
+  `docs/gpu-mux-recovery.md` § Résultats observés du 2026-08-05 pour le
+  détail complet, dont l'investigation d'interférence (garde 2 de la
+  demande) : établi qu'`asusd` ne recharge `gpu_mux_mode` qu'à son propre
+  démarrage et ne surveille par inotify que son fichier de configuration ;
+  non établi (faute de privilège pour inspecter les descripteurs de
+  fichiers du processus) qu'aucun mécanisme de surveillance sysfs
+  n'existe — limite consignée telle quelle, pas comme une certitude.
+  Rôle `roles/gpu_mux/` adapté : gardes inchangées, seul le mécanisme
+  d'écriture remplace `asusctl armoury set` par une écriture directe dans
+  `current_value` (`become: true`, seule tâche privilégiée du rôle).
+  `--syntax-check`, `--check` et les deux échecs forcés rejoués à
+  l'identique, mêmes résultats que la série précédente. Pré-vol : rôle
+  `recovery` ré-exécuté, de nouveau entièrement idempotent ; preuve de
+  connexion SSH entrante rejouée avec succès (nouvelle connexion par clé
+  publique acceptée, en plus de celles déjà journalisées).
+  **L'écriture réelle n'a pas pu être tentée sur le matériel** : la tâche
+  privilégiée a échoué immédiatement (« sudo: a password is required »,
+  code retour 2) avant tout accès au fichier cible — ni un échec de garde
+  ni une tentative partielle, une limite d'environnement (pas de `sudo`
+  sans mot de passe configuré pour ce compte). Confirmé en fin de série :
+  `gpu_mux_mode=0`, `pending_reboot=0`, `dgpu_disable=0` inchangés,
+  `asus-shutdown` et `supergfxd` toujours `disabled`, aucun paquet
+  installé (`sudo` déjà présent de base), aucun dépôt modifié, aucune clé
+  GPG importée, **aucun redémarrage**.
