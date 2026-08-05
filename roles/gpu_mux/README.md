@@ -20,10 +20,11 @@ duplique pas ce contenu.
 5. Écrit directement la valeur cible dans
    `gpu_mux_mode/current_value` (`become: true`, seule tâche privilégiée du
    rôle — le fichier est `root:root 0644`).
-6. Confirme par `pending_reboot` (0 → 1) — jamais par une relecture de
-   `current_value`, qui renvoie l'ancienne valeur jusqu'au redémarrage (voir
-   le commentaire dans `tasks/main.yml` et
-   `docs/gpu-mux-recovery.md`).
+6. Confirme par `pending_reboot` (0 → 1), jamais par une relecture de
+   `current_value` — voir `CLAUDE.md` § Matériel spécifique — GPU / MUX
+   pour ce que `current_value` reflète exactement avant reboot (règle
+   corrigée le 2026-08-05 ; ce README ne la recopie pas, une règle vit à
+   un seul endroit).
 
 ## Ce que ce rôle ne fait jamais
 

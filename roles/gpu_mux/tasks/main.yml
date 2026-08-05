@@ -190,15 +190,13 @@
   when: not ansible_check_mode
 
 # --- Confirmation post-écriture : pending_reboot, jamais current_value --
-# PIÈGE DE VALIDATION : relire gpu_mux_mode/current_value juste après
-# l'écriture renvoie l'ANCIENNE valeur jusqu'au redémarrage — la méthode
-# ACPI de lecture ne reflète pas le changement avant reboot. Une tâche qui
-# vérifierait par relecture immédiate de current_value produirait un FAUX
-# NÉGATIF (elle verrait "toujours 0" et conclurait à tort que l'écriture a
-# échoué, alors qu'elle a réussi et attend simplement le redémarrage). La
-# SEULE confirmation valide avant reboot est le passage de pending_reboot
-# de 0 à 1 — c'est pour cela qu'aucune tâche ci-dessous ne relit
-# current_value après l'écriture.
+# Ne PAS relire gpu_mux_mode/current_value ici pour "confirmer" l'écriture
+# — voir CLAUDE.md § Matériel spécifique — GPU / MUX pour ce que
+# current_value reflète exactement avant reboot (règle corrigée le
+# 2026-08-05 ; ce fichier ne la recopie pas, une règle vit à un seul
+# endroit). La confirmation valide avant reboot est le passage de
+# pending_reboot de 0 à 1 — c'est pour cela qu'aucune tâche ci-dessous ne
+# relit current_value après l'écriture.
 
 - name: Relire pending_reboot après écriture (uniquement hors --check)
   ansible.builtin.command:
@@ -221,13 +219,13 @@
       dans docs/machine-facts.md), il n'y a plus d'indirection en file
       d'attente entre cette tâche et le firmware — si pending_reboot ne
       passe pas à 1 ici, l'écriture n'a probablement pas eu lieu. Ne PAS
-      contourner en relisant gpu_mux_mode/current_value : cette lecture
-      resterait à l'ancienne valeur même si l'écriture avait réellement
-      réussi (piège ACPI documenté dans docs/gpu-mux-recovery.md), donc son
-      absence de changement ne prouve rien par elle-même dans un sens
-      comme dans l'autre. Vérifier la sortie de la tâche d'écriture
-      ci-dessus (code retour, `become` a-t-il pu s'élever ?) avant de
-      relancer — ne PAS tenter de contournement.
+      contourner en relisant gpu_mux_mode/current_value : son comportement
+      exact avant reboot est documenté dans CLAUDE.md § Matériel
+      spécifique — GPU / MUX (règle corrigée le 2026-08-05), pas ici — une
+      relecture immédiate ne remplace pas pending_reboot comme
+      confirmation. Vérifier la sortie de la tâche d'écriture ci-dessus
+      (code retour, `become` a-t-il pu s'élever ?) avant de relancer — ne
+      PAS tenter de contournement.
     success_msg: >-
       pending_reboot est passé de {{ gpu_mux_pending_reboot_before.stdout }}
       à {{ gpu_mux_pending_reboot_after.stdout }} : écriture directe
@@ -253,7 +251,7 @@
   ansible.builtin.debug:
     msg:
       - "BASCULE EN ATTENTE DE REDÉMARRAGE — PAS APPLIQUÉE tant que la machine n'a pas redémarré."
-      - "gpu_mux_mode/current_value avant écriture : {{ gpu_mux_mode_current.stdout }} (une relecture immédiate resterait identique jusqu'au reboot — ce n'est PAS un signe d'échec)."
+      - "gpu_mux_mode/current_value avant écriture : {{ gpu_mux_mode_current.stdout }} (voir CLAUDE.md § Matériel spécifique — GPU / MUX pour ce que current_value reflète avant reboot)."
       - "pending_reboot : {{ gpu_mux_pending_reboot_before.stdout }} → {{ gpu_mux_pending_reboot_after.stdout }}."
       - "dgpu_disable (jamais écrit par ce rôle) : {{ gpu_mux_dgpu_disable_value }}."
       - "Instantané pré-bascule : {{ gpu_mux_trace_file.dest }}."

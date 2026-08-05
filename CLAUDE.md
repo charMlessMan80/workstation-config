@@ -116,6 +116,21 @@ sans comprendre pourquoi elle a été posée.
   (journal systemd, fichier de trace, relecture directe post-fait), elle
   prime sur l'historique et doit être citée à sa place ; à défaut, le
   fait reste marqué `@VERIF`.
+- **Une classe de source à part : l'observation rapportée par
+  l'opérateur.** Plus faible qu'une trace ou une sortie de commande
+  relisible, plus forte qu'une inférence à partir d'un historique de
+  commandes tapées. Recevable dans ce dépôt à trois conditions
+  cumulatives : marquée explicitement comme telle (jamais fondue avec une
+  lecture machine), datée, et attribuée (par qui, à quel moment). Exemple
+  déjà rencontré : une valeur lue à l'écran par l'opérateur entre une
+  écriture et un redémarrage, jamais capturée dans un fichier ni un
+  journal — l'opérateur l'a bien vue, mais rien sur la machine ni dans le
+  dépôt ne l'atteste après coup. Conséquence pratique : quand un fait de
+  cette classe reste incomplet ou non recoupé, la résolution qui convient
+  n'est pas « aller relire » (la fenêtre d'observation est close, la
+  valeur n'existe plus nulle part) mais **corriger le dispositif qui
+  aurait dû la capturer** — ce n'est pas la même correction, et confondre
+  les deux fait chercher indéfiniment ce qui ne peut plus être trouvé.
 
 ## Avant d'agir
 

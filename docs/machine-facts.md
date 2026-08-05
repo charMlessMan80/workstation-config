@@ -666,23 +666,45 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   du code source d'asusd/asus-shutdown, ou par un test d'extinction avec
   journal détaillé au niveau DEBUG côté systemd (property
   Wants=/BindsTo=/PropagatesStopTo= et unités de type D-Bus activable).`
-- **Nouveau point ouvert (2026-08-05) — dGPU maintenue en `P0` au repos
-  après bascule, contre `P8` avant.** La contention compositeur/dGPU est
-  réduite mais pas supprimée (`kwin_wayland` reste listé par `nvidia-smi`,
-  47 MiB, un seul processus après bascule contre neuf avant — voir « GPU »
-  § État post-bascule). Plus préoccupant : `nvidia-smi` mesure `P0`, ~31 W
-  au repos après bascule contre `P8`, 8 W avant (trace pré-bascule
-  `roles/gpu_mux/trace/pre-bascule-20260805T100255.json`). La gestion
-  d'alimentation runtime est active (`power/control=auto` sur
-  `0000:01:00.{0,1}`, confirmé de nouveau dans cette session, règle udev
-  du paquet `supergfxctl` — voir « GPU »), mais un client qui maintient le
-  périphérique ouvert (`kwin_wayland`) empêche la descente en veille
-  profonde. **En l'état, la consommation au repos est dégradée par
-  rapport à l'état pré-bascule.** `@VERIF : cause exacte du maintien en P0
-  et voie de correction — côté KWin (client qui garde le nœud DRM/render
-  ouvert sans le solliciter), ou via NVreg_DynamicPowerManagement (déjà
-  point ouvert ci-dessus comme non défini). À traiter dans un livrable
-  dédié, avant le livrable IA.`
+- **[CORRIGÉ le 2026-08-05, même jour] dGPU en `P0` au repos après
+  bascule — mesure erronée par manque de relevé espacé, pas une
+  régression.** **ÉTAIT** : « dGPU maintenue en `P0` au repos après
+  bascule, contre `P8` avant... en l'état, la consommation au repos est
+  dégradée par rapport à l'état pré-bascule », avec un point non résolu
+  sur la cause et la voie de correction. **CORRIGÉ** : résolution dédiée dans
+  [`docs/dgpu-power.md`](dgpu-power.md), méthode par relevés `sysfs`
+  espacés (compteurs passifs `power/runtime_*`, jamais réveillés par leur
+  propre lecture) sans invoquer `nvidia-smi` entre deux mesures.
+  Résultat : sur 8 830 s d'uptime au dernier relevé, `0000:01:00.0` passe
+  **99,97 % du temps en veille runtime** (`Runtime D3 status: Enabled
+  (fine-grained)`, `Video Memory: Off`, lus dans
+  `/proc/driver/nvidia/gpus/0000:01:00.0/power` — interface propre au
+  pilote NVIDIA, documentée dans
+  `/usr/share/doc/xorg-x11-drv-nvidia/html/dynamicpowermanagement.html`,
+  local, amont). Le `P0`/`32 W` du 2026-08-05 était réel **au moment
+  mesuré**, mais provoqué par la mesure elle-même : deux sondes
+  `nvidia-smi` délibérées, isolées et espacées, ont chacune réveillé le
+  périphérique de façon instantanée et reproductible (`runtime_status`
+  passant de `suspended` à `active` dans la même seconde que l'appel),
+  suivi d'un retour spontané en veille ~20-23 s plus tard sans nouvelle
+  sonde. **Motif de l'erreur** : la mesure du 2026-08-05 (voir
+  `docs/gpu-mux-recovery.md`, § « Résultats observés — bascule réussie »)
+  enchaînait plusieurs appels `nvidia-smi` rapprochés sans relevé de
+  contrôle espacé entre eux — troisième mode d'échec consigné dans
+  `CLAUDE.md` § Sourcing (aux côtés de la commande substituée et de la
+  transposition entre interfaces) : une mesure exacte mais dont l'effet
+  de bord (le réveil qu'elle provoque elle-même) n'a pas été isolé de ce
+  qu'elle prétend observer. `kwin_wayland` apparaît bien comme client
+  `nvidia-smi` (`C+G`, 13 MiB) à chaque sonde, mécanisme caractérisé dans
+  `docs/dgpu-power.md` § Ce qui retient le périphérique
+  (`KWIN_DRM_DEVICES` non défini → énumération automatique de tout GPU du
+  siège par KWin) — sans que cela empêche les 99,97 % de veille mesurés.
+  **Aucune action recommandée dans ce livrable** ; une option
+  (`KWIN_DRM_DEVICES`) reste documentée mais non retenue, son coût
+  n'étant pas compensé par un gain mesurable — voir
+  `docs/dgpu-power.md` § Recommandation pour l'argumentaire complet et le
+  point non résolu résiduel sur son risque (fonctionnalités Plasma
+  dépendant de l'énumération KWin).
 - **`claude doctor` annonce le canal `latest`** alors que le dépôt dnf pointe
   `stable` : écart confirmé par lecture croisée (`claude doctor` +
   `/etc/yum.repos.d/claude-code.repo`), sans effet apparent observé.
@@ -886,6 +908,15 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   immédiatement après l'écriture, `journalctl` ne capturant que
   l'invocation, pas le stdout — reste un point non résolu, marqué dans
   `docs/gpu-mux-recovery.md`, pas ici, pour ne pas dupliquer le marqueur.
+  **Note ajoutée le 2026-08-05 (série suivante)** : ce fait relève de la
+  classe « observation rapportée par l'opérateur » ajoutée depuis dans
+  `CLAUDE.md` § Sourcing — sa résolution n'est pas « aller relire » (la
+  fenêtre d'observation est close) mais **corriger le dispositif de
+  trace** de `roles/gpu_mux/`, qui capture un instantané pré-bascule
+  (`trace/pre-bascule-*.json`) sans capturer d'instantané post-écriture
+  équivalent. Correction à apporter au rôle dans un livrable ultérieur
+  touchant `roles/gpu_mux/` — pas appliquée dans celui-ci (périmètre
+  documentaire strict).
   Cette série se limite à vérifier et consigner l'état résultant, par
   lecture seule exclusivement — aucune écriture système, aucune
   installation, aucun rôle exécuté.
@@ -925,3 +956,41 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   préféré). D2bis marquée appliquée. Aucune écriture système dans cette
   série : `docs/gpu-mux-recovery.md`, `CLAUDE.md` et ce fichier sont les
   seuls fichiers modifiés.
+- **2026-08-05 — hygiène `roles/` et résolution alimentation dGPU (série
+  suivante, en lecture seule uniquement).** Deux volets.
+  **Hygiène** : la règle `pending_reboot` recopiée dans sa version fausse
+  a été trouvée dans `roles/gpu_mux/README.md` et les commentaires/messages
+  de `roles/gpu_mux/tasks/main.yml` (dont une justification technique
+  inventée, « piège ACPI », jamais vérifiée) — remplacée par un renvoi à
+  `CLAUDE.md` aux deux endroits, `--syntax-check` rejoué (passé), aucune
+  tâche/variable/logique modifiée (seuls des commentaires et des chaînes
+  de message). Nouvelle classe de source ajoutée à `CLAUDE.md` §
+  Sourcing : « observation rapportée par l'opérateur » — plus faible
+  qu'une trace relisible, plus forte qu'une inférence d'historique ;
+  conséquence consignée ci-dessus (§ Journal, entrée précédente) sur le
+  dispositif de trace de `roles/gpu_mux/` à corriger dans un livrable
+  ultérieur.
+  **Alimentation dGPU** : résolution complète dans
+  [`docs/dgpu-power.md`](dgpu-power.md) (nouveau document). Le point
+  ouvert « dGPU maintenue en `P0` » ouvert dans la série précédente est
+  **corrigé** ci-dessus (§ Points ouverts) : régression non confirmée,
+  mesure initiale entachée par l'absence de relevé espacé — troisième
+  mode d'échec de sourcing, consigné dans `CLAUDE.md` aux côtés des deux
+  précédents. Mesure refaite avec isolement explicite de l'effet de la
+  sonde (`nvidia-smi`) : 99,97 % de veille runtime confirmés sur
+  `0000:01:00.0`, `Runtime D3 status: Enabled (fine-grained)`, `Video
+  Memory: Off` au repos, remontée à `P0` strictement causée par
+  l'invocation de `nvidia-smi` elle-même (deux sondes délibérées sur
+  deux, effet reproduit et chronométré). Mécanisme de `kwin_wayland`
+  comme client `nvidia-smi` caractérisé (`KWIN_DRM_DEVICES` non défini,
+  confirmé par trois lectures locales concordantes et par le code source
+  amont de KWin) sans qu'il empêche la veille profonde. Aucune correction
+  appliquée ni recommandée dans ce livrable — une option documentée
+  (`KWIN_DRM_DEVICES`) reste non retenue, un point non résolu sur son
+  risque étant compté dans `docs/dgpu-power.md`, pas ici.
+  Confirmé en fin de série : aucun paquet installé, aucun service modifié,
+  aucun fichier hors dépôt modifié, **aucun redémarrage** — les seules
+  commandes exécutées sont des lectures (`cat`, `journalctl`, `nvidia-smi`
+  en sondes délibérées et assumées comme réveillant le périphérique,
+  `strings`, `modinfo`, `systemctl show/is-active/is-enabled`,
+  `ansible-playbook --syntax-check`).
