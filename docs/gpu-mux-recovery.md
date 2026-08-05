@@ -13,21 +13,17 @@ seule le 2026-08-04 sur ce poste, sauf mention contraire explicite.
 
 ## Gardes — à relire avant toute bascule
 
-- **`dgpu_disable` doit rester à `0`.** Le pilote refuse la commutation MUX
-  si la dGPU est désactivée. `dgpu_disable` (coupe la carte) et
-  `gpu_mux_mode` (choisit à quelle carte le panneau est câblé) vivent tous
-  deux sous
-  `/sys/class/firmware-attributes/asus-armoury/attributes/` et se
-  ressemblent — les confondre coupe CUDA en croyant seulement changer
-  d'affichage.
-- **Après écriture de `gpu_mux_mode`, `current_value` renvoie l'ancienne
-  valeur jusqu'au redémarrage.** La confirmation avant reboot est le champ
-  `pending_reboot`, au niveau `attributes/` (fichier direct, pas un fichier
-  séparé sous `gpu_mux_mode/`). Relire `current_value` juste après
-  l'écriture et le trouver inchangé n'est **pas** un échec de l'écriture —
-  c'est le comportement attendu tant que la machine n'a pas redémarré. Une
-  vérification par relecture immédiate de `current_value` produit un faux
-  négatif ; c'est `pending_reboot` qui fait foi avant reboot.
+Deux gardes gouvernent toute écriture dans `gpu_mux_mode`. Leur texte qui
+fait autorité — et l'historique de la correction apportée le 2026-08-05 à
+la seconde — vit dans `CLAUDE.md` § Matériel spécifique — GPU / MUX, pas
+ici (une règle vit à un seul endroit ; ce document y renvoie, il ne la
+recopie pas) :
+
+- `dgpu_disable` doit rester à `0`.
+- `current_value` reflète l'écriture immédiatement — c'est l'état voulu,
+  pas l'état réalisé par le MUX matériel ; c'est `pending_reboot`, pas une
+  relecture de `current_value`, qui atteste que l'écriture a atteint le
+  firmware.
 
 ## Chemin de retour 1 — TTY local (`Ctrl+Alt+F3`)
 
@@ -99,28 +95,42 @@ dur ; pas de matière de clé). Ce journal est une trace locale d'un
 événement réseau entrant déjà survenu — c'est une preuve directe, pas une
 déduction, contrairement à un simple test de connexion sortant.
 
-## ScreenPad Plus (`card1-DP-3`) — rattachement DRM établi, survie post-bascule non prouvée
+## ScreenPad Plus (`card1-DP-3`) — survie à la bascule confirmée [FERMÉ le 2026-08-05]
 
 Le ScreenPad Plus est l'écran secondaire de ce Zephyrus Duo. Rattachement
-vérifié ce jour :
+vérifié le 2026-08-04 (avant toute écriture) :
 
 - `/dev/dri/by-path/pci-0000:09:00.0-card -> ../card1` — la carte `card1`
   est bien rattachée au bus PCI `0000:09:00.0`, l'iGPU AMD (voir
   `docs/machine-facts.md` § Matériel).
 - `cat /sys/class/drm/card1-DP-3/status` → `connected`.
 
-Le rattachement au bus de l'iGPU est donc établi. Ce qui ne l'est pas :
+**Méthode de fermeture — trois relevés comparés, pas un seul :**
 
-`@VERIF : survie effective de l'affichage sur le ScreenPad Plus après une
-bascule de gpu_mux_mode. Le rattachement au bus PCI de l'iGPU ne garantit
-pas que le firmware maintienne cette sortie active pendant/après une
-commutation MUX ratée — cela ne peut être prouvé qu'en basculant
-réellement, ce qui est hors périmètre de ce document.`
+1. **Juste avant l'écriture réelle du 2026-08-05** (08:02:55Z, capturé
+   automatiquement par `roles/gpu_mux/` dans le fichier de trace non
+   versionné `roles/gpu_mux/trace/pre-bascule-20260805T100255.json`, relu
+   dans cette session) : `card1-DP-3/status: connected`,
+   `/dev/dri/by-path/pci-0000:09:00.0-card -> ../card1`.
+2. **Après le redémarrage réel**, dans cette session, par lecture directe :
+   `cat /sys/class/drm/card1-DP-3/status` → `connected` ;
+   `ls -la /dev/dri/by-path/` → `pci-0000:09:00.0-card -> ../card1`,
+   inchangé.
+3. La numérotation DRM de la carte NVIDIA a changé entre ces deux relevés
+   (`card2` → `card0`, voir `docs/machine-facts.md` § Affichage), mais
+   celle de la carte AMD est restée `card1` dans les deux — une
+   coïncidence de nommage, pas une preuve à elle seule : c'est le
+   rattachement au bus PCI `0000:09:00.0`, constant quel que soit le nom
+   `cardN` attribué, qui établit la continuité.
 
-**Le plan de retour ci-dessus (chemins 1 et 2) ne suppose pas que cet
-écran reste disponible.** Il est mentionné ici pour mémoire, pas comme
-troisième chemin de secours : TTY local et SSH entrant sont conçus pour
-suffire indépendamment l'un de l'autre, sans lui.
+**Marqueur fermé.** Le rattachement au bus PCI de l'iGPU et l'état
+`connected` du connecteur `DP-3` sont identiques avant et après la
+bascule réelle. Le ScreenPad Plus a survécu à la commutation MUX.
+
+**Le plan de retour ci-dessus (chemins 1 et 2) ne suppose toujours pas que
+cet écran reste disponible** — ce constat ferme le doute, il ne change
+pas la conception du plan de retour, qui reste volontairement indépendant
+de lui.
 
 ## Revenir en mode discret (`gpu_mux_mode` → `0`)
 
@@ -128,11 +138,17 @@ Depuis un TTY local ou une session SSH entrante fonctionnelle (chemins
 ci-dessus) :
 
 ```sh
-# Chemin retenu depuis le 2026-08-05 (D2ter révoquée en partie, voir
-# « Résultats observés » ci-dessous et docs/machine-facts.md § Décisions) :
-# écriture directe, PAS `asusctl armoury set` — asusd met la valeur en
-# file d'attente mémoire pour asus-shutdown.service, désactivé sur ce
-# système, donc jamais appliquée, sans que la commande ne le signale.
+# Chemin retenu depuis le 2026-08-05 (D2ter révoquée en partie SUR SON
+# MOTIF, pas sur son choix — voir « Motif de la révocation, corrigé »
+# ci-dessous et docs/machine-facts.md § Décisions) : écriture directe,
+# pas `asusctl armoury set`. Motif corrigé : l'écriture directe fournit
+# une confirmation vérifiable avant redémarrage (pending_reboot passe à
+# 1) ; asusctl laisse pending_reboot à 0 sans jamais dire si la valeur en
+# file d'attente sera appliquée — asus-shutdown.service l'a bel et bien
+# appliquée le 2026-08-05, alors qu'il est rapporté `disabled` par
+# `systemctl is-enabled` (démarré à la demande, pas d'activation
+# statique). La préférence tient à la vérifiabilité, pas à une
+# impossibilité de la voie asusd.
 echo 0 | sudo tee /sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value
 ```
 
@@ -344,10 +360,180 @@ série ; aucun paquet installé (`sudo` déjà présent de base,
 `sudo-1.9.17-8.p2.fc44`, pas installé par cette série) ; aucun dépôt
 modifié ; aucune clé GPG importée ; **aucun redémarrage**.
 
+## Résultats observés — bascule réussie du 2026-08-05
+
+**Écriture réelle exécutée avec succès entre les deux sessions
+précédentes.** Le blocage `sudo` documenté dans la section précédente a
+été levé côté opérateur, hors de cette série. `~/.bash_history` suggérait
+la commande, mais un historique shell atteste une intention tapée, pas un
+résultat (voir `CLAUDE.md` § Sourcing des faits) — établi ici par une
+source plus forte, le journal systemd persistant, relu dans cette
+session :
+
+```
+$ journalctl --no-pager -g 'sudo|ansible|gpu_mux_mode' --since "2026-08-05 09:55:00" --until "2026-08-05 10:28:00"
+[...]
+Aug 05 10:02:58 Zephyrus-MM python3[55695]: ansible-ansible.legacy.command Invoked with cmd=echo 1 > /sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value [...]
+Aug 05 10:02:58 Zephyrus-MM sudo[55682]: mahieumi : PWD=/home/mahieumi/dev/workstation-config/roles/gpu_mux ; USER=root ; COMMAND=/bin/sh -c 'echo BECOME-SUCCESS-[...] ; /usr/bin/python3 [...]/AnsiballZ_command.py'
+Aug 05 10:02:58 Zephyrus-MM sudo[55682]: pam_unix(sudo:session): session opened for user root(uid=0) by mahieumi(uid=1000)
+Aug 05 10:02:58 Zephyrus-MM asusd[1472]: [DEBUG asusd::asus_armoury] gpu_mux_mode changed
+[... 7 lignes identiques ...]
+Aug 05 10:02:58 Zephyrus-MM sudo[55682]: pam_unix(sudo:session): session closed for user root
+[...]
+Aug 05 10:27:26 Zephyrus-MM audit[56960]: [...] cmd="reboot" exe="/usr/bin/sudo" [...] res=success
+```
+
+Ce journal, indépendant de l'historique shell, établit trois faits
+distincts : l'écriture directe `echo 1 > .../gpu_mux_mode/current_value`
+a réellement été exécutée en tant que root (session `sudo` ouverte puis
+fermée à 10:02:58) ; `asusd` a réagi immédiatement au changement (huit
+lignes « gpu_mux_mode changed ») ; le redémarrage qui a suivi a lui aussi
+été confirmé par l'audit système (`cmd="reboot"`, 10:27:26), pas
+seulement par une ligne d'historique.
+
+**Ce que ce journal ne montre pas** : la sortie du `cat pending_reboot`
+exécuté juste après l'écriture (10:02:58) — `journalctl` capture
+l'invocation de la commande par Ansible, pas son résultat sur stdout.
+`@VERIF : valeur exacte de pending_reboot lue immédiatement après
+l'écriture directe du 2026-08-05T10:02:58 — irrécupérable
+rétroactivement (ni l'historique shell ni le journal systemd n'en
+gardent trace). Action pour une prochaine écriture réelle : faire
+enregistrer explicitement (register: + assertion ou ajout au fichier de
+trace) la sortie de cette lecture, plutôt que de compter sur le log
+d'invocation ou l'historique shell seuls.` Ce que la lecture
+post-redémarrage ci-dessous établit sans ambiguïté, en revanche, c'est
+que la bascule a été prise en compte — état vérifié dans **cette
+session**, post-redémarrage, par lecture directe :
+
+```
+$ cat /sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value
+1
+$ cat /sys/class/firmware-attributes/asus-armoury/attributes/pending_reboot
+0
+```
+
+`current_value=1` et `pending_reboot=0` : la bascule est prise en compte,
+conforme au tableau ci-dessous.
+
+### Journal du boot précédent — rôle d'`asus-shutdown.service` établi
+
+`journalctl -u asus-shutdown -b -1 --no-pager` (exécuté dans cette
+session) montre la séquence complète exécutée à l'extinction précédant ce
+redémarrage :
+
+1. Détection d'un réglage GPU en file d'attente (`gpu_mux_mode => 1`).
+2. Attente que la dGPU soit inactive (« idle »).
+3. Arrêt de `nvidia-powerd.service`, `nvidia-persistenced.service`,
+   `nvidia-fabricmanager.service` avant l'écriture du firmware.
+4. **Cinq tentatives de `modprobe -r` sur la pile NVIDIA, toutes en
+   échec** : `modprobe: FATAL: Module nvidia_drm is in use.` (message
+   identique aux cinq tentatives), puis `[WARN] Failed to unload NVIDIA
+   modules after 5 attempts before firmware attribute apply`.
+5. **L'unité applique quand même** l'attribut différé : `[INFO] Applying
+   deferred GPU attribute gpu_mux_mode = 1`.
+6. Relâchement de l'inhibiteur d'extinction logind (« Released shutdown
+   delay inhibitor ») et sortie.
+
+**Conclusion établie, pas une hypothèse** : le déchargement des modules
+NVIDIA **n'est pas nécessaire** au succès de la bascule — l'attribut a
+été appliqué malgré l'échec des cinq tentatives de `modprobe -r`, et la
+bascule a bel et bien réussi (topologie DRM post-redémarrage confirmée
+plus bas et dans `docs/machine-facts.md` § Affichage). Ceci ferme le
+point non résolu compté dans `docs/machine-facts.md` § Points ouverts
+(« Rôle exact d'`asus-shutdown.service` ») — le doute portait précisément
+sur la nécessité de ce déchargement pour une écriture directe dans
+`current_value`.
+
+### Motif de la révocation partielle de D2ter, corrigé [MOTIF CORRIGÉ le 2026-08-05]
+
+**ÉTAIT** (voir `docs/machine-facts.md` § Décisions, D2ter — révocation
+partielle du 2026-08-05) : « la file d'attente d'`asusd` n'est jamais
+consommée car `asus-shutdown` est désactivé ». **Faux** — démenti par le
+journal du boot précédent ci-dessus : l'unité a tourné et a appliqué la
+valeur en file.
+
+**MOTIF CORRIGÉ** : l'écriture directe dans sysfs reste le chemin
+retenu, mais pour une autre raison. Elle fournit une **confirmation
+vérifiable avant redémarrage** : `pending_reboot` passe à `1`
+immédiatement après l'écriture. La voie `asusctl armoury set` laisse
+`pending_reboot` à `0` — l'opération réussit probablement (la file est
+bien consommée par `asus-shutdown.service` à l'extinction, comme
+démontré ci-dessus), mais rien, avant de redémarrer, ne permet à
+l'opérateur de le savoir. La préférence pour l'écriture directe tient
+donc à la **vérifiabilité**, pas à une impossibilité de la voie `asusd`.
+
+**Doute résiduel, largement mais pas entièrement levé.** Le 2026-08-05,
+l'écriture directe (rôle `roles/gpu_mux/`) et la file d'`asusd` (mise en
+file lors de la tentative du 2026-08-04, jamais purgée depuis) portaient
+la **même valeur cible** (`gpu_mux_mode = 1`). Le journal systemd
+(§ ci-dessus) établit que l'écriture directe a eu lieu à 10:02:58, plus
+de vingt minutes **avant** que `asus-shutdown.service` n'applique la
+valeur de la file à l'extinction (10:27:31) — la séquence temporelle
+pointe donc vers l'écriture directe comme cause réelle du changement,
+`asusd` ayant réagi immédiatement (`gpu_mux_mode changed`) à 10:02:58,
+et l'application tardive par `asus-shutdown.service` étant redondante
+(même valeur, déjà en place). Ce que ni le journal ni aucune autre
+source relue ne confirme : l'état de `current_value` entre 10:02:58 et
+10:27:26, faute d'une lecture explicitement journalisée à ce moment
+(voir le point non résolu sur `pending_reboot` ci-dessus, même limite). La
+conclusion « c'est l'écriture directe qui a produit le changement » est
+donc solidement **corroborée**, pas strictement **prouvée** — nuance
+qui ne change rien à la décision retenue (les deux chemins visaient la
+même cible), mais qui reste à formuler avec cette précision.
+
+### Leçon de méthode — `is-enabled` ne dit pas « ne s'exécutera jamais »
+
+`systemctl is-enabled asus-shutdown.service` renvoie `disabled` avant
+comme après cette série (reconfirmé dans cette session, code de retour
+1). Ce champ signale l'**absence d'activation statique** au démarrage
+(pas de lien créé par `systemctl enable`) — il ne dit rien sur un
+démarrage **à la demande**, déclenché par un autre service, par D-Bus,
+ou par activation par socket. C'est exactement ce qui se produit ici :
+`asus-shutdown.service` a tourné pendant l'extinction du 2026-08-04 au
+2026-08-05 sans jamais avoir été activé — vraisemblablement démarré par
+`asusd` au moment où un attribut est mis en file d'attente (le
+vocabulaire d'inhibiteur logind employé dans son propre journal, et le
+découpage en phases numérotées orienté vers une exécution ponctuelle
+plutôt que vers un service de fond, corroborent cette hypothèse sans la
+démontrer). Le mécanisme exact de ce démarrage à la demande reste à
+confirmer — point compté et marqué dans `docs/machine-facts.md` §
+Points ouverts, pas ici, par cohérence avec le choix déjà fait pour le
+point sur le rôle d'`asus-shutdown.service` (question générale sur le
+comportement du service, pas spécifique à cette procédure de retour).
+
+### Topologie post-bascule — renvoi
+
+Renumérotation DRM (`card2` → `card0` pour la NVIDIA, `card1` stable pour
+l'AMD) et renommage des sorties KScreen (`eDP-2` → `eDP-1`) confirmés
+dans cette session — détail complet et sourcé dans
+[`docs/machine-facts.md`](machine-facts.md) § Affichage, pour ne pas
+dupliquer une deuxième source.
+
 ## Commandes de vérification post-redémarrage (à exécuter par l'opérateur, pas par cette série)
 
 Cette liste prépare la validation attendue après un redémarrage réel —
 elle n'a pas été exécutée dans cette série et ne doit pas être anticipée.
+
+**[EXÉCUTÉE le 2026-08-05]** Le redémarrage a eu lieu ; la table
+ci-dessous est conservée telle quelle pour l'historique (écrite *avant*
+que ces valeurs soient connues). Deux écarts entre la prédiction et
+l'observation, à noter explicitement plutôt qu'à corriger en silence :
+
+- Ligne `card2-eDP-2` : elle supposait implicitement que la numérotation
+  `cardN` resterait stable après bascule (seul l'état du connecteur
+  changerait). Ce n'est pas ce qui a été observé — `card2` n'existe plus
+  du tout après redémarrage, la carte NVIDIA est renumérotée `card0`
+  (voir `docs/machine-facts.md` § Affichage). `card0-eDP-2` est bien
+  `disconnected`, ce qui confirme l'esprit de la prédiction (le panneau
+  n'est plus piloté par la NVIDIA), mais pas sa forme littérale : le
+  chemin `card2-eDP-2` lui-même n'existe plus, il ne se contente pas de
+  changer d'état.
+- Ligne `nvidia-smi` : la prédiction « sans processus graphique » n'est
+  que partiellement vérifiée. `kwin_wayland` (`C+G`, 13 MiB) reste listé
+  après bascule — progrès réel par rapport à l'état pré-bascule, mais pas
+  la disparition complète anticipée par cette ligne. Voir
+  `docs/machine-facts.md` § GPU et § Points ouverts (nouveau point sur
+  l'état d'alimentation runtime de la dGPU).
 
 | Commande | Valeur attendue si la bascule a réussi |
 |---|---|

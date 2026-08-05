@@ -75,6 +75,47 @@ sans comprendre pourquoi elle a été posée.
   Corollaire : un compteur de marqueurs qui baisse doit s'expliquer par des
   vérifications faites, pas par des reformulations — si l'explication
   manque, traiter la baisse comme suspecte jusqu'à preuve du contraire.
+- **Un fait mesuré porte sa date ; une mesure ancienne ne sert pas de
+  ligne de base pour un changement récent.** Une valeur relevée à un
+  instant donné n'atteste que cet instant — la réutiliser comme « état
+  juste avant » un événement plus tardif sans revérifier la date
+  introduit une erreur silencieuse, même si la valeur elle-même a été lue
+  correctement. Motif : c'est le troisième mode d'échec distinct identifié
+  dans cette série, à consigner avec les deux autres parce qu'ils se
+  ressemblent — chacun **a l'apparence du sourcing** tout en portant sur
+  autre chose que l'objet examiné : la **commande substituée** (conclure
+  sur une commande en en exécutant une autre — `journalctl -b0 -g` sans
+  motif pour `journalctl -b0 -g 'drm\|amdgpu\|nvidia'`, `dnf repolist`
+  pour `dnf repolist enabled`, voir plus haut) ; la **transposition entre
+  interfaces** (attribuer à un chemin sysfs une propriété mesurée sur un
+  autre — la règle `pending_reboot` faussement transposée depuis
+  `asus-nb-wmi` vers `asus-armoury`, voir § Matériel spécifique) ; et la
+  **datation périmée** (présenter une mesure de l'inventaire du
+  2026-08-04 comme l'état immédiatement antérieur à une écriture du
+  2026-08-05 — chiffres VRAM/processus pré-bascule, corrigés dans
+  `docs/machine-facts.md` § GPU à partir du fichier de trace horodaté
+  réellement pertinent).
+- **Une règle vit à un seul endroit ; les documents y renvoient, ils ne la
+  recopient pas.** `CLAUDE.md` porte les règles persistantes ; tout autre
+  document qui a besoin d'une de ces règles la cite par renvoi
+  (« voir `CLAUDE.md` § ... »), jamais en la réécrivant dans ses propres
+  mots. Motif : une règle dupliquée diverge dès qu'on ne corrige qu'un
+  exemplaire — la règle `pending_reboot` a été dupliquée dans
+  `docs/gpu-mux-recovery.md`, corrigée aux deux endroits par chance cette
+  fois, mais le défaut est structurel : la copie périmée reste lisible
+  comme si elle faisait autorité jusqu'à ce que quelqu'un remarque
+  l'écart. Rattrapé cette fois, pas nécessairement la prochaine.
+- **`~/.bash_history` atteste une intention, pas un résultat ; il ne
+  fonde pas un fait à lui seul.** L'historique shell enregistre ce qui a
+  été tapé, pas ce qui a été observé, et sans horodatage par défaut — il
+  peut établir qu'une commande a été lancée, jamais son résultat, ni même
+  qu'elle a abouti. Motif : une commande présente dans l'historique juste
+  avant une action ultérieure (ex. un redémarrage) donne l'impression
+  d'expliquer cette action, alors que seule sa sortie — introuvable dans
+  l'historique — le prouverait. Quand une sortie relue existe ailleurs
+  (journal systemd, fichier de trace, relecture directe post-fait), elle
+  prime sur l'historique et doit être citée à sa place ; à défaut, le
+  fait reste marqué `@VERIF`.
 
 ## Avant d'agir
 
@@ -146,14 +187,29 @@ sans comprendre pourquoi elle a été posée.
   coupe CUDA en croyant seulement changer d'affichage — les deux attributs
   vivent sous `/sys/class/firmware-attributes/asus-armoury/attributes/` et
   se ressemblent.
-- **Après écriture de `gpu_mux_mode`, la relecture renvoie l'ancienne valeur
-  jusqu'au redémarrage.** La confirmation avant reboot est le champ
-  `pending_reboot` (au niveau `attributes/`, pas un fichier séparé sous
-  `gpu_mux_mode/`), pas `current_value`. Motif : lire `current_value` juste
-  après une écriture et le trouver inchangé n'est pas un échec de l'écriture
-  — c'est le comportement attendu tant que la machine n'a pas redémarré ;
-  paniquer ou réessayer l'écriture sur cette seule base est une erreur de
-  méthode observée sur ce poste.
+- **[CORRIGÉE le 2026-08-05] `current_value` reflète l'écriture
+  immédiatement ; c'est l'état voulu, pas l'état réalisé.** Le MUX
+  matériel ne commute qu'au redémarrage. Avant reboot, `current_value = 1`
+  coexiste normalement avec une topologie DRM inchangée : cette divergence
+  est attendue, pas une anomalie. `pending_reboot = 1` atteste que
+  l'écriture a atteint le firmware ; seul l'état des connecteurs DRM après
+  redémarrage atteste la bascule effective. **ÉTAIT** : « après écriture de
+  `gpu_mux_mode`, la relecture renvoie l'ancienne valeur jusqu'au
+  redémarrage » — faux sur ce noyau, vérifié par mesure : les deux chemins
+  (`asus-armoury` et `asus-nb-wmi`, déprécié) renvoyaient `1` immédiatement
+  après écriture, avant tout redémarrage. Motif de l'erreur : propriété
+  transposée par analogie depuis une note amont concernant l'attribut
+  déprécié `asus-nb-wmi`, sans vérification sur le chemin réellement
+  utilisé.
+- **Une propriété constatée sur une interface ne se transpose pas à une
+  autre sans mesure — même quand les deux exposent le même attribut.**
+  `asus-armoury`/`firmware-attributes` et `asus-nb-wmi` exposent tous deux
+  `gpu_mux_mode`, mais rien ne garantit qu'ils partagent le même
+  comportement de relecture immédiate ; seule une lecture sur le chemin
+  réellement utilisé fait foi. Motif : cette transposition a produit la
+  règle fausse ci-dessus, qui a survécu plusieurs livrables parce qu'elle
+  était plausible — une propriété plausible par analogie n'est pas une
+  propriété vérifiée.
 
 ## `docs/machine-facts.md`
 

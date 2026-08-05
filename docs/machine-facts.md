@@ -126,6 +126,21 @@ contexte strictement lecture seule sans confirmation préalable.
     immédiatement à l'écriture. (`systemctl cat asusd.service`,
     `systemctl cat asus-shutdown.service`, `systemctl status
     asus-shutdown.service`)
+    **Rôle confirmé le 2026-08-05** par lecture de
+    `journalctl -u asus-shutdown -b -1 --no-pager` (journal du boot
+    précédent, exécuté dans la session de clôture) : l'unité a bien
+    tourné à l'extinction précédant le redémarrage réussi, malgré
+    `systemctl is-enabled` → `disabled` (démarrage à la demande, pas
+    d'activation statique — mécanisme exact non confirmé, voir « Points
+    ouverts »). Séquence observée : arrêt de `nvidia-powerd`,
+    `nvidia-persistenced`, `nvidia-fabricmanager` ; cinq tentatives de
+    `modprobe -r` sur la pile NVIDIA, **toutes en échec** (`modprobe:
+    FATAL: Module nvidia_drm is in use.`) ; application quand même de
+    l'attribut différé (`Applying deferred GPU attribute gpu_mux_mode =
+    1`) ; relâchement de l'inhibiteur d'extinction logind. **Le
+    déchargement des modules NVIDIA n'est donc pas nécessaire au succès
+    de la bascule** — voir `docs/gpu-mux-recovery.md` § Résultats
+    observés du 2026-08-05 pour le détail complet.
 - Attributs `asus-armoury` disponibles : `boot_sound`, `charge_mode`,
   `dgpu_disable`, `gpu_mux_mode`, `mini_led_mode`, `nv_dynamic_boost`,
   `nv_temp_target`, `panel_overdrive`, `ppt_pl1_spl`, `ppt_pl2_sppt`,
@@ -173,6 +188,121 @@ contexte strictement lecture seule sans confirmation préalable.
     active en pratique malgré `supergfxd` inactif.
     (`cat /sys/bus/pci/devices/0000:01:00.{0,1}/power/control`)
 
+### État post-bascule MUX (2026-08-05, après redémarrage)
+
+**Bascule confirmée réussie.** Attributs `asus-armoury`, relus dans cette
+session après redémarrage : `gpu_mux_mode/current_value=1`,
+`pending_reboot=0`, `dgpu_disable/current_value=0` (inchangé).
+(`cat /sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value`,
+`cat .../pending_reboot`, `cat .../dgpu_disable/current_value`) — le
+miroir déprécié confirme la même valeur : `cat
+/sys/devices/platform/asus-nb-wmi/gpu_mux_mode` → `1`, `cat
+/sys/devices/platform/asus-nb-wmi/dgpu_disable` → `0`.
+
+**Renumérotation DRM — conséquence directe, à traiter comme une rupture
+de nommage.** Avant bascule : `card0` = `simple-framebuffer` (pas de bus
+PCI), `card1` = AMD (`09:00.0`), `card2` = NVIDIA (`01:00.0`). Après
+bascule : plus de carte `simple-framebuffer` du tout, `card0` = NVIDIA
+(`01:00.0`), `card1` = AMD (`09:00.0`, stable). Établi par comparaison de
+deux relevés : le fichier de trace non versionné
+`roles/gpu_mux/trace/pre-bascule-20260805T100255.json` (capturé
+automatiquement par `roles/gpu_mux/` juste avant l'écriture réelle) pour
+l'état « avant », et une lecture directe dans cette session pour l'état
+« après » — `for c in /sys/class/drm/card*; do readlink -f "$c/device"; done`,
+`ls -la /dev/dri/by-path/`. **Conséquence retenue** : toute configuration
+qui référence `card2` (ou le chemin `card2-eDP-2`) est **périmée** ;
+toute règle KWin ou script à venir doit être écrit sur les noms
+post-bascule (`card0` = NVIDIA, `card1` = AMD).
+- Connecteurs `card0` (NVIDIA) : `DP-4`, `DP-5`, `eDP-2`, `HDMI-A-1` — les
+  quatre `disconnected`. (`cat /sys/class/drm/card0-*/status`)
+- Connecteurs `card1` (AMD) : `DP-1` déconnecté, `DP-2` déconnecté,
+  `DP-3` **connecté** (ScreenPad Plus, survie confirmée — voir
+  `docs/gpu-mux-recovery.md`), `eDP-1` **connecté** (panneau principal,
+  maintenant piloté par l'iGPU), `Writeback-1` (`unknown`, non
+  significatif). (`cat /sys/class/drm/card1-*/status`)
+
+**Renommage des sorties KScreen — même rupture de nommage, côté Wayland
+cette fois.** `kscreen-doctor -o` : la sortie du panneau principal, nommée
+`eDP-2` avant bascule (trace pré-bascule ci-dessus), est nommée `eDP-1`
+après (lecture directe dans cette session). `DP-3` (ScreenPad Plus) est
+inchangée. **Conséquence retenue** : toute règle KWin à venir référençant
+`eDP-2` est périmée, à écrire sur `eDP-1`.
+
+**Contention compositeur/dGPU — réduite, pas supprimée.** `nvidia-smi`
+avant écriture réelle (trace `pre-bascule-20260805T100255.json`,
+2026-08-05T10:02:57 CEST) : `P8`, `8W / 150W`, `1070MiB / 16376MiB`, neuf
+processus dans la table, dont un seul de type `C+G`
+(`kwin_wayland`, 85 MiB) et huit de type `G` (`plasma-keyboard`,
+`Xwayland`, `plasmashell`, l'agent d'authentification polkit-kde,
+`xwaylandvideobridge`, `xdg-desktop-portal-kde`, `rog-control-center`,
+`firefox`). `nvidia-smi` après redémarrage, relu dans cette session :
+`P0`, `31W / 155W` (mesure instantanée, `nvidia-smi -q -d POWER` donne
+31,15 W en tirage moyen au même instant), `47MiB / 16376MiB`, **un seul**
+processus, `kwin_wayland` (`C+G`, 13 MiB). Progrès réel (VRAM et nombre
+de clients graphiques divisés respectivement par ~23 et 9), mais
+`kwin_wayland` reste un client de la dGPU après bascule — l'objectif
+D2bis n'est atteint que partiellement.
+
+`roles/gpu_mux/trace/` n'est pas versionné (`.gitignore` propre à ce
+répertoire) — un chiffre qui ne cite que son nom de fichier n'est pas
+relisible par quiconque clone ce dépôt public. Extrait vérifié exempt de
+toute donnée couverte par D4 (aucune IP, aucun nom d'hôte distant,
+aucun secret — uniquement des identifiants de bus PCI et des noms de
+processus locaux) et cité ici tel quel plutôt que le fichier versé en
+entier, dont le reste (dump ANSI de `kscreen-doctor -o`, connecteurs DRM
+déjà consignés ci-dessus) n'apporte rien de plus :
+
+```
+$ jq -r '.horodatage, .nvidia_smi[]' roles/gpu_mux/trace/pre-bascule-20260805T100255.json
+2026-08-05T08:02:55Z
+Wed Aug  5 10:02:57 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.43.03              KMD Version: 610.43.03     CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 4090 ...    Off |   00000000:01:00.0  On |                  N/A |
+| N/A   46C    P8              8W /  150W |    1070MiB /  16376MiB |     17%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            2492    C+G   /usr/bin/kwin_wayland                    85MiB |
+|    0   N/A  N/A            2592      G   /usr/bin/plasma-keyboard                130MiB |
+|    0   N/A  N/A            2600      G   /usr/bin/Xwayland                        24MiB |
+|    0   N/A  N/A            2662      G   /usr/bin/plasmashell                    145MiB |
+|    0   N/A  N/A            2766      G   ...it-kde-authentication-agent-1          3MiB |
+|    0   N/A  N/A            3069      G   /usr/bin/xwaylandvideobridge              3MiB |
+|    0   N/A  N/A            3159      G   ...ibexec/xdg-desktop-portal-kde          3MiB |
+|    0   N/A  N/A            4933      G   /usr/bin/rog-control-center              44MiB |
+|    0   N/A  N/A            7689      G   /usr/lib64/firefox/firefox              273MiB |
++-----------------------------------------------------------------------------------------+
+```
+
+Voir « Points ouverts » pour l'état d'alimentation (`P0` au repos, dégradation par rapport à `P8` avant
+bascule).
+
+**Mode `2560x1600@240.00` — préservé, avec une nuance sur le marqueur
+« préféré ».** `kscreen-doctor -o`, comparaison des deux relevés
+ci-dessus : avant bascule, la sortie `eDP-2` liste `18:2560x1600@60.00*!`
+(mode courant **et** marqué préféré) puis `19:2560x1600@240.00` (listé,
+sans marqueur `!`). Après bascule, la sortie `eDP-1` liste
+`18:2560x1600@240.00!` (marqué préféré, pas courant) puis
+`19:2560x1600@60.00*` (courant, sans marqueur `!`). Le mode `@240.00` est
+donc bien préservé et disponible dans les deux cas ; ce qui change, c'est
+le mode que le pilote annonce comme préféré — il passe du `@60.00` au
+`@240.00` après bascule. Ni l'un ni l'autre n'est le mode actif après
+bascule (`@60.00` reste actif). Sélection manuelle requise dans les
+réglages d'écran de Plasma pour activer `@240.00` — aucune régression par
+rapport à l'état pré-bascule, où `@240.00` n'était déjà pas actif non
+plus.
+
 ## Stockage
 
 - Deux périphériques NVMe, modèle `HFS002TEJ9X101N`, ~1,9 To chacun :
@@ -195,6 +325,9 @@ contexte strictement lecture seule sans confirmation préalable.
 
 ## Affichage
 
+**[ÉTAT PRÉ-BASCULE — 2026-08-04, périmé depuis la bascule MUX du
+2026-08-05, conservé pour l'historique, ne pas reproduire tel quel]**
+
 - Deux cartes DRM : `card1` → bus PCI `09:00.0` (AMD/amdgpu), `card2` → bus
   PCI `01:00.0` (NVIDIA/nvidia). (`ls -la /sys/class/drm/`)
 - Connecteurs `card1` (AMD) : `DP-1` déconnecté, `DP-2` déconnecté, `DP-3`
@@ -212,6 +345,46 @@ contexte strictement lecture seule sans confirmation préalable.
     actif** (pas de `*` sur cette entrée) — géométrie `315,0 2048x1280`,
     échelle 1.25, rotation 1.
   (`kscreen-doctor -o`)
+
+### État post-bascule — 2026-08-05, après redémarrage (état courant)
+
+**Renumérotation DRM et renommage KScreen — toute référence à `card2` ou
+`eDP-2` ci-dessus est périmée.** Deux cartes DRM subsistent, autrement
+numérotées : `card0` → bus PCI `01:00.0` (NVIDIA/nvidia, était `card2`),
+`card1` → bus PCI `09:00.0` (AMD/amdgpu, numéro inchangé). Plus de carte
+`simple-framebuffer` (occupait `card0` avant bascule).
+(`for c in /sys/class/drm/card*; do readlink -f "$c/device"; done`,
+comparé au fichier de trace non versionné
+`roles/gpu_mux/trace/pre-bascule-20260805T100255.json`.)
+
+- Connecteurs `card0` (NVIDIA) : `DP-4`, `DP-5`, `eDP-2`, `HDMI-A-1` —
+  les quatre `disconnected`. (`cat /sys/class/drm/card0-*/status`)
+- Connecteurs `card1` (AMD) : `DP-1` déconnecté, `DP-2` déconnecté,
+  `DP-3` **connecté**, `eDP-1` **connecté** (panneau principal, était
+  déconnecté avant bascule), `Writeback-1` (`unknown`, non significatif).
+  (`cat /sys/class/drm/card1-*/status`)
+- `kscreen-doctor -o` :
+  - Sortie 1, `DP-3` (ScreenPad Plus, rattaché à `card1` AMD, nom
+    inchangé) : activée, connectée, mode actif `3840x1100@60.02`,
+    géométrie `0,1280 2743x786`, échelle 1.4, rotation 1 — identique au
+    relevé pré-bascule.
+  - Sortie 2, **renommée `eDP-1`** (était `eDP-2` avant bascule ; même
+    panneau physique, maintenant rattaché à `card1` AMD au lieu de
+    `card2` NVIDIA) : activée, connectée, mode actif `2560x1600@60.00`.
+    Le mode `2560x1600@240.00` est **préservé**, listé, et désormais
+    **marqué mode préféré** (`!`) — il ne l'était pas avant bascule ; il
+    n'est toujours pas le mode actif. Géométrie `315,0 2048x1280`,
+    échelle 1.25, rotation 1.
+  (`kscreen-doctor -o`, comparé au même relevé pré-bascule que ci-dessus)
+- **Conséquence retenue pour tout travail futur** : toute configuration
+  Ansible, script ou règle KWin qui référence `card2` ou `eDP-2` est
+  **périmée**. Les noms post-bascule (`card0` = NVIDIA, `card1` = AMD,
+  `eDP-1` = panneau principal, `DP-3` = ScreenPad Plus) sont ceux à
+  utiliser désormais.
+- **Sélection manuelle requise** pour activer `2560x1600@240.00` : il est
+  disponible et marqué préféré mais n'est pas le mode actif — dans les
+  réglages d'écran de Plasma. Ce n'était déjà pas le mode actif avant
+  bascule ; aucune régression.
 
 ## Conteneurs
 
@@ -289,6 +462,18 @@ la date de cet inventaire ; aucun redémarrage n'a eu lieu.** Prochaine
 étape : redémarrage, décision et déclenchement manuels, hors de ce
 livrable.
 
+**[APPLIQUÉE le 2026-08-05]** Écriture réelle réussie entre les deux
+sessions précédentes (`ansible-playbook --ask-become-pass
+roles/gpu_mux/gpu_mux.yml`, voir D2ter révocation partielle ci-dessous
+pour le mécanisme d'écriture retenu), suivie d'un redémarrage réel.
+Vérifié dans la session de clôture, après redémarrage :
+`gpu_mux_mode/current_value=1`, `pending_reboot=0`, topologie DRM
+conforme (panneau principal rattaché à l'iGPU AMD, RTX 4090 sans sortie
+active) — voir « Affichage » et « GPU » § État post-bascule ci-dessus
+pour le détail complet et sourcé. Contrepartie identifiée, non anticipée
+par la décision d'origine : la dGPU reste en `P0` au repos après bascule
+(contre `P8` avant), voir « Points ouverts ».
+
 **D2ter (2026-08-04) — bascule sans supergfxd, via `asusctl armoury`.**
 Motif : `asusd` est déjà actif ; le README de `supergfxctl` signale un
 conflit entre commutateurs GPU et un risque de repli sur `integrated` au
@@ -312,6 +497,47 @@ persistée — repli silencieux caractérisé. L'écriture directe restaure
 2026-08-05] ÉTAIT : « bascule sans supergfxd, via `asusctl armoury` »
 (texte complet ci-dessus, conservé) — la partie « via `asusctl armoury` »
 est révoquée, la partie « sans supergfxd » reste en vigueur.
+
+**[MOTIF CORRIGÉ le 2026-08-05]** Le motif de révocation ci-dessus repose
+sur une prémisse fausse, démentie par le journal du boot précédent le
+redémarrage réussi (`journalctl -u asus-shutdown -b -1`, voir « GPU » §
+Services) : `asus-shutdown.service` a bel et bien tourné à l'extinction
+et **a appliqué** la valeur mise en file par `asusd`
+(`Applying deferred GPU attribute gpu_mux_mode = 1`), alors qu'il est
+rapporté `disabled` par `systemctl is-enabled` — démarré à la demande,
+vraisemblablement par `asusd` lui-même lorsqu'un attribut est mis en
+file (vocabulaire d'inhibiteur logind et découpage en phases numérotées
+dans son propre journal, cohérents avec cette hypothèse sans la
+démontrer ; mécanisme exact non confirmé — point compté et marqué en
+« Points ouverts », pas ici, pour ne pas dupliquer le marqueur).
+
+**ÉTAIT** (motif de révocation d'origine, ci-dessus, conservé) : « la
+file d'attente d'`asusd` n'est jamais consommée car `asus-shutdown` est
+désactivé » — **faux**.
+
+**MOTIF CORRIGÉ** : l'écriture directe reste le chemin retenu, mais pour
+une autre raison. Elle fournit une **confirmation vérifiable avant
+redémarrage** — `pending_reboot` passe à `1`. La voie `asusctl armoury
+set` laisse `pending_reboot` à `0` : l'opération réussit probablement (la
+file est bien consommée par `asus-shutdown.service` à l'extinction, comme
+démontré ci-dessus), mais rien ne permet de l'attester avant de
+redémarrer. La préférence tient à la **vérifiabilité**, pas à une
+impossibilité de la voie `asusd`.
+
+**Doute résiduel à consigner** : le 2026-08-05, l'écriture directe et la
+file d'`asusd` (mise en file depuis la tentative du 2026-08-04, jamais
+purgée) portaient la même valeur cible (`gpu_mux_mode = 1`). Laquelle des
+deux a effectivement produit le changement matériel observé est
+indéterminable a posteriori — sans conséquence pratique ici puisque les
+deux menaient à la même cible, mais cela interdit d'affirmer que c'est
+l'écriture directe qui a fonctionné du seul fait que la bascule a réussi.
+
+**Leçon de méthode** : `systemctl is-enabled X` → `disabled` signifie
+« pas d'activation statique au démarrage », **pas** « ne s'exécutera
+jamais ». Une unité peut être démarrée à la demande par un autre service,
+par D-Bus ou par activation par socket — c'est le cas ici. Voir le détail
+complet, avec le journal cité intégralement, dans
+`docs/gpu-mux-recovery.md` § Résultats observés du 2026-08-05.
 
 **D3 — chaîne Ansible EE-first.** `ansible-navigator` exécute et vérifie dans
 l'image d'Execution Environment. L'`ansible-core` système (2.20.7 /
@@ -356,19 +582,26 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
 
 ## Points ouverts
 
-- **Rôle exact d'`asus-shutdown.service`** (« ASUS Deferred Shutdown
-  Handler », capacités `CapabilityBoundingSet=CAP_SYS_MODULE CAP_SYS_ADMIN`,
-  `SystemCallFilter=@system-service @module` — voir « GPU » § Services).
-  `@VERIF : hypothèse non confirmée d'un déchargement des modules NVIDIA
-  avant commutation MUX. Si ce travail est effectivement nécessaire,
-  l'écriture directe dans gpu_mux_mode/current_value (voir D2ter,
-  révocation partielle du 2026-08-05) pourrait produire une bascule
-  incomplète — le déchargement ne serait alors plus fait par personne. La
-  documentation ABI du noyau (Documentation/ABI/testing/sysfs-platform-asus-wmi,
-  référence externe, non lue sur cette machine) ne mentionne qu'un
-  redémarrage après écriture, sans préparation particulière décrite. À
-  confirmer par lecture du code source d'asus-shutdown, ou par observation
-  directe de son journal pendant un redémarrage réel.`
+- **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
+  Deferred Shutdown Handler », capacités `CapabilityBoundingSet=CAP_SYS_MODULE
+  CAP_SYS_ADMIN`, `SystemCallFilter=@system-service @module` — voir « GPU »
+  § Services). ÉTAIT : « hypothèse non confirmée d'un déchargement des
+  modules NVIDIA avant commutation MUX ». **Établi par le journal du boot
+  précédent le redémarrage réussi** (`journalctl -u asus-shutdown -b -1
+  --no-pager`, lu dans la session de clôture) : l'unité arrête les
+  services NVIDIA (`nvidia-powerd`, `nvidia-persistenced`,
+  `nvidia-fabricmanager`), tente `modprobe -r` sur la pile NVIDIA —
+  **cinq tentatives, toutes en échec** (`modprobe: FATAL: Module
+  nvidia_drm is in use.`), émet `Failed to unload NVIDIA modules after 5
+  attempts` —, puis **applique quand même** l'attribut différé
+  (`Applying deferred GPU attribute gpu_mux_mode = 1`) et relâche son
+  inhibiteur d'extinction. **Conclusion : le déchargement des modules
+  n'est pas nécessaire au succès de la bascule** — la bascule a réussi
+  malgré l'échec des cinq tentatives. Détail complet dans
+  `docs/gpu-mux-recovery.md` § Résultats observés du 2026-08-05.
+  Nouveau point ouvert issu de cette même investigation : le mécanisme
+  précis par lequel l'unité, `disabled` au sens de `systemctl is-enabled`,
+  démarre malgré tout à l'extinction — voir plus bas.
 - **`terra` activé** : dépôt tiers, priorité 99 relevée (voir « Dépôts » et
   sa note de méthode) — c'est la priorité par défaut de dnf pour un dépôt
   sans directive `priority=` ; Terra n'est donc pas structurellement
@@ -411,11 +644,45 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
 - **`NVreg_DynamicPowerManagement` non défini** : absent du fichier de
   configuration modprobe, donc niveau de gestion d'alimentation runtime
   laissé au défaut du pilote, pas choisi. Fait établi (voir « GPU »).
-- **Préservation du mode `2560x1600@240` après bascule MUX** : non acquise.
-  Confirmé ce jour : ce mode est listé par `kscreen-doctor -o` mais n'est pas
-  le mode actif (`2560x1600@60.00` l'est). Pas de commande locale ne permet
-  de savoir s'il survivrait à une bascule MUX sans la déclencher réellement
-  (hors périmètre lecture seule).
+- **[RÉSOLU le 2026-08-05] Préservation du mode `2560x1600@240` après
+  bascule MUX.** ÉTAIT : « non acquise ... pas de commande locale ne
+  permet de savoir s'il survivrait à une bascule MUX sans la déclencher
+  réellement ». **Résolu par la bascule réelle** : le mode est préservé,
+  listé, et même marqué mode préféré (`!`) après bascule — il ne l'était
+  pas avant. Il n'est pas le mode actif ni avant ni après ; aucune
+  régression. Détail sourcé complet en « Affichage » § État post-bascule.
+- **Nouveau point ouvert (2026-08-05) — mécanisme exact de démarrage à la
+  demande d'`asus-shutdown.service`.** Établi (voir ci-dessus, point
+  fermé) : l'unité tourne à l'extinction malgré `systemctl is-enabled` →
+  `disabled`. Non établi : *comment* elle démarre. Hypothèse retenue mais
+  non démontrée : démarrage déclenché par `asusd` lui-même au moment où un
+  attribut est mis en file d'attente — corroborée par le vocabulaire
+  d'inhibiteur logind employé dans le propre journal de l'unité et par son
+  découpage en phases numérotées (orienté exécution ponctuelle, pas
+  service de fond), mais aucune des deux observations ne prouve le
+  mécanisme de déclenchement lui-même (`Wants=`/`StartTransientUnit=` côté
+  `asusd`, règle D-Bus activable, ou autre). `@VERIF : mécanisme exact de
+  démarrage à la demande d'asus-shutdown.service — à confirmer par lecture
+  du code source d'asusd/asus-shutdown, ou par un test d'extinction avec
+  journal détaillé au niveau DEBUG côté systemd (property
+  Wants=/BindsTo=/PropagatesStopTo= et unités de type D-Bus activable).`
+- **Nouveau point ouvert (2026-08-05) — dGPU maintenue en `P0` au repos
+  après bascule, contre `P8` avant.** La contention compositeur/dGPU est
+  réduite mais pas supprimée (`kwin_wayland` reste listé par `nvidia-smi`,
+  47 MiB, un seul processus après bascule contre neuf avant — voir « GPU »
+  § État post-bascule). Plus préoccupant : `nvidia-smi` mesure `P0`, ~31 W
+  au repos après bascule contre `P8`, 8 W avant (trace pré-bascule
+  `roles/gpu_mux/trace/pre-bascule-20260805T100255.json`). La gestion
+  d'alimentation runtime est active (`power/control=auto` sur
+  `0000:01:00.{0,1}`, confirmé de nouveau dans cette session, règle udev
+  du paquet `supergfxctl` — voir « GPU »), mais un client qui maintient le
+  périphérique ouvert (`kwin_wayland`) empêche la descente en veille
+  profonde. **En l'état, la consommation au repos est dégradée par
+  rapport à l'état pré-bascule.** `@VERIF : cause exacte du maintien en P0
+  et voie de correction — côté KWin (client qui garde le nœud DRM/render
+  ouvert sans le solliciter), ou via NVreg_DynamicPowerManagement (déjà
+  point ouvert ci-dessus comme non défini). À traiter dans un livrable
+  dédié, avant le livrable IA.`
 - **`claude doctor` annonce le canal `latest`** alors que le dépôt dnf pointe
   `stable` : écart confirmé par lecture croisée (`claude doctor` +
   `/etc/yum.repos.d/claude-code.repo`), sans effet apparent observé.
@@ -599,3 +866,62 @@ qui gère les profils d'alimentation ASUS. (`dnf history info 7`)
   `asus-shutdown` et `supergfxd` toujours `disabled`, aucun paquet
   installé (`sudo` déjà présent de base), aucun dépôt modifié, aucune clé
   GPG importée, **aucun redémarrage**.
+- **2026-08-05 — bascule réussie et clôture de série documentaire (cette
+  série, en lecture seule uniquement).** Entre la série précédente et
+  celle-ci, hors du périmètre de tout livrable documenté (pas cette
+  session) : le blocage `sudo` a été levé côté opérateur, l'écriture
+  réelle a réussi, suivie d'un redémarrage réel. `~/.bash_history`
+  suggérait la séquence (`ansible-playbook --ask-become-pass
+  roles/gpu_mux/gpu_mux.yml` puis `sudo reboot`), mais un historique
+  shell atteste une intention tapée, pas un résultat (`CLAUDE.md` §
+  Sourcing des faits) — cette série a donc établi les faits par une
+  source plus forte, le journal systemd persistant (`journalctl -g
+  'sudo|ansible|gpu_mux_mode' --since ... --until ...`, relu dans cette
+  session) : écriture directe `echo 1 > .../gpu_mux_mode/current_value`
+  confirmée exécutée en tant que root (session `sudo` root ouverte puis
+  fermée à 10:02:58, `asusd` réagissant immédiatement), redémarrage
+  confirmé par l'audit système (`cmd="reboot"`, 10:27:26) — détail complet
+  dans `docs/gpu-mux-recovery.md` § Résultats observés. Ce que même ce
+  journal ne montre pas — la valeur exacte de `pending_reboot` lue
+  immédiatement après l'écriture, `journalctl` ne capturant que
+  l'invocation, pas le stdout — reste un point non résolu, marqué dans
+  `docs/gpu-mux-recovery.md`, pas ici, pour ne pas dupliquer le marqueur.
+  Cette série se limite à vérifier et consigner l'état résultant, par
+  lecture seule exclusivement — aucune écriture système, aucune
+  installation, aucun rôle exécuté.
+  Vérifié dans cette session par commande directe : `gpu_mux_mode/
+  current_value=1`, `pending_reboot=0`, `dgpu_disable=0` (inchangé), les
+  deux chemins `asus-armoury` et `asus-nb-wmi` (déprécié) concordants.
+  Deux points non résolus fermés par la preuve : survie du ScreenPad Plus
+  (`docs/gpu-mux-recovery.md`, comparaison du fichier de trace non
+  versionné `roles/gpu_mux/trace/pre-bascule-20260805T100255.json` et
+  d'une lecture post-redémarrage) ; rôle exact d'`asus-shutdown.service`
+  (`journalctl -u asus-shutdown -b -1`, cinq tentatives `modprobe -r` en
+  échec puis application quand même de l'attribut différé — le
+  déchargement des modules n'est pas nécessaire au succès de la bascule).
+  Motif de la révocation partielle de D2ter corrigé : la prémisse
+  d'origine (« la file d'`asusd` n'est jamais consommée car
+  `asus-shutdown` est désactivé ») est fausse, démentie par ce même
+  journal ; le motif retenu devient la vérifiabilité (`pending_reboot`)
+  plutôt qu'une impossibilité de la voie `asusd` — avec un doute résiduel
+  consigné (écriture directe et file `asusd` portaient la même valeur
+  cible, laquelle a agi est indéterminable). Règle fausse corrigée dans
+  `CLAUDE.md` § Matériel spécifique : `current_value` reflète l'écriture
+  immédiatement (état voulu), pas l'état réalisé par le MUX matériel —
+  l'ancienne règle avait été transposée par analogie depuis l'attribut
+  déprécié `asus-nb-wmi` sans vérification sur le chemin réellement
+  utilisé ; règle générale ajoutée contre ce type de transposition non
+  mesurée. Renumérotation DRM (`card2`→`card0` NVIDIA, `card1` stable
+  AMD) et renommage KScreen (`eDP-2`→`eDP-1`) consignés en « Affichage »
+  et « GPU », avec la conséquence retenue que toute configuration future
+  référençant les anciens noms est périmée. Deux nouveaux points non
+  résolus ouverts : mécanisme exact de démarrage à la demande
+  d'`asus-shutdown.service` ; cause du maintien de la dGPU en `P0` au
+  repos après bascule (contre `P8` avant) et voie de correction — nouveau
+  point ouvert, D2bis atteint seulement partiellement (`kwin_wayland`
+  reste un client de la dGPU, VRAM et nombre de processus graphiques
+  nettement réduits mais pas nuls). Point ouvert « Préservation du mode
+  2560x1600@240 » résolu (préservé, et même devenu le mode marqué
+  préféré). D2bis marquée appliquée. Aucune écriture système dans cette
+  série : `docs/gpu-mux-recovery.md`, `CLAUDE.md` et ce fichier sont les
+  seuls fichiers modifiés.
