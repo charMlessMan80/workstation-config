@@ -9,8 +9,12 @@ galaxy_info:
     dans un trousseau temporaire isolé, dépôt écrit avec gpgcheck=1
     toujours actif, génération de la spécification CDI dans /etc/cdi
     (jamais /run/cdi, tmpfs), vérification que les nœuds UVM y sont
-    référencés. Ne touche jamais SELinux, dgpu_disable, gpu_mux_mode,
-    supergfxd ou asus-shutdown. Ne redémarre jamais la machine.
+    référencés. Détection de péremption après mise à jour du pilote
+    (tag verify-cdi-spec) et régénération conditionnelle, jamais
+    inconditionnelle (tag regen-cdi-spec, écrit seulement si périmé,
+    vérifié avant et après écriture). Ne touche jamais SELinux,
+    dgpu_disable, gpu_mux_mode, supergfxd ou asus-shutdown. Ne
+    redémarre jamais la machine.
   license: MIT
   min_ansible_version: "2.15"
   platforms:

@@ -180,6 +180,20 @@ sans comprendre pourquoi elle a été posée.
   (la garde déclenche bien le bon message quand la condition est violée).
   Motif : une garde qui n'a été testée que dans le sens qui marche n'est pas
   une garde, c'est une supposition.
+- **Une garde modifiée perd la démonstration qui la validait ; toute
+  correction d'une garde impose de rejouer ses deux démonstrations.**
+  Corriger un défaut dans la logique d'une garde (ex. un ancrage de motif
+  trop large ou trop étroit) ne suffit pas à restaurer la preuve que la
+  garde fonctionne encore dans les deux sens (§ ci-dessus) — cette preuve
+  datait de l'ancienne logique, pas de la nouvelle. Motif : le 2026-08-05,
+  l'assertion `gpgcheck` de `roles/gpu_cdi/` a été corrigée (une recherche
+  de sous-chaîne qui matchait à tort `repo_gpgcheck=0` a été remplacée par
+  un ancrage de début de ligne) sans rejouer ni la démonstration d'échec
+  forcé ni la démonstration de non-déclenchement légitime — livrable clos
+  en sachant seulement que la garde corrigée ne cassait plus à tort,
+  jamais reconfirmé qu'elle cassait encore à raison. Rejoué le 2026-08-06
+  (`roles/gpu_cdi/tasks/main.yml`, garde gpgcheck) : les deux sens
+  passent avec la logique corrigée.
 - **Une capacité découverte qui contredit une contrainte déjà établie se
   signale, elle ne s'exploite pas silencieusement.** Si une vérification de
   routine révèle qu'une action interdite ou supposée bloquée (élévation de

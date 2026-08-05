@@ -1,0 +1,107 @@
+---
+# Faits de péremption — purement descriptif, AUCUNE assertion ici.
+# Calcule gpu_cdi_verify_file_exists, gpu_cdi_verify_missing_paths,
+# gpu_cdi_verify_spec_version, gpu_cdi_verify_loaded_version, et le
+# résumé gpu_cdi_verify_is_stale — sans jamais faire échouer le play.
+#
+# Deux consommateurs distincts, volontairement séparés pour ne pas
+# dupliquer cette logique :
+#   - verify_spec.yml importe ce fichier PUIS échoue bruyamment sur les
+#     faits calculés (tag verify-cdi-spec, et vérification finale
+#     post-régénération) ;
+#   - regen_spec.yml importe ce fichier pour DÉCIDER, avant d'écrire quoi
+#     que ce soit, si une régénération est réellement due — une
+#     régénération inconditionnelle romprait "sha256sum inchangé si
+#     aucune régénération n'était due" même quand la spécification
+#     réelle est déjà à jour.
+#
+# Risque documenté : la spécification référence les bibliothèques du
+# pilote 610.43.03 (docs/machine-facts.md § GPU) ; une mise à jour de
+# pilote via rpmfusion-nonfree-updates remplace ces fichiers versionnés
+# sur le disque sans jamais toucher au contenu de la spécification déjà
+# écrite — le conteneur démarre quand même, le GPU devient invisible,
+# l'application se rabat sur le CPU, SANS ERREUR.
+#
+# Ancrage du numéro de version côté spécification : uniquement
+# `libcuda.so.<version>`, jamais une recherche générique d'un motif
+# "X.Y.Z" dans tout le fichier — un motif générique collisionnerait avec
+# des bibliothèques versionnées indépendamment du pilote (ex.
+# libnvidia-egl-wayland.so.1.1.21, propre schéma de version, pas celui du
+# pilote — présent dans /etc/cdi/nvidia.yaml sur cette machine).
+# Corroboré localement, pas supposé : le suffixe de libcuda.so.610.43.03
+# dans la spécification réelle de cette machine, le NVR des paquets
+# xorg-x11-drv-nvidia*/kmod-nvidia (`rpm -qa`), et
+# /proc/driver/nvidia/version portent tous la même chaîne `610.43.03` —
+# trois sources locales indépendantes convergentes.
+
+- name: "Péremption — le fichier à vérifier existe-t-il ? ({{ gpu_cdi_verify_spec_path }})"
+  ansible.builtin.stat:
+    path: "{{ gpu_cdi_verify_spec_path }}"
+  register: gpu_cdi_verify_spec_stat
+
+- name: "Péremption — retenir l'existence du fichier"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_file_exists: "{{ gpu_cdi_verify_spec_stat.stat.exists }}"
+
+- name: "Péremption — lire la spécification à vérifier (seulement si elle existe)"
+  ansible.builtin.slurp:
+    src: "{{ gpu_cdi_verify_spec_path }}"
+  register: gpu_cdi_verify_spec_content
+  when: gpu_cdi_verify_file_exists
+
+- name: "Péremption — extraire tous les chemins de bibliothèques référencés (hostPath)"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_hostpaths: '{{ (gpu_cdi_verify_spec_content.content | b64decode) | regex_findall("hostPath:\s*(\S+)") }}'
+  when: gpu_cdi_verify_file_exists
+
+- name: "Péremption — statuer sur chaque chemin référencé (existe-t-il encore sur l'hôte ?)"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: gpu_cdi_verify_hostpaths_stat
+  loop: "{{ gpu_cdi_verify_hostpaths }}"
+  loop_control:
+    label: "{{ item }}"
+  when: gpu_cdi_verify_file_exists
+
+- name: "Péremption — liste des chemins manquants"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_missing_paths: "{{ gpu_cdi_verify_hostpaths_stat.results | selectattr('stat.exists', 'equalto', false) | map(attribute='item') | list }}"
+  when: gpu_cdi_verify_file_exists
+
+- name: "Péremption — extraire tous les motifs libcuda.so.<version> (normalement un seul)"
+  # regex_findall (pas regex_search) : retourne toujours une liste, même
+  # vide — pas d'ambiguïté chaîne-vs-liste selon qu'il y ait ou non un
+  # groupe capturant unique (comportement de regex_search qui varie
+  # selon la version d'ansible-core et a produit, en test, une valeur
+  # affichée comme liste à un élément au lieu d'une chaîne).
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_spec_versions: '{{ (gpu_cdi_verify_spec_content.content | b64decode) | regex_findall("libcuda\.so\.([0-9]+\.[0-9]+\.[0-9]+)") }}'
+  when: gpu_cdi_verify_file_exists
+
+- name: "Péremption — retenir la version encodée dans la spécification (chaîne vide si absente ou fichier absent)"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_spec_version: "{{ gpu_cdi_verify_spec_versions[0] | default('', true) if gpu_cdi_verify_file_exists else '' }}"
+
+- name: "Péremption — lire la version du pilote réellement chargé (/proc/driver/nvidia/version, jamais supposée)"
+  ansible.builtin.command:
+    cmd: cat /proc/driver/nvidia/version
+  register: gpu_cdi_verify_loaded_version_raw
+  changed_when: false
+  check_mode: false
+
+- name: "Péremption — extraire tous les numéros de version depuis /proc/driver/nvidia/version"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_loaded_versions: '{{ gpu_cdi_verify_loaded_version_raw.stdout | regex_findall("([0-9]+\.[0-9]+\.[0-9]+)\s+Release Build") }}'
+
+- name: "Péremption — retenir la version réellement chargée (chaîne vide si non trouvée)"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_loaded_version: "{{ gpu_cdi_verify_loaded_versions[0] | default('', true) }}"
+
+- name: "Péremption — résumer en un booléen unique (utilisé par regen_spec.yml pour décider d'écrire ou non)"
+  ansible.builtin.set_fact:
+    gpu_cdi_verify_is_stale: >-
+      {{ (not gpu_cdi_verify_file_exists)
+         or (gpu_cdi_verify_missing_paths | default([]) | length > 0)
+         or (gpu_cdi_verify_spec_version | length == 0)
+         or (gpu_cdi_verify_loaded_version | length == 0)
+         or (gpu_cdi_verify_spec_version != gpu_cdi_verify_loaded_version) }}

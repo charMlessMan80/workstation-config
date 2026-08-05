@@ -35,6 +35,33 @@ duplique pas ce contenu.
 8. Échoue bruyamment si la spécification générée ne référence pas les
    nœuds UVM — une spécification valide mais incomplète est un faux
    positif, pas un succès.
+9. Vérifie que la spécification (celle qui vient d'être générée, par
+   défaut) n'est pas périmée : tous les chemins de bibliothèques
+   référencés existent encore sur l'hôte, et la version encodée
+   (`libcuda.so.<version>`) correspond à la version du pilote réellement
+   chargée (`/proc/driver/nvidia/version`). Fait partie du run complet.
+
+## Péremption de la spécification CDI (`docs/gpu-containers.md` § Péremption)
+
+Risque documenté : une mise à jour du pilote NVIDIA
+(`rpmfusion-nonfree-updates`) remplace les bibliothèques versionnées sur
+le disque sans jamais toucher au contenu de `/etc/cdi/nvidia.yaml` déjà
+écrit — le conteneur démarre quand même, le GPU devient invisible,
+l'application se rabat sur le CPU, **sans erreur**. Deux tags dédiés,
+indépendants du run par défaut :
+
+- `--tags verify-cdi-spec` — vérification seule, jamais d'écriture,
+  jamais de `become`, ne réveille jamais le GPU. Utilisable seule ou sur
+  une copie (`-e gpu_cdi_verify_spec_path=<chemin>`).
+- `--tags regen-cdi-spec` — constate d'abord si la spécification réelle
+  est périmée (lecture seule) ; si elle est déjà à jour, n'écrit rien
+  (`changed=0`, `sha256sum` inchangé). Si elle est périmée ou absente,
+  génère dans un fichier de travail privé, le vérifie, et ne l'installe
+  dans `/etc/cdi/nvidia.yaml` que si cette vérification passe — jamais
+  d'écriture à partir d'un contenu non vérifié.
+
+Aucun déclencheur automatique (udev/systemd/dnf5) : choix délibéré et
+argumenté, voir `docs/gpu-containers.md` § Péremption.
 
 ## Ce que ce rôle ne fait jamais
 
@@ -64,6 +91,12 @@ privilège. Ce compte n'a pas de règle `NOPASSWD` :
 ansible-playbook --syntax-check roles/gpu_cdi/gpu_cdi.yml
 ansible-playbook --check roles/gpu_cdi/gpu_cdi.yml
 ansible-playbook --ask-become-pass roles/gpu_cdi/gpu_cdi.yml   # écriture réelle
+
+# Après une mise à jour du pilote NVIDIA — vérification seule (jamais d'écriture) :
+ansible-playbook --tags verify-cdi-spec roles/gpu_cdi/gpu_cdi.yml
+
+# Régénère seulement si la vérification ci-dessus a cassé (sinon changed=0) :
+ansible-playbook --ask-become-pass --tags regen-cdi-spec roles/gpu_cdi/gpu_cdi.yml
 ```
 
 ## Variables

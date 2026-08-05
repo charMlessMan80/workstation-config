@@ -2,9 +2,14 @@
 # Playbook d'exécution/test du rôle gpu_cdi, ciblant localhost — même
 # patron que roles/gpu_mux/gpu_mux.yml et roles/recovery/recovery.yml.
 # Ce rôle écrit dans /etc/ (dépôt, paquets, spécification CDI) : toute
-# exécution réelle (pas --check) exige une élévation de privilège. Ce
-# compte n'a pas de règle NOPASSWD — exécuter avec
-# `ansible-playbook --ask-become-pass roles/gpu_cdi/gpu_cdi.yml`.
+# exécution réelle (pas --check) exige une élévation de privilège.
+# [CORRIGÉ le 2026-08-06] Ce compte porte depuis le 2026-08-05 une règle
+# `NOPASSWD: ALL` (décision D9, docs/machine-facts.md § Décisions) — les
+# tâches `become: true` de ce rôle s'exécutent donc sans invite. La
+# mention précédente (« pas de règle NOPASSWD ») datait d'avant D9 et
+# n'avait pas été corrigée ici. `--ask-become-pass` reste accepté (sans
+# effet si aucun mot de passe n'est demandé) pour qui exécuterait ce
+# rôle sur un autre compte que celui de ce poste.
 - name: gpu_cdi — accès GPU rootless par CDI natif (D7/D8)
   hosts: localhost
   connection: local

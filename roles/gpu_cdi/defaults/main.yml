@@ -55,3 +55,11 @@ gpu_cdi_spec_path: "{{ gpu_cdi_spec_dir }}/nvidia.yaml"
 gpu_cdi_uvm_devices:
   - /dev/nvidia-uvm
   - /dev/nvidia-uvm-tools
+
+# Chemin vérifié par le tag verify-cdi-spec (§ 3, demande du 2026-08-06).
+# Par défaut, la spécification réelle. Existe comme variable distincte
+# de gpu_cdi_spec_path pour permettre la démonstration par simulation
+# (§ 5) : -e gpu_cdi_verify_spec_path=<copie de travail rendue périmée>
+# — la vraie spécification n'est alors jamais lue ni altérée par cette
+# invocation.
+gpu_cdi_verify_spec_path: "{{ gpu_cdi_spec_path }}"

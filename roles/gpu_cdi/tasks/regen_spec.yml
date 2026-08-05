@@ -1,0 +1,107 @@
+---
+# Régénération de la spécification CDI (demande du 2026-08-06, § 4).
+# Jamais dans le run par défaut du rôle — uniquement sur demande
+# explicite : `ansible-playbook gpu_cdi.yml --tags regen-cdi-spec`.
+#
+# Conditionnelle, pas inconditionnelle : la spécification réelle est
+# d'abord CONSTATÉE (check_spec.yml, lecture seule, ne peut pas faire
+# échouer le play) — /etc/cdi/nvidia.yaml n'est écrasé que si ce constat
+# la trouve périmée ou absente. Une régénération inconditionnelle
+# romprait la propriété "sha256sum inchangé si aucune régénération
+# n'était due" même quand la spécification réelle est déjà à jour —
+# détecté par test le 2026-08-06 (première version de ce fichier
+# régénérait à chaque appel, changed=1 même sans péremption réelle).
+#
+# Voie retenue pour l'écriture elle-même, et pourquoi (argumentaire
+# complet et options écartées : docs/gpu-containers.md § Péremption) :
+# générer dans un fichier de travail PRIVÉ, non privilégié (jamais
+# directement dans /etc/cdi), le VÉRIFIER avec exactement la même tâche
+# de détection que le tag verify-cdi-spec, et n'installer dans /etc/cdi
+# qu'un fichier déjà confirmé complet et à jour. Si la vérification du
+# fichier de travail échoue, ce bloc s'arrête (échec bruyant) et
+# /etc/cdi/nvidia.yaml n'est JAMAIS touché — mieux vaut refuser que
+# d'installer une spécification tronquée.
+#
+# Précondition matérielle (nvidia_uvm chargé, nœuds UVM présents,
+# nvidia-smi fonctionnel) : déjà garantie par les Gardes 0/1/2/3 en tête
+# de tasks/main.yml, étiquetées elles aussi 'regen-cdi-spec' — elles
+# s'exécutent avant d'atteindre ce fichier quel que soit le point
+# d'entrée. Pas dupliquée ici.
+#
+# Aucun déclencheur automatique (udev/systemd/dnf5) n'a été retenu — ce
+# choix est délibéré et documenté, pas un renoncement silencieux (voir
+# docs/gpu-containers.md § Péremption, options écartées et leur coût).
+
+- name: "Régén. — constater si la spécification réelle est périmée (lecture seule, avant toute décision d'écrire)"
+  ansible.builtin.import_tasks: check_spec.yml
+  vars:
+    gpu_cdi_verify_spec_path: "{{ gpu_cdi_spec_path }}"
+  tags: ['regen-cdi-spec']
+
+- name: "Régén. — rien à faire : la spécification réelle est déjà à jour"
+  ansible.builtin.debug:
+    msg: >-
+      {{ gpu_cdi_spec_path }} est déjà à jour (version
+      {{ gpu_cdi_verify_spec_version }} == version chargée
+      {{ gpu_cdi_verify_loaded_version }}, tous les chemins référencés
+      présents) — aucune écriture, aucun changement.
+  when: not gpu_cdi_verify_is_stale
+  tags: ['regen-cdi-spec']
+
+- name: >-
+    Régén. — spécification périmée ou absente : régénérer, bloc borné,
+    nettoyage garanti (succès ou échec)
+  when: gpu_cdi_verify_is_stale and not ansible_check_mode
+  tags: ['regen-cdi-spec']
+  block:
+    - name: "Régén. — créer un fichier de travail privé pour la nouvelle spécification (jamais /etc/cdi directement)"
+      ansible.builtin.tempfile:
+        state: file
+        prefix: gpu_cdi_regen.
+        suffix: .yaml
+      register: gpu_cdi_regen_tmpfile
+      changed_when: false
+
+    - name: "Régén. — générer la spécification dans le fichier de travail (nvidia-ctk, sans privilège — vérifié le 2026-08-06)"
+      ansible.builtin.command:
+        cmd: "nvidia-ctk cdi generate --output={{ gpu_cdi_regen_tmpfile.path }}"
+      register: gpu_cdi_regen_generate
+      changed_when: false
+
+    - name: "Régén. — vérifier le fichier de travail avant toute écriture dans /etc/cdi (réutilise le tag verify-cdi-spec)"
+      ansible.builtin.import_tasks: verify_spec.yml
+      vars:
+        gpu_cdi_verify_spec_path: "{{ gpu_cdi_regen_tmpfile.path }}"
+
+    - name: "Régén. — installer le fichier de travail vérifié à la place de la spécification réelle (seule écriture privilégiée de ce bloc)"
+      ansible.builtin.copy:
+        src: "{{ gpu_cdi_regen_tmpfile.path }}"
+        dest: "{{ gpu_cdi_spec_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      register: gpu_cdi_regen_install
+
+    - name: "Régén. — vérifier la spécification réellement installée (boucle fermée, sur le fichier final)"
+      ansible.builtin.import_tasks: verify_spec.yml
+      vars:
+        gpu_cdi_verify_spec_path: "{{ gpu_cdi_spec_path }}"
+  always:
+    - name: "Régén. — purger le fichier de travail (aucune trace laissée, succès ou échec)"
+      ansible.builtin.file:
+        path: "{{ gpu_cdi_regen_tmpfile.path }}"
+        state: absent
+      changed_when: false
+      when: gpu_cdi_regen_tmpfile is defined
+
+- name: "Rapporter l'intention (mode simulation --check, spécification périmée)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : {{ gpu_cdi_spec_path }} est périmée ou absente. Une
+      exécution réelle générerait une nouvelle spécification dans un
+      fichier de travail, la vérifierait, puis ne l'installerait que si
+      cette vérification passe.
+  when: gpu_cdi_verify_is_stale and ansible_check_mode
+  tags: ['regen-cdi-spec']

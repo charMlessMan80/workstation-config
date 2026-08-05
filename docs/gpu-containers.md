@@ -1040,6 +1040,345 @@ inchangé ; aucun `setenforce` exécuté ; aucun booléen SELinux modifié ;
 aucun dépôt autre que le COPR retenu ; `terra` non désactivé ; aucune
 modification de `/etc/sudoers` ; aucun redémarrage.
 
+## 9. Péremption de la spécification CDI (2026-08-06)
+
+Risque documenté avant ce livrable, non traité en § 8 : `/etc/cdi/nvidia.yaml`
+référence les bibliothèques du pilote `610.43.03` (voir
+`docs/machine-facts.md` § GPU) par des chemins qui portent le numéro de
+version dans leur nom de fichier (ex. `/usr/lib64/libcuda.so.610.43.03`).
+Une mise à jour du pilote via `rpmfusion-nonfree-updates` remplace ces
+fichiers par leurs équivalents à la nouvelle version — les anciens sont
+effacés par le remplacement de paquet RPM (noms de fichiers distincts,
+pas de déduplication possible). La spécification déjà écrite continue de
+référencer les anciens chemins, désormais absents. **Le conteneur
+démarre quand même, le GPU devient invisible, l'application se rabat sur
+le CPU — sans erreur.**
+
+### 9.1 — Ce que l'outillage gère déjà lui-même (établi avant toute conception, § 2 de la demande)
+
+Trois sources consultées directement sur cette machine, pas supposées :
+
+**`nvidia-ctk` (1.19.1, celui installé en Phase 1, § 7) — aide intégrée
+lue, pas la mémoire** :
+```
+$ nvidia-ctk cdi --help
+COMMANDS:
+   generate   Generate CDI specifications for use with CDI-enabled runtimes
+   list       List the available CDI devices
+   transform  Apply a transform to a CDI specification
+```
+Trois sous-commandes, aucune ne fait de la détection de péremption ni de
+la régénération conditionnelle — `generate` (re)génère inconditionnellement
+sur demande explicite, `list`/`transform` n'ont pas ce rôle. Confirmé par
+un essai réel (sans privilège, vers un fichier de travail hors `/etc/`,
+aucune écriture système) : `nvidia-ctk cdi generate --output=<tmp>`
+exécuté deux fois de suite **écrase sans avertissement** le fichier de
+sortie s'il existe déjà — aucune détection de "déjà à jour" côté outil,
+aucun indicateur de sortie distinguant "rien à faire" de "régénéré". La
+détection de péremption et la décision "faut-il régénérer ?" n'existent
+nulle part dans l'outil — à construire entièrement (§ 9.2, § 9.3).
+
+**Contenu réel du paquet installé (`rpm -ql nvidia-container-toolkit
+nvidia-container-toolkit-selinux`)** : aucune unité `systemd`, aucune
+règle `udev`, aucun script de déclenchement lié à la péremption de CDI —
+seulement les binaires (`nvidia-ctk`, `nvidia-cdi-hook`,
+`nvidia-container-runtime*`), la documentation, les licences, et pour le
+sous-paquet `-selinux` le module `.pp` déjà traité en § 7.2/8.7. Les
+seules règles `udev` liées à NVIDIA présentes sur cette machine
+(`/usr/lib/udev/rules.d/10-nvidia.rules`, paquet RPM Fusion, déjà
+inventoriées) déclenchent `nvidia-fallback.service` à l'apparition du
+périphérique PCI — sans rapport avec CDI. `akmod-nvidia` ne dépose aucun
+déclencheur post-construction exploitable pour ce besoin (`rpm -ql
+akmod-nvidia` : uniquement les sources et un pointeur `.latest`).
+**Aucun mécanisme fourni par le fournisseur ne couvre ce besoin — rien à
+réutiliser, rien à éviter de dupliquer.**
+
+**`dnf5` — mécanisme de déclenchement post-transaction** :
+```
+$ rpm -q dnf5-plugins
+dnf5-plugins-5.4.2.1-1.fc44.x86_64
+$ ls /usr/lib64/dnf5/plugins/
+builddep_cmd_plugin.so  copr_cmd_plugin.so  ...  reposync_cmd_plugin.so
+$ ls /etc/dnf/plugins/
+copr.conf  debuginfo-install.conf  expired-pgp-keys.conf
+```
+Les seuls plugins `dnf5` présents sur cette machine sont des plugins de
+**commande** compilés (`.so`, ex. `copr`, `builddep`) — aucun ne fournit
+de mécanisme "exécuter un script après toute transaction" déclarable en
+configuration, à la différence des anciens plugins `dnf4` de type
+`actions.conf` (absent ici, `/etc/dnf/plugins/` ne contient que trois
+fichiers `.conf` sans rapport). Écrire un plugin `dnf5` équivalent
+exigerait de compiler un `.so` en C++ contre l'API `libdnf5` — un
+composant logiciel nouveau à maintenir, disproportionné pour ce besoin,
+et qui se heurterait de toute façon au problème de timing du § 9.3
+(un déclencheur en fin de transaction `dnf` tourne trop tôt, voir
+plus bas). **Aucun mécanisme `dnf5` léger et déclaratif n'existe pour ce
+besoin — écarté, pas ignoré.**
+
+### 9.2 — Détection (§ 3 de la demande)
+
+Implémentée comme tâches du rôle, réutilisables indépendamment de toute
+régénération (`roles/gpu_cdi/tasks/check_spec.yml`, faits purs, aucune
+assertion, et `roles/gpu_cdi/tasks/verify_spec.yml`, qui importe ces
+faits puis échoue bruyamment) :
+
+1. Extraction de tous les chemins `hostPath:` de la spécification
+   (bibliothèques référencées) — `regex_findall`, pas d'hypothèse sur
+   leur nombre ou leur nom.
+2. `stat` de chacun sur l'hôte — liste des chemins manquants.
+3. Version encodée dans la spécification : ancrée sur
+   `libcuda.so.<version>` uniquement, **jamais** une recherche générique
+   d'un motif `X.Y.Z` dans tout le fichier — un motif générique
+   collisionnerait avec des bibliothèques versionnées indépendamment du
+   pilote (ex. `libnvidia-egl-wayland.so.1.1.21`, présente dans la
+   spécification réelle de cette machine, propre schéma de version, pas
+   celui du pilote). Corroboré localement (pas supposé) : le suffixe de
+   `libcuda.so.610.43.03` dans la spécification réelle, le NVR des
+   paquets `xorg-x11-drv-nvidia*`/`kmod-nvidia` (`rpm -qa`), et
+   `/proc/driver/nvidia/version` portent tous la même chaîne
+   `610.43.03` sur cette machine — trois sources locales indépendantes
+   convergentes.
+4. Version réellement chargée : lue dans `/proc/driver/nvidia/version`
+   (source nommée explicitement par la demande), jamais supposée égale
+   à la version encodée.
+5. Échec bruyant si l'une ou l'autre condition est violée, avec message
+   nommant la version attendue (chargée) et la version trouvée (spécification), plus la liste des chemins manquants.
+
+Tag dédié `verify-cdi-spec`, entièrement en lecture, sans `become` :
+```
+ansible-playbook gpu_cdi.yml --tags verify-cdi-spec \
+  [-e gpu_cdi_verify_spec_path=<chemin>]
+```
+**Ne réveille jamais le GPU** : ne lance ni `nvidia-smi` ni aucun appel
+qui interroge activement le pilote (le mécanisme de réveil RTD3 établi
+en § 5 de ce document) — lecture de `/proc/driver/nvidia/version` (état
+déjà en mémoire, pas une interrogation matérielle) et `stat` de fichiers
+sur disque uniquement. Sûr à lancer aussi souvent qu'on veut, y compris
+sur une machine dont le GPU est actuellement suspendu.
+
+### 9.3 — Régénération (§ 4 de la demande) : voie retenue et options écartées
+
+**Contrainte de timing, au cœur du choix** : la régénération exige que
+`nvidia_uvm` soit chargé et que `/dev/nvidia-uvm*` existe (déjà gardé en
+tête de `tasks/main.yml`, Gardes 1/2, réutilisées ici sans duplication).
+Un déclencheur qui s'exécute **immédiatement** en fin de transaction
+`dnf` (RPM `%posttrans`, plugin `dnf5` compilé) rencontre potentiellement
+ce problème : rien ne garantit qu'un client CUDA a déjà tourné à cet
+instant précis, en particulier juste après un démarrage à froid.
+
+**Option écartée — RPM `%triggerin`/`%posttrans` sur le paquet pilote.**
+Coût : exigerait de reconstruire ou d'attacher un scriptlet à un paquet
+qu'on ne possède pas (`xorg-x11-drv-nvidia-libs`, RPM Fusion) —
+non invasif impossible sans réempaqueter, fragile à chaque changement de
+version amont. Risque : s'exécute au **pire moment possible** (à
+l'intérieur même de la transaction RPM, avant tout rechargement de
+module, avant tout client CUDA) — exactement le cas nommé par la
+demande comme rencontrant le problème de précondition. Écartée.
+
+**Option écartée — plugin `dnf5` compilé, hook post-transaction.**
+Coût : composant logiciel nouveau (C++, API `libdnf5`) à maintenir sur ce
+poste, sans rapport avec la nature du reste du dépôt (configuration, pas
+développement de plugin gestionnaire de paquets). Risque : même défaut de
+timing que l'option précédente (fin de transaction, précondition non
+garantie) ; surface de bogue supplémentaire dans un composant qui
+tournerait avec les privilèges de `dnf`. Écartée — confirmé en § 9.1
+qu'aucun mécanisme équivalent léger n'existe déjà.
+
+**Option écartée — règle `udev` + service `systemd` déclenché à
+l'apparition de `/dev/nvidia-uvm`.** C'est l'option la plus proche de
+résoudre le problème de timing *par construction* (le déclencheur ne
+peut se produire que quand la précondition est déjà vraie). Coût : une
+règle `udev` et une unité `systemd` supplémentaires, persistantes,
+hors du périmètre `roles/gpu_cdi/`/`docs/` — infrastructure racine
+non supervisée qui s'exécute sans opérateur présent. Risque, plus
+sérieux que le coût : une machine qui reste allumée après une mise à
+jour du pilote, sans redémarrage ni déchargement de `nvidia_uvm`, ne
+génère **aucun** évènement udev "ajout" (le nœud existe déjà en continu)
+— la fenêtre exacte où la spécification est périmée ne déclencherait
+alors **jamais** la correction automatique avant le prochain
+redémarrage, silencieusement. Un service déclenché par `udev` tourne de
+plus sans supervision interactive : une erreur de script y est
+beaucoup plus difficile à remarquer qu'un échec de commande lancée à la
+main. Écartée : le gain (correction automatique dans le cas le plus
+fréquent, redémarrage après mise à jour) ne compense pas le risque d'un
+mécanisme root non supervisé dont le mode de silence résiduel reproduit
+exactement le défaut que ce livrable cherche à fermer.
+
+**Option retenue — vérification et régénération sur demande, taguées,
+réutilisant les gardes déjà en place.** Aucun déclencheur automatique.
+`--tags verify-cdi-spec` (§ 9.2) sert d'alarme, à lancer par l'opérateur
+après toute mise à jour du pilote NVIDIA (documenté ici, pas supposé
+mémorisé) et avant tout usage GPU en conteneur. `--tags regen-cdi-spec`
+:
+1. **Constate** d'abord, en lecture seule (réutilise `check_spec.yml`,
+   sans jamais faire échouer le play à ce stade), si la spécification
+   réelle est périmée. Si elle est déjà à jour : **aucune écriture**,
+   `changed=0`, `sha256sum` inchangé — démontré § 9.5.
+2. Si périmée ou absente : génère dans un **fichier de travail privé**,
+   non privilégié (`nvidia-ctk cdi generate` ne demande aucun privilège
+   pour la découverte et l'écriture hors de `/etc/` — vérifié par essai
+   réel le 2026-08-06, hors de tout chemin système).
+3. **Vérifie ce fichier de travail** avec exactement la même tâche que
+   `verify-cdi-spec` (import, pas de duplication de logique) — si cette
+   vérification échoue, le bloc s'arrête ici, bruyamment, et
+   `/etc/cdi/nvidia.yaml` n'est **jamais** touché.
+4. Seulement si cette vérification passe : installe (copie privilégiée,
+   seule écriture root de tout le mécanisme) le fichier de travail à la
+   place de la spécification réelle.
+5. Revérifie la spécification réellement installée (boucle fermée).
+6. Purge le fichier de travail dans tous les cas (`always:`).
+
+Ce qui départage cette option des trois précédentes : elle ne prétend
+pas résoudre le problème de timing par un déclenchement automatique
+au bon moment (aucune des trois autres options ne le fait de façon
+fiable non plus, à l'analyse) — elle le déplace vers un opérateur qui
+choisit lui-même son moment, en échange de zéro infrastructure racine
+non supervisée et de zéro nouvelle surface de bogue silencieux. Coût
+assumé : la correction n'est pas automatique — un oubli de l'opérateur
+laisse la spécification périmée jusqu'au prochain `verify-cdi-spec`
+lancé. Ce coût est jugé inférieur au risque de silence résiduel de
+l'option `udev`/`systemd` (ci-dessus), pas nul.
+
+### 9.4 — Preuve sans mise à jour du pilote (§ 5 de la demande)
+
+**Simulation** : copie de travail de `/etc/cdi/nvidia.yaml` (jamais le
+fichier réel), toutes les occurrences de `610.43.03` remplacées par une
+version fictive `590.10.01` (`sed`, hors dépôt, dans le répertoire de
+travail temporaire de la session) :
+```
+$ cp /etc/cdi/nvidia.yaml <copie>
+$ sed -i 's/610\.43\.03/590.10.01/g' <copie>
+$ grep -c '590.10.01' <copie>        # 93
+$ grep -c '590.10.01' /etc/cdi/nvidia.yaml   # 0 — jamais touché
+```
+
+**Spécification réelle (valide) → passe** :
+```
+$ ansible-playbook --check --tags verify-cdi-spec gpu_cdi.yml
+"msg": "Spécification à jour : version 610.43.03 == version chargée
+610.43.03, 50 chemins de bibliothèques référencés, tous présents sur
+l'hôte."
+```
+
+**Copie simulée (périmée) → casse avec le bon message** :
+```
+$ ansible-playbook --check --tags verify-cdi-spec \
+    -e gpu_cdi_verify_spec_path=<copie> gpu_cdi.yml
+fatal: [localhost]: FAILED! => {"assertion": "not gpu_cdi_verify_is_stale", ...
+"msg": "Spécification périmée : <copie>. Version attendue (pilote
+réellement chargé, lu dans /proc/driver/nvidia/version) = '610.43.03'.
+Version trouvée (encodée dans la spécification, via libcuda.so) =
+'590.10.01'. Chemins référencés absents de l'hôte (35) : [...]. Un
+conteneur consommant cette spécification démarrerait quand même — le GPU
+serait invisible, sans erreur [...]"}
+```
+`sha256sum /etc/cdi/nvidia.yaml` identique avant et après cette
+invocation (§ 9.5) : la vraie spécification n'a jamais été lue en
+écriture par cette commande, seule la copie l'a été.
+
+**Fidélité de la simulation, explicitée** :
+- **Fidèle** : structure et contenu identiques à une spécification
+  réellement générée par `nvidia-ctk` sur cet hôte — seul le jeton de
+  version est substitué. La détection de chemins manquants et la
+  détection de divergence de version se déclenchent exactement comme
+  elles le feraient contre une spécification authentiquement périmée,
+  puisque les 35 chemins portant l'ancien jeton n'existent
+  effectivement pas sous ce nom sur le disque.
+- **Non fidèle, deux écarts assumés** :
+  1. La péremption réelle naît du remplacement de fichiers par une
+     transaction `dnf` ; ici, aucun fichier réel n'a été supprimé ni
+     créé — seule une chaîne de caractères a été substituée dans une
+     copie. Le mécanisme causal diffère, l'artefact résultant (une
+     spécification qui référence des chemins absents sous l'ancienne
+     version) est structurellement identique.
+  2. Dans un évènement réel, juste après une transaction `dnf` et avant
+     tout redémarrage, `/proc/driver/nvidia/version` continuerait de
+     rapporter l'**ancienne** version (le module noyau chargé ne change
+     qu'au redémarrage) — la divergence de version ne se manifesterait
+     donc qu'**après** redémarrage, alors que l'absence de chemins se
+     manifesterait, elle, **immédiatement** (fichiers déjà remplacés par
+     la transaction). Cette simulation fait apparaître les deux signaux
+     en même temps ; un évènement réel les échelonnerait dans le temps.
+     Sans conséquence sur la validité de la détection elle-même (chaque
+     condition est vérifiée indépendamment, l'une ou l'autre suffit à
+     faire échouer bruyamment), mais à ne pas lire comme une
+     reconstitution fidèle de la chronologie réelle.
+
+### 9.5 — Validations
+
+**`sha256sum /etc/cdi/nvidia.yaml`** :
+- Avant toute action de cette série (spécification issue de la Phase 1,
+  § 8.7) : `7fff6b72e8ee9dbdb30bac861f6747d67b23a5a24f9cad844be52163e7fca52e`.
+- Après le premier essai réel de `--tags regen-cdi-spec`, avant
+  correction de l'arbitrage conditionnel (§ 9.3) — cette première
+  version régénérait **inconditionnellement**, défaut trouvé et corrigé
+  dans cette même série, pas laissé tel quel :
+  `303b2bcc0306aa95b65a17da7c625d73cc30d291d6a6343efb5946e3752d52e6`
+  (différence de contenu attendue : ordre de découverte de certains
+  binaires par `nvidia-ctk`, `/usr/bin` vs `/usr/sbin` selon le `PATH` de
+  l'appelant — sans conséquence fonctionnelle, `verify-cdi-spec` passe
+  sur les deux versions).
+- Après correction (constat non bloquant avant écriture, § 9.3) : deux
+  exécutions réelles supplémentaires de `--tags regen-cdi-spec`,
+  `changed=0` aux deux, `sha256sum` **stable** à
+  `303b2bcc0306aa95b65a17da7c625d73cc30d291d6a6343efb5946e3752d52e6` —
+  aucune régénération n'était due (spécification déjà à jour), aucune
+  écriture n'a eu lieu.
+- Après la simulation § 9.4 (deux invocations avec `gpu_cdi_verify_spec_path`
+  pointant vers la copie) : identique, `303b2bcc...` — jamais touché.
+
+**Test nominal, rejoué en toute fin de série** :
+```
+$ podman run --rm --device nvidia.com/gpu=all docker.io/nvidia/cuda:12.6.2-base-ubi9 nvidia-smi
+[...] NVIDIA GeForce RTX 4090 [...] rc=0
+```
+
+**SELinux** : `getenforce` = `Enforcing` avant et après toute la série ;
+`sudo -n ausearch -m avc -ts recent` → `<no matches>` ; seuls refus
+`setroubleshoot` présents, `power-profiles-` sur `/etc/passwd` — déjà
+documentés en § 8.6 comme préexistants, sans rapport avec ce travail.
+
+**Idempotence pleine du rôle (§ 1.2 de la demande, dette du livrable
+précédent)** : `changed_when: false` ajouté aux trois tâches de
+vérification de clé non idempotentes par conception (création du
+répertoire temporaire, téléchargement, purge — § 7.3/8.7). Deux
+exécutions réelles complètes (`ansible-playbook gpu_cdi.yml`, sans
+`--tags`) : `changed=0` aux deux, contre `changed=3` avant ce livrable.
+La vérification de clé continue de s'exécuter à chaque run (rejouée, pas
+mise en cache) ; elle cesse seulement d'être comptée comme une
+modification d'état persistant.
+
+**Garde `gpgcheck`, démonstration rejouée dans les deux sens (§ 1.1 de
+la demande, dette du livrable précédent)** : extraite telle quelle dans
+un playbook isolé, hors dépôt.
+- Contenu avec `gpgcheck=0` ancré en début de ligne → casse, message
+  confirmé.
+- Contenu avec `repo_gpgcheck=0` (légitime) sans `gpgcheck=0` ancré →
+  passe, aucun déclenchement à tort.
+Motif ajouté à `CLAUDE.md` § Avant d'agir (voir ce fichier) : une garde
+corrigée perd la démonstration qui la validait, la correction doit
+rejouer les deux.
+
+**Actions privilégiées de cette série, énumérées explicitement (`CLAUDE.md`
+§ Avant d'agir)** :
+
+| # | Commande / tâche | Chemin cible | Motif |
+|---|---|---|---|
+| 1 | rôle, tâche « Régén. — installer le fichier de travail vérifié » | `/etc/cdi/nvidia.yaml` (écriture) | seule écriture de la régénération, après double vérification (fichier de travail puis fichier installé) |
+| 2 | `sudo -n ausearch -m avc -ts recent` (×2) | lecture journal d'audit | recherche de refus AVC, avant/après |
+| 3 | `sudo -n true` | néant (sonde) | confirmer que D9 (NOPASSWD) est toujours active avant toute action privilégiée de cette série |
+
+Aucune autre élévation. Les tâches de vérification (`verify-cdi-spec`,
+`check_spec.yml`, la génération dans le fichier de travail) tournent
+sans `become` — confirmé par essai réel que `nvidia-ctk cdi generate`
+n'exige aucun privilège pour la découverte et l'écriture hors de `/etc/`.
+
+**Confirmations finales de cette série** : aucune mise à jour de pilote
+NVIDIA ; aucun nouveau dépôt ; aucune modification de `/etc/sudoers` ;
+`dgpu_disable`, `gpu_mux_mode`, `supergfxd`, `asus-shutdown` non
+touchés ; `terra` non désactivé ; aucun redémarrage ; `getenforce`
+inchangé.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode

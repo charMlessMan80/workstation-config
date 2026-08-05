@@ -410,10 +410,15 @@ comparé au fichier de trace non versionné
   `aardvark-dns` 1.17.1, backend rootless `pasta`. (`podman info`)
 - Stockage : pilote `overlay`, filesystem de backing `btrfs`,
   `graphRoot=/home/mahieumi/.local/share/containers/storage`. (`podman info`)
-- `/etc/cdi/` : absent (`No such file or directory`). Aucune définition CDI
-  n'est donc configurée à ce jour pour exposer le GPU aux conteneurs par ce
-  mécanisme. (`ls -la /etc/cdi/`)
-- `nvidia-container-toolkit` : non installé. (`rpm -q nvidia-container-toolkit`)
+- **[ÉTAIT, jusqu'au 2026-08-05] `/etc/cdi/` : absent.** Depuis la Phase 1
+  exécutée le 2026-08-05 (`docs/gpu-containers.md` § 7-8, décisions D7/D8/D9) :
+  `/etc/cdi/nvidia.yaml` présent, `root:root`, `0644`, 19954 octets
+  (relevé le 2026-08-06). (`ls -la /etc/cdi/`)
+- **[ÉTAIT, jusqu'au 2026-08-05] `nvidia-container-toolkit` : non
+  installé.** Depuis la Phase 1 : `nvidia-container-toolkit-1.19.1-1.fc44.x86_64`
+  et `nvidia-container-toolkit-selinux-1.19.1-1.fc44.noarch`, source COPR
+  `@ai-ml/nvidia-container-toolkit` (D7). (`rpm -q nvidia-container-toolkit
+  nvidia-container-toolkit-selinux`, 2026-08-06)
 - `/etc/containers/containers.conf` : absent, seuls les sous-répertoires par
   défaut (`certs.d`, `networks`, `oci`, `registries.conf`, etc.) sont
   présents dans `/etc/containers/`. (`ls -la /etc/containers/`)
@@ -1297,3 +1302,76 @@ modifier `sudoers` dans un sens comme dans l'autre.
   inchangé, aucun `setenforce`, aucun `--nogpgcheck`, aucun dépôt autre
   que le COPR retenu, `terra` non désactivé, **aucune modification de
   `/etc/sudoers`**, aucun redémarrage.
+- **2026-08-06 — détection de péremption de la spécification CDI et
+  régénération conditionnelle (`docs/gpu-containers.md` § 9).** Risque
+  laissé ouvert par la série précédente : `/etc/cdi/nvidia.yaml`
+  référence les bibliothèques du pilote `610.43.03` par des chemins
+  versionnés dans leur nom de fichier ; une mise à jour de pilote via
+  `rpmfusion-nonfree-updates` les efface sans jamais toucher au contenu
+  de la spécification déjà écrite — conteneur qui démarre quand même,
+  GPU invisible, repli CPU, sans erreur.
+  Établi avant toute conception (aide intégrée `nvidia-ctk`, `rpm -ql`
+  du paquet installé, inventaire des plugins `dnf5` réellement
+  présents) : aucun mécanisme fourni par le fournisseur ou par
+  l'outillage système ne couvre ni la détection de péremption ni la
+  régénération conditionnelle — rien à réutiliser.
+  Détection implémentée comme tâches réutilisables du rôle
+  (`roles/gpu_cdi/tasks/check_spec.yml`, `verify_spec.yml`, tag
+  `verify-cdi-spec`) : chemins de bibliothèques référencés vérifiés un à
+  un sur l'hôte, version encodée (ancrée sur `libcuda.so.<version>`,
+  jamais un motif générique — collision possible avec des bibliothèques
+  versionnées indépendamment du pilote, ex. `libnvidia-egl-wayland.so`)
+  comparée à la version réellement chargée, lue dans
+  `/proc/driver/nvidia/version`. Entièrement en lecture, ne réveille
+  jamais le GPU.
+  Régénération (`roles/gpu_cdi/tasks/regen_spec.yml`, tag
+  `regen-cdi-spec`) délibérément **non automatique** : trois voies de
+  déclenchement automatique évaluées et écartées (scriptlet RPM sur le
+  paquet pilote, plugin `dnf5` compilé, règle `udev`/service `systemd`
+  sur l'apparition de `/dev/nvidia-uvm`) — la dernière, la plus proche
+  de résoudre le problème de précondition (nvidia_uvm chargé) par
+  construction, écartée pour un mode de silence résiduel identifié par
+  analyse (aucun évènement udev si la machine reste allumée, module déjà
+  chargé, après une mise à jour) qui aurait reproduit le défaut que ce
+  livrable ferme. Voie retenue : vérification et régénération sur
+  demande de l'opérateur, taguées, réutilisant les gardes déjà en place
+  (nvidia_uvm chargé, nœuds UVM présents). La régénération elle-même
+  **constate d'abord** (lecture seule) si la spécification réelle est
+  périmée avant d'écrire quoi que ce soit — défaut trouvé et corrigé
+  dans cette même série (une première version régénérait
+  inconditionnellement, rompant la propriété `sha256sum` inchangé quand
+  aucune régénération n'était due) ; génère ensuite dans un fichier de
+  travail non privilégié, le revérifie, et n'installe dans `/etc/cdi`
+  que si cette revérification passe — jamais d'écriture à partir d'un
+  contenu non vérifié.
+  Preuve sans mise à jour de pilote (interdite pour ce livrable) : copie
+  de travail de la spécification réelle, jamais le fichier réel, avec
+  toutes les occurrences de `610.43.03` substituées par une version
+  fictive — passée à la vérification par variable
+  (`gpu_cdi_verify_spec_path`). Casse avec le message attendu (version
+  attendue/trouvée, 35 chemins manquants nommés) ; la vraie spécification
+  reste `sha256sum`-identique avant/après. Fidélité de la simulation
+  explicitée avec ses deux écarts assumés (§ 9.4).
+  Dette du livrable précédent traitée en premier, comme demandé : la
+  démonstration de la garde `gpgcheck` (corrigée le 2026-08-05 sans
+  rejouer ses deux sens) rejouée dans un playbook isolé — casse à raison
+  sur `gpgcheck=0` ancré, passe sur `repo_gpgcheck=0` seul ; règle
+  ajoutée à `CLAUDE.md` (une garde corrigée doit rejouer ses deux
+  démonstrations). `changed_when: false` ajouté aux trois tâches de
+  vérification de clé non idempotentes par conception (§ 8.7 : arbitrage
+  revu, la revérification à chaque exécution est conservée, seul le
+  comptage change) — deux exécutions réelles complètes du rôle,
+  `changed=0` aux deux, contre `changed=3` avant ce livrable.
+  Une inexactitude relevée en passant dans `roles/gpu_cdi/gpu_cdi.yml`
+  (commentaire affirmant l'absence de règle `NOPASSWD`, périmé depuis D9
+  sans avoir été corrigé) a été corrigée par la même occasion — repérée
+  en cours de travail sur ce fichier, pas cherchée activement.
+  Test nominal rejoué en fin de série, succès inchangé ; `getenforce`
+  `Enforcing` avant/après, aucun refus AVC (seuls les refus
+  `power-profiles-`/`/etc/passwd` déjà documentés en § 8.6, sans
+  rapport). Actions privilégiées de cette série (trois, énumérées dans
+  `docs/gpu-containers.md` § 9.5) : une seule écriture réelle dans
+  `/etc/cdi/nvidia.yaml` (régénération, après double vérification), deux
+  lectures `ausearch`/`sudo -n true`. Aucune mise à jour de pilote, aucun
+  nouveau dépôt, aucune modification de `/etc/sudoers`, aucun
+  redémarrage.

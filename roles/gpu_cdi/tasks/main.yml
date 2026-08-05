@@ -29,6 +29,7 @@
       chemin par défaut ici : le vide est un signal d'erreur de
       configuration, pas une valeur à corriger silencieusement.
     success_msg: "gpu_cdi_spec_path = {{ gpu_cdi_spec_path }}, non vide."
+  tags: ['regen-cdi-spec']
 
 - name: "Garde 1 : nvidia_uvm est chargé"
   ansible.builtin.command:
@@ -37,6 +38,7 @@
   changed_when: false
   check_mode: false
   failed_when: false
+  tags: ['regen-cdi-spec']
 
 - name: "Échouer bruyamment si nvidia_uvm n'est pas chargé"
   ansible.builtin.assert:
@@ -49,6 +51,7 @@
       spécification CDI générée sans lui référencerait des nœuds absents
       (voir docs/machine-facts.md § GPU pour le softdep).
     success_msg: "nvidia_uvm chargé."
+  tags: ['regen-cdi-spec']
 
 - name: "Garde 2 : les nœuds de périphérique UVM existent"
   ansible.builtin.stat:
@@ -56,6 +59,7 @@
   loop: "{{ gpu_cdi_uvm_devices }}"
   register: gpu_cdi_uvm_stat
   check_mode: false
+  tags: ['regen-cdi-spec']
 
 - name: "Échouer bruyamment si un nœud UVM est absent"
   ansible.builtin.assert:
@@ -70,6 +74,7 @@
   loop: "{{ gpu_cdi_uvm_stat.results }}"
   loop_control:
     label: "{{ item.item }}"
+  tags: ['regen-cdi-spec']
 
 - name: "Garde 3 : nvidia-smi est fonctionnel (pas seulement présent)"
   ansible.builtin.command:
@@ -78,6 +83,7 @@
   changed_when: false
   check_mode: false
   failed_when: false
+  tags: ['regen-cdi-spec']
 
 - name: "Échouer bruyamment si nvidia-smi ne liste aucun GPU"
   ansible.builtin.assert:
@@ -90,6 +96,7 @@
       Le pilote doit être fonctionnel avant de générer une spécification
       CDI qui prétendrait décrire un périphérique inutilisable.
     success_msg: "nvidia-smi -L : {{ gpu_cdi_nvidia_smi.stdout }}"
+  tags: ['regen-cdi-spec']
 
 - name: "Garde 4 : Podman est en mode rootless"
   ansible.builtin.command:
@@ -148,10 +155,21 @@
 # et purgée après coup quel que soit le résultat.
 
 - name: "Créer un répertoire temporaire isolé pour la vérification de clé (jamais le trousseau système)"
+  # changed_when: false — arbitrage revu (demande du 2026-08-06, § 1.2) :
+  # ceci est une tâche de VÉRIFICATION pure (l'épinglage de l'empreinte,
+  # rejoué intégralement à chaque exécution par conception, § D7 plus
+  # haut), pas une tâche qui gère un état persistant que ce rôle
+  # déclare. changed_when: false ne dispense pas de la rejouer — elle
+  # continue de s'exécuter à chaque fois, elle cesse seulement d'être
+  # comptée comme une modification d'état. Précédemment "corrigé" en
+  # laissant changed=3 par crainte de dégrader la vérification : erreur
+  # d'arbitrage, pas erreur de sécurité — changed_when: false existe
+  # précisément pour ce cas.
   ansible.builtin.tempfile:
     state: directory
     prefix: gpu_cdi_gpgcheck.
   register: gpu_cdi_gpg_tmpdir
+  changed_when: false
   when: not ansible_check_mode
 
 - name: "Télécharger la clé publique du COPR (lecture seule, dans le répertoire temporaire)"
@@ -159,6 +177,7 @@
     url: "{{ gpu_cdi_repo_gpgkey_url }}"
     dest: "{{ gpu_cdi_gpg_tmpdir.path }}/pubkey.gpg"
     mode: "0600"
+  changed_when: false
   when: not ansible_check_mode
 
 - name: "Importer la clé dans le trousseau temporaire isolé (--no-default-keyring)"
@@ -199,6 +218,7 @@
   ansible.builtin.file:
     path: "{{ gpu_cdi_gpg_tmpdir.path }}"
     state: absent
+  changed_when: false
   when: not ansible_check_mode and gpu_cdi_gpg_tmpdir is defined
 
 # --- Dépôt COPR -----------------------------------------------------------
@@ -366,6 +386,27 @@
     success_msg: "{{ item }} référencé dans la spécification CDI."
   loop: "{{ gpu_cdi_uvm_devices }}"
   when: not ansible_check_mode
+
+# --- Péremption : détection autonome et régénération (§ 3/§ 4, demande
+# du 2026-08-06) ------------------------------------------------------------
+# Détail complet, argumentaire et démonstrations dans verify_spec.yml,
+# regen_spec.yml et docs/gpu-containers.md § Péremption. Deux tags
+# dédiés, mutuellement indépendants du run par défaut du rôle :
+#   --tags verify-cdi-spec   vérification seule, jamais d'écriture
+#   --tags regen-cdi-spec    régénère seulement si la vérification du
+#                            fichier de travail passe (jamais /etc/cdi
+#                            écrit à partir d'un contenu non vérifié)
+# Fait aussi partie du run complet par défaut (sans --tags) : une
+# spécification tout juste générée doit, elle aussi, passer cette
+# vérification — ne pas se fier à sa seule existence.
+
+- name: "Vérification de péremption de la spécification CDI (tag dédié : verify-cdi-spec)"
+  ansible.builtin.import_tasks: verify_spec.yml
+  tags: ['verify-cdi-spec']
+
+- name: "Régénération de la spécification CDI si nécessaire (tag dédié : regen-cdi-spec)"
+  ansible.builtin.import_tasks: regen_spec.yml
+  tags: ['regen-cdi-spec']
 
 # --- Rapport final ---------------------------------------------------------
 

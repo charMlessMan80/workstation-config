@@ -1,0 +1,53 @@
+---
+# Vérification de péremption de la spécification CDI (demande du
+# 2026-08-06, § 3) — échec bruyant. Faits calculés dans check_spec.yml
+# (importé ici), asserts ici : garde cette distinction pour que
+# regen_spec.yml puisse réutiliser exactement les mêmes faits sans
+# subir un échec fatal avant d'avoir pu décider s'il y a lieu d'écrire.
+#
+# Utilisable seule, sans rien régénérer :
+#   ansible-playbook gpu_cdi.yml --tags verify-cdi-spec \
+#     [-e gpu_cdi_verify_spec_path=<chemin>]
+# Entièrement en lecture — aucun `become`, aucune écriture, ne réveille
+# jamais le GPU (ne lance ni nvidia-smi ni aucun appel qui interroge
+# activement le pilote — voir docs/gpu-containers.md § 5 sur ce risque
+# précis) : sûr à lancer aussi souvent qu'on veut.
+
+- name: "Vérif. péremption — calculer les faits (voir check_spec.yml)"
+  ansible.builtin.import_tasks: check_spec.yml
+
+- name: "Échouer bruyamment si le fichier à vérifier est absent"
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_verify_file_exists
+    fail_msg: >-
+      {{ gpu_cdi_verify_spec_path }} n'existe pas — rien à vérifier. Si
+      c'est {{ gpu_cdi_spec_path }} lui-même qui est absent, ce n'est pas
+      une péremption mais une absence initiale (voir la tâche "Générer la
+      spécification CDI" de ce rôle, plus haut dans ce fichier).
+    success_msg: "{{ gpu_cdi_verify_spec_path }} présent."
+
+- name: >-
+    Échouer bruyamment si la spécification est périmée (chemin absent
+    et/ou version divergente) — nomme la version attendue et la version
+    trouvée, conformément à la demande
+  ansible.builtin.assert:
+    that:
+      - not gpu_cdi_verify_is_stale
+    fail_msg: >-
+      Spécification périmée : {{ gpu_cdi_verify_spec_path }}. Version
+      attendue (pilote réellement chargé, lu dans
+      /proc/driver/nvidia/version) = '{{ gpu_cdi_verify_loaded_version }}'.
+      Version trouvée (encodée dans la spécification, via libcuda.so) =
+      '{{ gpu_cdi_verify_spec_version }}'. Chemins référencés absents de
+      l'hôte ({{ gpu_cdi_verify_missing_paths | default([]) | length }}) :
+      {{ gpu_cdi_verify_missing_paths | default([]) }}. Un conteneur
+      consommant cette spécification démarrerait quand même — le GPU
+      serait invisible, sans erreur (voir motif en tête de
+      check_spec.yml). Régénérer avec le tag regen-cdi-spec, pas en
+      ignorant ce message.
+    success_msg: >-
+      Spécification à jour : version {{ gpu_cdi_verify_spec_version }} ==
+      version chargée {{ gpu_cdi_verify_loaded_version }},
+      {{ gpu_cdi_verify_hostpaths | default([]) | length }} chemins de
+      bibliothèques référencés, tous présents sur l'hôte.
