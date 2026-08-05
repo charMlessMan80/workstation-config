@@ -352,6 +352,15 @@ explicitement un moyen d'authentification (`--ask-become-pass` en
 exécutant toi-même le rôle, ou une règle `sudoers` `NOPASSWD` limitée à ce
 fichier, à ta décision — pas la mienne).
 
+**[CADUQUE depuis D9, 2026-08-05]** Ce constat était vrai à sa date
+(2026-08-05, plus tôt le même jour) — il n'est pas effacé, seulement
+signalé comme périmé. Depuis D9 (`docs/machine-facts.md` § Décisions),
+`%wheel ALL=(ALL) NOPASSWD: ALL` a été ajouté à `/etc/sudoers` : ce
+compte obtient désormais l'élévation sans mot de passe. Un rôle qui
+échouerait aujourd'hui pour ce même motif signalerait un problème
+différent (règle retirée, compte sorti de `wheel`), pas celui décrit
+ci-dessus.
+
 **Confirmations finales de cette série** : `gpu_mux_mode=0` et
 `pending_reboot=0` inchangés (aucune écriture n'a pu atteindre le
 matériel) ; `dgpu_disable=0` inchangé ; `asus-shutdown` et `supergfxd`

@@ -225,17 +225,24 @@
   when: not ansible_check_mode
 
 - name: "Assertion : gpgcheck=1 présent, gpgcheck=0 absent, dans le fichier réellement écrit"
+  # Défaut révélé par l'exécution réelle du 2026-08-05 : une simple
+  # recherche de sous-chaîne "'gpgcheck=0' in contenu" matche aussi
+  # "repo_gpgcheck=0" (légitimement présent, § 7.1) et casse toujours.
+  # Corrigé par une correspondance ancrée en début de ligne
+  # (regex_search multiligne), pas de refonte plus large.
   ansible.builtin.assert:
     that:
-      - "'gpgcheck=1' in (gpu_cdi_repo_file_content.content | b64decode)"
-      - "'gpgcheck=0' not in (gpu_cdi_repo_file_content.content | b64decode)"
+      - (gpu_cdi_repo_file_content.content | b64decode) is regex('(?m)^gpgcheck=1$')
+      - not ((gpu_cdi_repo_file_content.content | b64decode) is regex('(?m)^gpgcheck=0$'))
     fail_msg: >-
-      Le fichier de dépôt écrit sur le disque ne contient pas
-      gpgcheck=1, ou contient gpgcheck=0 — vérifié sur le contenu réel
-      relu après écriture, pas sur le gabarit source. Interdiction
-      absolue de ce livrable : ne jamais désactiver la vérification de
-      signature des paquets.
-    success_msg: "gpgcheck=1 confirmé sur le fichier réellement écrit."
+      Le fichier de dépôt écrit sur le disque ne contient pas la ligne
+      exacte gpgcheck=1, ou contient une ligne exacte gpgcheck=0 —
+      vérifié sur le contenu réel relu après écriture, pas sur le
+      gabarit source (repo_gpgcheck=0, distinct et légitime, § 7.1, est
+      délibérément exclu de ce test par l'ancrage de début de ligne).
+      Interdiction absolue de ce livrable : ne jamais désactiver la
+      vérification de signature des paquets.
+    success_msg: "gpgcheck=1 confirmé (ligne exacte) sur le fichier réellement écrit."
   when: not ansible_check_mode
 
 # --- Installation -----------------------------------------------------

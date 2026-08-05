@@ -194,7 +194,26 @@ sans comprendre pourquoi elle a été posée.
   un non-événement ; la consigne explicite de la session en cours
   (« ne tente aucun contournement ») aurait été contournée par la
   découverte elle-même plutôt que par une action délibérée — ce qui revient
-  au même du point de vue du principe.
+  au même du point de vue du principe. **Corollaire (généralisé le
+  2026-08-05, confirmé D9)** : lorsqu'un fait observé contredit une
+  consigne ou un fait déjà documenté, s'arrêter et signaler prime sur
+  agir — **quel que soit le sens** dans lequel la contradiction élargit
+  ou restreint les possibilités. Ce n'est pas propre aux découvertes qui
+  débloquent (le cas ci-dessus) : une découverte qui *restreint*
+  silencieusement ce qu'on croyait pouvoir faire appelle la même
+  discipline, pour la même raison — la contradiction elle-même est le
+  signal à traiter, pas seulement celui de ses deux sens qui arrange le
+  livrable en cours.
+- **Toute action privilégiée s'énumère explicitement dans le rapport de
+  livrable — commande, chemin cible, motif.** Depuis D9
+  (`docs/machine-facts.md` § Décisions), l'élévation ne produit plus de
+  friction visible (pas d'invite de mot de passe) : le dernier point où
+  un humain voyait passer une élévation a disparu côté système. Cette
+  visibilité doit être restituée par le rapport, sinon elle est perdue
+  purement et simplement. Motif : une action privilégiée non rapportée
+  est désormais indiscernable d'une action non effectuée — avant D9,
+  l'invite de mot de passe aurait trahi la différence ; ce n'est plus le
+  cas.
 
 ## Dépôt public (D4)
 

@@ -663,6 +663,38 @@ conteneur avec périphériques NVIDIA montés) dépend de la Phase 2
 tentative — aucun changement à signaler puisqu'aucune action n'a
 été entreprise.
 
+**D9 (2026-08-05) — `sudo` sans mot de passe pour le groupe `wheel`**
+(`%wheel ALL=(ALL) NOPASSWD: ALL`, `/etc/sudoers` ligne 110). Décision
+de l'opérateur, poste de développement personnel sans donnée
+professionnelle. `wheel` ne contient qu'un seul compte
+(`getent group wheel` → `wheel:x:10:mahieumi`). Vérifié indépendamment,
+pas seulement rapporté : `sudo -n visudo -c` →
+« /etc/sudoers: parsed OK » ; `/etc/sudoers.d/` vide (`sudo -n ls -la`) ;
+ligne 110 relue directement (`sudo -n sed -n '108,112p' /etc/sudoers`)
+et conforme au texte ci-dessus.
+
+**Conséquence assumée** : le garde-fou *dur* (le système refuse
+l'élévation) est remplacé par un garde-fou *mou* (l'agent respecte le
+périmètre écrit). Le livrable qui a précédé cette décision s'était
+arrêté proprement sur cette barrière (`docs/gpu-mux-recovery.md`,
+passage désormais marqué `[CADUQUE depuis D9]`) ; elle n'existe plus.
+
+**Second effet** : tout processus s'exécutant sous ce compte obtient
+`root` sans invite — dépendance compromise, binaire téléchargé,
+extension de navigateur. La demande de mot de passe était le dernier
+point où un humain voyait passer une élévation. Conséquence consignée
+dans `CLAUDE.md` § Avant d'agir : toute action privilégiée doit
+désormais être énumérée explicitement dans le rapport de livrable,
+faute de quoi cette visibilité perdue par `sudoers` ne l'est nulle
+part.
+
+**Point ouvert de basse priorité** : la règle vit dans `/etc/sudoers`,
+fichier appartenant au paquet `sudo` — une mise à jour peut produire un
+`.rpmnew` et laisser la modification en place sans le signaler. Un
+fichier dédié dans `/etc/sudoers.d/` (actuellement vide) y survivrait
+plus proprement. Non résolu ici : ce livrable n'a pas mandat pour
+modifier `sudoers` dans un sens comme dans l'autre.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -711,8 +743,23 @@ tentative — aucun changement à signaler puisqu'aucune action n'a
   de la clé Terra à comparer à celle publiée par Fyra Labs avant tout
   (ré)import ; l'ID court 0xDE226D6F ne prouve rien à lui seul.` Aucune
   action dans ce livrable : rien n'est importé, aucun dépôt n'est modifié
-  ou désactivé — Terra n'est requis par aucun composant de la chaîne
-  actuelle.
+  ou désactivé.
+  **[REQUALIFIÉ le 2026-08-05]** **ÉTAIT** : « Terra n'est requis par
+  aucun composant de la chaîne actuelle » — **faux**, établi par
+  inventaire réel (`dnf repoquery --installed --qf '%{name}
+  from_repo=%{from_repo}\n' | grep -i 'from_repo=terra'`,
+  `docs/gpu-containers.md` § 8.4) : **six paquets réellement installés**
+  en dépendent — `asusctl`, `asusctl-rog-gui`, `cardwire`, `supergfxctl`,
+  `terra-gpg-keys`, `terra-release`. `asusctl` porte la lecture/écriture
+  des attributs `asus-armoury` (`gpu_mux_mode`, `dgpu_disable`) sur
+  lesquels reposent D2bis et D2ter — Terra n'est donc pas un tiers
+  accessoire mais la source de la pile ASUS de ce poste. Le point non
+  résolu ci-dessus sur l'empreinte de la clé Terra cesse d'être
+  théorique : priorité relevée en conséquence de cette requalification,
+  pas de nouvelle information sur la clé elle-même.
+  Aucune action entreprise ici (ni désactivation, ni recherche
+  d'équivalents, ni import de clé) — traitement réservé à un livrable
+  dédié.
 - **`rpmfusion-free-tainted`** activé délibérément (transaction 18), lié à la
   chaîne multimédia. Établi, pas un point ouvert au sens strict — conservé
   ici pour traçabilité car demandé explicitement.
@@ -1202,3 +1249,51 @@ tentative — aucun changement à signaler puisqu'aucune action n'a
   action SELinux, aucun conteneur autre que les deux tests décrits
   ci-dessus (dont une image tierce téléchargée, exception signalée),
   aucun redémarrage.
+- **2026-08-05 — D9 confirmée, exécution réelle du rôle `gpu_cdi`,
+  fermeture de la série GPU (série suivante).** L'opérateur confirme
+  que `sudo NOPASSWD: ALL` (`%wheel`) est un changement délibéré —
+  consigné comme **D9** (§ Décisions), vérifié indépendamment
+  (`visudo -c`, contenu de `/etc/sudoers.d/`, ligne 110 relue). Passage
+  contradictoire de `docs/gpu-mux-recovery.md` marqué
+  `[CADUQUE depuis D9]`, pas effacé. Deux règles ajoutées à `CLAUDE.md` :
+  énumération explicite de toute action privilégiée dans le rapport de
+  livrable ; corollaire généralisant qu'une contradiction entre un fait
+  observé et une consigne/un fait documenté appelle à s'arrêter et
+  signaler, quel que soit le sens dans lequel elle joue.
+  Rôle `roles/gpu_cdi/` exécuté réellement : un défaut trouvé par
+  l'exécution (assertion `gpgcheck` cassée par une correspondance de
+  sous-chaîne avec `repo_gpgcheck=0`, légitime) corrigé par un ancrage
+  de début de ligne — signalé, pas refactorisé. Deuxième exécution
+  montre `changed=3` sur les seules tâches délibérément non
+  idempotentes (vérification de clé, rejouée à chaque fois par
+  conception) ; l'état persistant (dépôt, paquets, spécification CDI)
+  est, lui, inchangé — expliqué plutôt que maquillé en `changed=0`.
+  Spécification CDI générée dans `/etc/cdi/nvidia.yaml`, nœuds UVM
+  confirmés référencés ; `containers.conf` et runtime OCI actif
+  confirmés inchangés après installation (hypothèse § 0.3 vérifiée, pas
+  supposée). Dépôt COPR confirmé dans `dnf repo list --enabled` avec son
+  `includepkgs`. Test nominal rejoué avec succès : l'image de test ne
+  contenant pas `nvidia-smi`, sa réussite prouve l'injection CDI depuis
+  l'hôte, pas seulement la visibilité du périphérique. Échec forcé sans
+  `--device` rejoué, même séparation des deux causes. Aucun refus AVC
+  observé (`getenforce=Enforcing` avant et après) — déclaré
+  explicitement, aucun ajustement SELinux appliqué. Correction d'une
+  hypothèse antérieure infirmée par l'exécution réelle : le sous-paquet
+  `-selinux` charge son module automatiquement à l'installation
+  (`semodule -i` en `%post`), contrairement à ce qui avait été supposé —
+  sans conséquence sur D8, ce chargement est le fait du paquet retenu en
+  Phase 1, pas une action SELinux décidée par cette série. Point
+  supplémentaire fermé par mesure directe (`docs/gpu-containers.md`
+  § 5/§ 8.7) : un conteneur avec périphériques CDI montés mais sans
+  charge de travail active ne réveille pas la dGPU. Terra requalifié
+  dans les points ouverts (six paquets réels en dépendent, dont
+  `asusctl`) — aucune action entreprise.
+  Actions privilégiées de cette série, toutes énumérées dans
+  `docs/gpu-containers.md` § 8.7 conformément à la nouvelle règle
+  `CLAUDE.md` : quatre lectures de `/etc/sudoers`/`sudoers.d`, cinq
+  écritures du rôle (dépôt, paquets, répertoire `/etc/cdi`, génération
+  de la spécification, permissions), deux lectures `ausearch`, une
+  lecture `semodule`. Confirmé en fin de série : `getenforce=Enforcing`
+  inchangé, aucun `setenforce`, aucun `--nogpgcheck`, aucun dépôt autre
+  que le COPR retenu, `terra` non désactivé, **aucune modification de
+  `/etc/sudoers`**, aucun redémarrage.

@@ -362,17 +362,20 @@ Deux nuances établissables en lecture seule, sans lancer de conteneur :
   potentiellement différent pour des conteneurs courts et fréquents
   (Execution Environments) que pour un serveur de longue durée.
 
-`@VERIF : effet réel, mesuré, du lancement d'un conteneur avec
-périphériques NVIDIA montés (via CDI ou --device) sur runtime_status
-alors qu'aucune charge de travail active n'utilise le GPU. Exigerait de
-lancer un conteneur minimal et de relire immédiatement
-/sys/bus/pci/devices/0000:01:00.0/power/runtime_status et
-/proc/driver/nvidia/gpus/0000:01:00.0/power, avec la méthode d'isolement
-de `docs/dgpu-power.md` (relevé avant lancement, relevé immédiatement
-après, relevé après un délai sans nouvelle action) — hors périmètre
-lecture seule de ce livrable. Ne pas conclure, dans un sens ou l'autre,
-sans cette mesure : ni « les conteneurs cassent la veille » ni « les
-conteneurs n'ont aucun effet » ne sont établis par ce document.**
+**[FERMÉ le 2026-08-05, § 8.7]** Mesuré, avec la méthode d'isolement de
+`docs/dgpu-power.md` (relevé avant lancement, immédiatement après,
+après un délai) : `runtime_status` reste `suspended` et
+`runtime_active_time` ne bouge pas d'un milliseconde
+(`podman run --rm --device nvidia.com/gpu=all ... echo ...`, sans
+invoquer `nvidia-smi` ni aucun outil touchant le GPU à l'intérieur).
+**Un lancement de conteneur avec périphériques CDI montés, sans charge
+de travail qui interroge activement le GPU, ne réveille pas le
+périphérique** — les hooks de la spécification (injection de
+bibliothèques, création de nœuds) ne semblent pas interroger le
+matériel. Établi par une seule mesure ; le coût réel pour des
+conteneurs très fréquents (EE) reste à confirmer sur volume, mais
+l'hypothèse « chaque lancement réveille le GPU » est infirmée pour ce
+cas simple.
 
 ## 6. Options, coûts, recommandation
 
@@ -546,11 +549,18 @@ que soit le choix. Ce n'est pas une sur-couverture qu'on peut éviter ici
 — seulement une sur-couverture qu'on choisit de ne jamais invoquer.
 
 `nvidia-container-toolkit-selinux` (`noarch`) contient un module SELinux
-compilé : `/usr/share/selinux/packages/targeted/nvidia-container.pp` —
-pertinent pour la Phase 3 (D8) si un refus réel en justifie le
-chargement ; **installer ce paquet n'active pas la politique** (un `.pp`
-sur disque n'est chargé qu'après `semodule -i` explicite), donc son
-inclusion dans `includepkgs` ne préempte pas la Phase 3.
+compilé : `/usr/share/selinux/packages/targeted/nvidia-container.pp`.
+
+**[CORRIGÉ le 2026-08-05, § 8.7] ÉTAIT** : « installer ce paquet
+n'active pas la politique (un `.pp` sur disque n'est chargé qu'après
+`semodule -i` explicite), donc son inclusion dans `includepkgs` ne
+préempte pas la Phase 3 » — **faux pour ce paquet précis**, infirmé par
+l'exécution réelle : `semodule -l` après installation montre le module
+`nvidia-container` chargé et actif. Le script `%post` du paquet
+l'enregistre automatiquement via `semodule -i` — comportement vendeur
+standard pour un sous-paquet `-selinux`, pas une action que ce rôle ou
+cette session a prise. Detail complet, y compris pourquoi ceci reste
+conforme à D8, en § 8.7.
 
 ### 7.3 — Empreinte de la clé GPG : obtenue, ancrage de confiance corrigé et accepté [RÉSOLU le 2026-08-05]
 
@@ -810,7 +820,7 @@ l'interdiction de téléchargement, pour les tests § 8.3. Conservée en
 cache local Podman pour rejouer le test nominal après l'installation
 réelle — pas versionnée, pas un composant du dépôt.
 
-### 8.6 — SELinux, état de référence — et une découverte qui suspend l'exécution réelle
+### 8.6 — SELinux, état de référence — et une découverte qui a suspendu l'exécution réelle [levé le 2026-08-05, D9]
 
 **Avant toute installation** :
 ```
@@ -846,17 +856,189 @@ par l'opérateur entre les deux séries, ou différence de contexte
 d'exécution non identifiée — les deux restent possibles, aucune n'est
 tranchée ici.
 
-**Ce livrable n'exploite pas cette capacité.** La consigne de la
+**Ce livrable n'a pas exploité cette capacité.** La consigne de la
 demande était explicite (« ne tente aucun contournement ») et présumait
 cette règle absente ; la trouver présente ne change pas ce que cette
 consigne demande — elle appelle à signaler avant d'agir, pas à profiter
 du fait que l'obstacle prévu s'est révélé ne pas en être un (voir la
-règle ajoutée à ce sujet dans `CLAUDE.md` § Avant d'agir). **L'exécution
-réelle du rôle (Phase 2, Phase 3 avec le test nominal, collecte des
-refus AVC réels) reste donc suspendue**, non par manque de moyen
-technique — il en existe visiblement un — mais dans l'attente d'une
-confirmation explicite que cette capacité est un fait accepté et pas un
-écart à corriger d'abord.
+règle ajoutée à ce sujet dans `CLAUDE.md` § Avant d'agir). L'exécution
+réelle du rôle est restée suspendue jusqu'à confirmation explicite de
+l'opérateur — obtenue, consignée comme **D9**
+(`docs/machine-facts.md` § Décisions). Suite de la résolution, avec
+l'exécution réelle : § 8.7.
+
+### 8.7 — D9 confirmée, exécution réelle, toutes les validations restantes
+
+**D9 vérifiée indépendamment, pas seulement reçue** — voir
+`docs/machine-facts.md` § Décisions pour le détail (`visudo -c`,
+contenu de `/etc/sudoers.d/`, ligne 110 relue directement). Toutes les
+lectures de `/etc/sudoers` ci-dessous sont des **actions
+privilégiées** (le fichier est `0440 root:root`), énumérées ici
+conformément à la règle ajoutée dans `CLAUDE.md` :
+
+| # | Commande | Chemin/cible | Motif |
+|---|---|---|---|
+| 1 | `sudo -n sed -n '108,112p' /etc/sudoers` | lecture `/etc/sudoers` | corroborer D9 indépendamment du rapport de l'opérateur |
+| 2 | `sudo -n visudo -c` | lecture/validation `/etc/sudoers` | corroborer « parsed OK » |
+| 3 | `sudo -n ls -la /etc/sudoers.d/` | lecture répertoire | corroborer « vide » |
+| 4 | `sudo -n ls -la /etc/sudoers` | lecture métadonnées | dater la dernière modification |
+| 5 | rôle, tâche « Écrire le fichier de dépôt COPR » | écriture `/etc/yum.repos.d/_copr:copr.fedorainfracloud.org:group_ai-ml:nvidia-container-toolkit.repo` | dépôt retenu par D7 |
+| 6 | rôle, tâche « Installer les paquets retenus » | `dnf install nvidia-container-toolkit nvidia-container-toolkit-selinux` | paquets retenus, § 7.4 — inclut l'exécution, **en tant que root**, du script `%post` du paquet `-selinux` (voir plus bas, correction de la § 7.2) |
+| 7 | rôle, tâche « S'assurer que /etc/cdi existe » | création `/etc/cdi` | répertoire cible de la spécification CDI |
+| 8 | rôle, tâche « Générer la spécification CDI » | `nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml` | Phase 1 |
+| 9 | rôle, tâche « S'assurer que la spécification est lisible » | `chmod 0644 /etc/cdi/nvidia.yaml` | lisibilité rootless |
+| 10 | `sudo -n ausearch -m avc -ts recent` (×2, avant et après) | lecture journal d'audit | recherche de refus AVC |
+| 11 | `sudo -n semodule -l` / `--list-modules=full` | lecture état politique SELinux | vérifier si le module vendeur s'est chargé |
+
+Aucune autre élévation. Le téléchargement/import/purge de la clé GPG
+(§ 7.3, § 8.2) tourne **sans** `become` — répertoire temporaire possédé
+par l'utilisateur courant, jamais le trousseau système.
+
+**Défaut réel trouvé par l'exécution réelle, corrigé, pas refactorisé**
+(permis explicitement par le périmètre de cette série) : la première
+exécution a cassé sur l'assertion `gpgcheck` — `'gpgcheck=0' in contenu`
+matchait aussi `repo_gpgcheck=0` (légitime, sous-chaîne). Corrigé par un
+ancrage de début de ligne (`regex_search` multiligne) au lieu d'une
+recherche de sous-chaîne. Un seul fichier modifié
+(`roles/gpu_cdi/tasks/main.yml`), une seule assertion réécrite.
+
+**Exécution réelle, après correction** :
+```
+$ ansible-playbook roles/gpu_cdi/gpu_cdi.yml
+[...]
+localhost : ok=33  changed=5  unreachable=0  failed=0  skipped=1 ...
+```
+Toutes les tâches passent, y compris l'assertion `gpgcheck=1` (ligne
+exacte confirmée) et l'assertion `containers.conf`/runtime OCI inchangé
+(§ 0.3 — les hooks installés restent inertes, confirmé, pas supposé).
+
+**Seconde exécution — idempotence partielle, expliquée plutôt que
+maquillée** :
+```
+$ ansible-playbook roles/gpu_cdi/gpu_cdi.yml
+[...]
+localhost : ok=33  changed=3  unreachable=0  failed=0  skipped=1 ...
+```
+`changed=3`, pas `0`. Les trois tâches concernées sont, dans les deux
+exécutions, exactement les mêmes : création du répertoire temporaire de
+vérification de clé, téléchargement de la clé, purge du répertoire —
+**non idempotentes par conception**, puisque cette vérification est
+délibérément éphémère et rejouée intégralement à chaque exécution
+plutôt que mise en cache (§ 7.3 : l'épinglage vérifie l'empreinte à
+chaque fois, il ne fait pas confiance à un résultat précédent). **Sur
+l'état persistant réel** (fichier de dépôt, paquets installés,
+spécification CDI, permissions), la seconde exécution ne montre
+**aucun** changement (`ok` partout ailleurs) — c'est cette
+idempotence-là qui compte, et elle est vérifiée. Présenter un
+`changed=0` littéral aurait exigé de cesser de revérifier la clé à
+chaque exécution, ce qui aurait dégradé une propriété de sécurité pour
+satisfaire un chiffre — non fait.
+
+**`/etc/cdi/` — contenu et preuve des nœuds UVM** :
+```
+$ ls -la /etc/cdi/
+-rw-r--r--. 1 root root 19972 nvidia.yaml
+$ grep -A2 'nvidia-uvm' /etc/cdi/nvidia.yaml
+- path: /dev/nvidia-uvm
+  major: 507
+  fileMode: 438
+  permissions: rwm
+- path: /dev/nvidia-uvm-tools
+  major: 507
+  minor: 1
+```
+Fichier lisible par tous (`0644`), les deux nœuds UVM référencés avec
+leurs numéros de périphérique réels (majeur 507, cohérent avec
+`docs/machine-facts.md` § GPU).
+
+**`containers.conf` après installation, comparé à l'avant (§ 8.1)** :
+```
+$ sha256sum /usr/share/containers/containers.conf
+6b1069352180459572e458cd778961cc22ab144dd2f63605d3bbdd16099f6c85  (identique à l'avant)
+$ podman info --format '{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Path}}'
+crun /usr/bin/crun  (identique à l'avant)
+$ grep -A5 '^\[engine.runtimes\]' /usr/share/containers/containers.conf
+[engine.runtimes]
+#crun = [ ...   (toujours entièrement commenté)
+$ ls ~/.config/containers/containers.conf
+No such file or directory  (toujours absent)
+```
+**Hypothèse 0.3 confirmée par comparaison réelle, pas supposée** : les
+hooks installés (`nvidia-container-runtime`,
+`nvidia-container-runtime-hook`) n'ont rien modifié dans la
+configuration de Podman.
+
+**`dnf repo list --enabled`** :
+```
+copr:copr.fedorainfracloud.org:group_ai-ml:nvidia-container-toolkit  Copr repo for nvidia-container-toolkit owned by @ai-ml (...)
+```
+Présent, aux côtés des dix dépôts déjà activés — aucun autre dépôt
+ajouté. `includepkgs=nvidia-container-toolkit,nvidia-container-toolkit-selinux`
+confirmé dans le contenu réel du fichier (`cat`), pas seulement dans le
+gabarit source.
+
+**Test nominal rejoué — succès, et ce que ce succès prouve
+précisément** :
+```
+$ podman run --rm --device nvidia.com/gpu=all docker.io/nvidia/cuda:12.6.2-base-ubi9 nvidia-smi
+[...]
+|   0  NVIDIA GeForce RTX 4090 ...    Off |   00000000:01:00.0 Off |    N/A |
+| N/A   50C    P0             33W /  155W |      47MiB /  16376MiB |  10% |
+exit=0
+```
+Établi en § 7.1/8.3 : cette image **ne contient pas** `nvidia-smi` (
+`which nvidia-smi` → absent). Son exécution réussie ici, avec un
+résultat cohérent (même GPU, même bus PCI que partout ailleurs dans ce
+dépôt), **prouve donc l'injection CDI depuis l'hôte** — le binaire et
+l'accès au pilote sont tous deux apportés par la spécification générée,
+pas par l'image. Ce n'est pas seulement « le GPU est visible », c'est
+« le mécanisme CDI fonctionne de bout en bout ».
+
+**Échec forcé rejoué (sans `--device`) — même séparation des causes,
+même résultat** :
+```
+OK : nvidia-smi absent (attendu, non injecté sans --device) ET aucun
+nœud /dev/nvidia* visible -- échec dû à l'absence de périphérique, pas
+à l'absence d'outil
+exit=0
+```
+
+**Refus AVC après le test réel** :
+```
+$ getenforce
+Enforcing
+$ sudo -n ausearch -m avc -ts recent
+<no matches>
+$ journalctl -t setroubleshoot --no-pager --since "16:00"
+-- No entries --
+```
+**Aucun refus AVC, déclaré explicitement plutôt que passé sous
+silence.** `getenforce` vaut `Enforcing` avant et après l'ensemble de
+cette série. Conformément à D8 : **aucune modification SELinux
+appliquée** — ni booléen, ni type, ni ajustement préventif, puisqu'il
+n'y avait rien à résoudre.
+
+**Correction d'une hypothèse de la § 7.2, infirmée par l'exécution
+réelle** : § 7.2 affirmait « l'installation de
+`nvidia-container-toolkit-selinux` n'active pas la politique... un
+`.pp` sur disque n'est chargé qu'après `semodule -i` explicite ».
+**Faux pour ce paquet précis** : `semodule -l` après installation montre
+le module `nvidia-container` chargé et actif — le script `%post` du
+paquet l'a enregistré automatiquement via `semodule -i`, comportement
+vendeur standard pour un sous-paquet `-selinux`, pas une action prise
+par ce rôle ou par cette session. Ceci reste conforme à D8 : aucun
+ajustement SELinux n'a été **décidé ou appliqué par cette série** — le
+module fait partie du paquet retenu en Phase 1, et son auto-chargement
+est le comportement de son propre éditeur, pas une réponse à un refus
+observé. Établissement des types/booléens exacts du module : **non
+approfondi** — `seinfo` (paquet `setools-console`) est absent et son
+installation aurait ajouté un paquet hors du périmètre retenu ; sans
+objet ici puisqu'aucun refus AVC n'a été observé à résoudre.
+
+**Confirmations finales de cette série** : `getenforce=Enforcing`
+inchangé ; aucun `setenforce` exécuté ; aucun booléen SELinux modifié ;
+aucun dépôt autre que le COPR retenu ; `terra` non désactivé ; aucune
+modification de `/etc/sudoers` ; aucun redémarrage.
 
 ## Voir aussi
 
