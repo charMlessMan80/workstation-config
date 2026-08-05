@@ -614,19 +614,42 @@ construit et signé par l'infrastructure Fedora, avec des mainteneurs
 identifiables (SIG Fedora AI/ML, canal Matrix
 `#ai-ml:fedoraproject.org`). `includepkgs` limite l'exposition aux
 seuls paquets du toolkit, pas à l'ensemble du COPR.
-**Implémentation bloquée à la date de cette décision** : la Phase 1 de
-résolution (`docs/gpu-containers.md` § 7) a établi le contenu exact des
-paquets (aucune variante `-base`, le hook d'exécution est
+Phase 1 de résolution (`docs/gpu-containers.md` § 7) a établi le contenu
+exact des paquets (aucune variante `-base`, le hook d'exécution est
 incompressible depuis cette source) et l'empreinte complète de la clé
-(`0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`), mais **aucune
-corroboration indépendante de cette empreinte n'a été trouvée** — la
-consigne de cette même série prescrivait l'arrêt dans ce cas précis
-(situation structurellement proche de la clé Terra, en plus défavorable
-: aucune seconde publication ne semble exister pour cette clé
-auto-générée par projet COPR). Aucune écriture n'a eu lieu (`/etc/`
-inchangé, aucun paquet installé, `roles/gpu_cdi/` non créé). Point non
-résolu compté dans `docs/gpu-containers.md`, pas ici, pour ne pas
-dupliquer le marqueur.
+(`0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`, trousseau temporaire
+isolé).
+
+**[MOTIF CORRIGÉ le 2026-08-05, série suivante]** **ÉTAIT** :
+implémentation bloquée, faute d'une « corroboration indépendante » de
+cette empreinte jugée introuvable, sur le modèle du doute non résolu
+concernant la clé Terra — arrêt déclaré dans la série qui a établi ce
+fait. **Motif de la correction** : cette exigence était mal posée. Une
+clé de projet COPR est générée et détenue par l'infrastructure de build
+Fedora elle-même, pour ce projet précis, republiée par cette même
+infrastructure au même endroit qu'elle sert le dépôt — comparer
+l'empreinte « à la page du projet » est circulaire, structurellement,
+pour **tout** projet COPR, pas seulement celui-ci. Ce n'est pas
+analogue au doute Terra (où une clé tierce identifiable existe, avec un
+canal de publication en principe distinct de la machine servant le
+dépôt — l'obstacle y est une asymétrie de visibilité locale, pas une
+absence de second canal).
+
+**CORRIGÉ** : l'ancrage de confiance réel est explicité plutôt que
+recherché où il ne peut exister — **TLS vers
+`copr.fedorainfracloud.org`**, plus la confiance accordée à
+l'infrastructure Fedora et au groupe `@ai-ml`. La signature GPG garantit
+l'intégrité entre le build et cette machine ; elle n'établit rien de
+plus sur l'identité du signataire que ce que TLS a déjà fourni.
+Positionnement retenu : un cran en dessous d'un paquet Fedora officiel,
+un cran au-dessus du dépôt NVIDIA officiel (vérifications OpenPGP
+documentées comme défaillantes). **Ce modèle de confiance est accepté
+explicitement par cette décision** — l'implémentation (rôle
+`roles/gpu_cdi/`) est préparée dans la série qui porte cette correction.
+Son exécution réelle reste **suspendue**, pas techniquement bloquée
+comme attendu — voir « Points ouverts » (règle `sudo NOPASSWD: ALL`
+trouvée active pour ce compte, contredisant l'état documenté ailleurs
+dans ce fichier et dans `docs/gpu-mux-recovery.md`).
 
 **D8 (2026-08-05) — SELinux reste en `Enforcing`.** Décision de
 l'opérateur. Aucun `setenforce 0`, aucun mode permissif, même
@@ -819,6 +842,31 @@ tentative — aucun changement à signaler puisqu'aucune action n'a
     résolu : la cible EE-first est maintenue, mais son moyen d'installation
     (`pipx`, venv dédié, ou `podman run` direct des EE) reste à trancher au
     livrable dédié à la chaîne Ansible.
+- **Nouveau point ouvert (2026-08-05) — règle `sudo NOPASSWD: ALL` active
+  pour ce compte, contredisant l'état documenté plus tôt le même jour.**
+  `sudo -n true` (exit 0) et `sudo -n -l` (« User mahieumi may run the
+  following commands on Zephyrus-MM: (ALL) NOPASSWD: ALL ») confirment
+  qu'une élévation de privilège sans mot de passe est actuellement
+  possible pour ce compte. **Ceci contredit directement**
+  `docs/gpu-mux-recovery.md` (§ Résultats observés, révocation partielle
+  de D2ter), qui documente, avec la même commande et la même méthode,
+  un échec exact plus tôt le même jour (« sudo: a password is required »,
+  `groups=mahieumi,wheel`, pas de règle `NOPASSWD`). Cause de l'écart
+  **non établie** : changement délibéré des `sudoers` par l'opérateur
+  entre les deux séries (le plus probable, vu la récurrence du blocage
+  dans les livrables précédents), ou différence de contexte d'exécution
+  non identifiée. Non exploité dans la série qui l'a découvert
+  (`docs/gpu-containers.md` § 8.6) — la consigne de cette série
+  présumait cette règle absente et demandait explicitement de ne
+  tenter aucun contournement ; la trouver présente en vérifiant une
+  garde ne vaut pas autorisation implicite de s'en servir. Règle
+  générale ajoutée à `CLAUDE.md` § Avant d'agir : une capacité
+  découverte qui contredit une contrainte déjà établie se signale, elle
+  ne s'exploite pas silencieusement. Action attendue : confirmation de
+  l'opérateur que cette règle est un choix assumé (auquel cas ce point
+  se ferme et l'exécution réelle de `roles/gpu_cdi/` peut reprendre sans
+  `--ask-become-pass`) ou qu'elle doit être corrigée avant toute autre
+  écriture privilégiée sur ce poste.
 
 ## Journal des séries
 
@@ -1126,3 +1174,31 @@ tentative — aucun changement à signaler puisqu'aucune action n'a
   toute commande dnf non privilégiée touchant Terra, pas seulement aux
   commandes déjà identifiées. Aucune écriture système dans cette série :
   `docs/gpu-containers.md` et ce fichier sont les seuls modifiés.
+- **2026-08-05 — motif D7 corrigé, rôle `gpu_cdi` préparé, exécution
+  réelle suspendue (série suivante).** L'exigence de « corroboration
+  indépendante » de la clé COPR (série précédente) est corrigée : mal
+  posée, aucun projet COPR n'a de second canal de publication —
+  l'ancrage de confiance est explicité (TLS + empreinte épinglée) et
+  accepté par décision de l'opérateur (D7, motif corrigé). Arbitrage
+  ajouté à `CLAUDE.md` entre reproduction fidèle et vérification de
+  passivité (une commande à effet de bord déjà documenté se reproduit
+  avec sa garde). Rôle `roles/gpu_cdi/` construit (huit groupes de
+  tâches : gardes, capture `containers.conf` avant, épinglage de clé
+  dans un trousseau temporaire isolé, dépôt COPR avec `gpgcheck=1`
+  asserté sur le fichier réellement écrit, installation, capture et
+  comparaison `containers.conf` après, génération CDI dans `/etc/cdi`
+  avec garde anti-`tmpfs`, vérification que les nœuds UVM sont
+  référencés) — `--syntax-check` et `--check` passés, deux
+  démonstrations d'échec forcé réussies (chemin de spécification vide ;
+  conteneur sans périphérique, avec séparation vérifiée entre absence
+  d'outil et absence de périphérique). Paquets Terra recensés (six,
+  dont `asusctl` — Terra reste nécessaire, désactivation non proposée).
+  État de référence SELinux capturé (`Enforcing`, aucun refus AVC
+  récent, refus préexistants sans rapport avec ce travail).
+  **Exécution réelle du rôle suspendue** — non par la limite de
+  privilège attendue, mais par une découverte contredisant cette limite
+  elle-même : voir « Points ouverts » (règle `sudo NOPASSWD: ALL`).
+  Aucun paquet installé, aucun fichier écrit dans `/etc/`, aucune
+  action SELinux, aucun conteneur autre que les deux tests décrits
+  ci-dessus (dont une image tierce téléchargée, exception signalée),
+  aucun redémarrage.

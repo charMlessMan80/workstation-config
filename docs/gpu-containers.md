@@ -321,10 +321,12 @@ décoratif :
   interroge directement le pilote, il ne peut pas se rabattre sur le CPU
   par conception, contrairement à PyTorch/TensorFlow.
 
-`@VERIF : ce test n'a pas été exécuté — exigerait une image contenant
-nvidia-smi ou un binaire équivalent, hors périmètre lecture seule de ce
-livrable. À exécuter avant toute déclaration de succès dans un livrable
-qui appliquerait une option du § 6.`
+**[PARTIELLEMENT LEVÉ le 2026-08-05]** Image obtenue et test tenté (§
+8.3, 8.5) — résultat actuel : échec attendu (`unresolvable CDI devices`,
+la spécification n'existe pas encore). Reste un point non résolu :
+rejouer ce test **après** l'installation réelle (§ 8.6) pour confirmer
+qu'il réussit alors, avant toute déclaration de succès pour l'option
+retenue au § 6.
 
 ## 5. Interaction avec la veille runtime D3 — ce qui est documentable sans lancer de conteneur
 
@@ -550,7 +552,7 @@ chargement ; **installer ce paquet n'active pas la politique** (un `.pp`
 sur disque n'est chargé qu'après `semodule -i` explicite), donc son
 inclusion dans `includepkgs` ne préempte pas la Phase 3.
 
-### 7.3 — Empreinte de la clé GPG : obtenue, **corroboration indépendante non trouvée**
+### 7.3 — Empreinte de la clé GPG : obtenue, ancrage de confiance corrigé et accepté [RÉSOLU le 2026-08-05]
 
 Empreinte complète, calculée localement à partir du fichier de clé
 publié à l'URL déclarée par le dépôt (`.../pubkey.gpg` ci-dessus),
@@ -582,31 +584,45 @@ l'identique sans le savoir :
    Fedora dédiée à la SIG `ai-ml` listant cette empreinte, pas de
    mention dans les discussions Fedora trouvées par recherche).
 
-**Ce que cela signifie, précisément** : la clé n'est publiée que via
-l'infrastructure COPR elle-même (le fichier `.repo` déclare l'URL de la
-clé, et cette URL sert la clé — même serveur, même domaine, sécurisé par
-TLS). Rien de trouvé, dans cette série, ne permet de vérifier cette
-empreinte par un second canal indépendant de cette même infrastructure.
-**C'est structurellement différent du cas Terra** (où la clé existe et
-est publiée par Fyra Labs de façon vérifiable en principe, mais où
-l'obstacle est une asymétrie de visibilité selon le contexte
-d'exécution sur *cette* machine) : ici, aucune seconde publication ne
-semble exister du tout pour cette clé auto-générée par projet COPR. Ce
-n'est pas nécessairement anormal pour un COPR (chaque projet a sa
-propre clé, régénérée si le projet est recréé, et la sécurité repose sur
-le TLS vers l'infrastructure Fedora plutôt que sur une empreinte
-publiée séparément) — mais **ce n'est pas ce qu'établit la correspondance
-demandée**, et la consigne est explicite sur la conduite à tenir dans ce
-cas.
+**[MOTIF CORRIGÉ le 2026-08-05] ÉTAIT** : la conclusion de la série
+précédente demandait une « corroboration indépendante » de cette
+empreinte, faute de quoi elle restait un point non résolu, en s'appuyant
+sur le parallèle avec la clé Terra. **Ce parallèle était mal posé** : Terra a
+une clé publiée par un tiers identifiable (Fyra Labs) dont on peut en
+principe vérifier l'empreinte par un canal distinct de la machine qui
+sert le dépôt — l'obstacle y est une asymétrie de visibilité locale, pas
+une absence structurelle de second canal. **Une clé de projet COPR n'a
+jamais de second canal** : elle est générée et détenue par
+l'infrastructure de build Fedora elle-même, pour ce projet précis, et
+republiée par cette même infrastructure au même endroit qu'elle sert le
+dépôt. Comparer l'empreinte « à la page du projet » est circulaire —
+même origine, même ancrage TLS — pour **tout** projet COPR, pas
+seulement celui-ci. Demander cette corroboration revenait à demander une
+preuve qui n'existe structurellement pour aucun COPR.
 
-`@VERIF : correspondance indépendante de l'empreinte de la clé COPR
-@ai-ml/nvidia-container-toolkit (0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05)
-— à établir avant toute activation du dépôt. Pistes non épuisées : canal
-Matrix des mainteneurs (#ai-ml:fedoraproject.org, mentionné comme contact
-du projet), consultation de la page du projet depuis un navigateur
-authentifié (le pare-robot Anubis a bloqué les tentatives automatisées),
-ou décision explicite de l'opérateur d'accepter le modèle de confiance
-TLS-seul propre à l'infrastructure COPR comme suffisant pour ce projet.`
+**CORRIGÉ — ancrage de confiance, formulé explicitement plutôt que
+supposé** : l'ancrage réel est **TLS vers `copr.fedorainfracloud.org`**
+(et `download.copr.fedorainfracloud.org`), plus la confiance accordée à
+l'infrastructure Fedora et au groupe `@ai-ml` en tant que tel. La
+signature GPG garantit l'intégrité entre le build et cette machine ;
+elle **n'établit rien de plus sur l'identité du signataire** que ce que
+TLS a déjà fourni au moment où le fichier `.repo` et la clé ont été
+récupérés. Empreinte relevée, faisant foi pour ce dépôt : **
+`0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05`** (méthode § ci-dessus,
+trousseau temporaire isolé). Aucune corroboration indépendante n'existe
+ni ne peut exister pour une clé de projet COPR — ce n'est pas une lacune
+de ce projet précis, c'est une propriété du modèle COPR lui-même.
+**Positionnement retenu** : un cran en dessous d'un paquet Fedora
+officiel (clé Fedora primaire, publiée et renouvelée par un processus
+distinct de tout dépôt particulier), un cran au-dessus du dépôt NVIDIA
+officiel (vérifications OpenPGP documentées comme défaillantes par la
+communauté, § 2).
+
+**Décision de l'opérateur, consignée** : ce modèle de confiance est
+accepté explicitement pour ce projet (voir `docs/machine-facts.md` §
+Décisions, D7, motif corrigé). Le marqueur précédent est fermé — il
+n'était pas actionnable pour la raison qui vient d'être établie, pas
+parce que la question a été éludée.
 
 ### 7.4 — Liste `includepkgs` — établie, **non appliquée**
 
@@ -626,9 +642,9 @@ includepkgs=nvidia-container-toolkit,nvidia-container-toolkit-selinux
   `-operator-extensions` (Kubernetes, sans objet), `.src` (non
   installable par ce mécanisme).
 
-### 7.5 — Arrêt signalé, conformément à la consigne
+### 7.5 — Arrêt signalé, conformément à la consigne [levé le 2026-08-05, série suivante]
 
-**Les Phases 2 à 5 ne sont pas exécutées.** Aucun fichier n'a été écrit
+**Les Phases 2 à 5 n'étaient pas exécutées à la clôture de cette série.** Aucun fichier n'a été écrit
 dans `/etc/yum.repos.d/` ni `/etc/cdi/`, aucun paquet installé, aucune
 politique SELinux touchée, aucun conteneur lancé, `roles/gpu_cdi/` n'a
 pas été créé. Motif : la demande elle-même prescrit cet arrêt précis
@@ -653,14 +669,194 @@ dispense pas d'ajouter `--assumeno` quand la commande touche un dépôt à
 `gpgcheck` incertain, ce que cette série aurait dû faire d'emblée par
 cohérence avec elle-même.
 
-**Chemins possibles, pas une décision prise ici** : accepter
-explicitement le modèle de confiance TLS-seul de COPR pour ce projet
-précis (auquel cas Phase 1 est close et la Phase 2 peut démarrer, sous
-réserve d'une élévation de privilège que ce compte ne peut pas fournir
-sans assistance — voir la note pratique de la demande) ; ou chercher
-la corroboration par le canal Matrix des mainteneurs avant de trancher ;
-ou reconsidérer la source retenue en D7 à la lumière de cette limite
-structurelle du COPR. **Cette série ne choisit pas entre ces chemins.**
+**Chemin retenu, décidé par l'opérateur dans la série suivante (voir §
+7.3, motif corrigé)** : le modèle de confiance TLS-seul de COPR est
+accepté explicitement pour ce projet — la demande de corroboration
+indépendante était elle-même mal posée (aucun projet COPR n'a de second
+canal). Phase 1 est close depuis cette décision ; le rôle `roles/gpu_cdi/`
+est préparé (§ 8) mais son exécution réelle est **suspendue** — pas
+bloquée par l'absence de règle `NOPASSWD` comme prévu, mais par une
+découverte inattendue qui change la donne : voir § 8.6.
+
+## 8. Rôle `roles/gpu_cdi/` préparé et validé — exécution réelle suspendue
+
+### 8.1 — Corrections préalables 0.2 et 0.3
+
+**0.2, arbitrage consigné dans `CLAUDE.md` § Sourcing** : la
+reproduction fidèle d'une commande dont l'effet de bord est déjà
+documenté se fait désormais avec sa garde (`--assumeno`), en signalant
+l'écart. Aucune commande touchant Terra n'a été rejouée sans garde dans
+cette série.
+
+**0.3, hypothèse vérifiée, pas supposée** : l'état de `containers.conf`
+et du runtime OCI actif a été relevé **avant** toute installation, pour
+comparaison après coup (§ 8.4 ci-dessous, une fois l'installation
+réelle effectuée) :
+
+```
+$ sha256sum /usr/share/containers/containers.conf
+6b1069352180459572e458cd778961cc22ab144dd2f63605d3bbdd16099f6c85  /usr/share/containers/containers.conf
+$ grep -A3 '^\[engine.runtimes\]' /usr/share/containers/containers.conf
+[engine.runtimes]
+#crun = [
+#  "/usr/bin/crun",
+#  "/usr/sbin/crun",
+$ podman info --format '{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Path}}'
+crun /usr/bin/crun
+$ ls ~/.config/containers/containers.conf
+No such file or directory
+```
+`[engine.runtimes]` entièrement commenté (aucune surcharge), seul
+`crun` actif, aucun `containers.conf` utilisateur. Le rôle
+`roles/gpu_cdi/` intègre cette même comparaison comme tâche assertée
+(pas seulement consignée en prose) — voir `tasks/main.yml`.
+
+### 8.2 — Rôle construit et validé
+
+`roles/gpu_cdi/` créé : `defaults/main.yml`, `tasks/main.yml`,
+`templates/copr-nvidia-container-toolkit.repo.j2`, `meta/main.yml`,
+`README.md`, `gpu_cdi.yml`. Huit groupes de tâches dans l'ordre demandé
+(gardes, capture avant, épinglage de clé, dépôt, installation, capture
+après + assertion, génération CDI, vérification de complétude).
+
+```
+$ ansible-playbook --syntax-check roles/gpu_cdi/gpu_cdi.yml
+playbook: roles/gpu_cdi/gpu_cdi.yml
+$ ansible-playbook --check roles/gpu_cdi/gpu_cdi.yml
+[...]
+localhost : ok=14  changed=0  unreachable=0  failed=0  skipped=20  rescued=0  ignored=0
+```
+Toutes les gardes passent réellement en `--check` (`nvidia_uvm` chargé,
+nœuds UVM présents, `nvidia-smi -L` liste la RTX 4090, Podman rootless
+confirmé) ; toutes les tâches privilégiées ou réseau sont proprement
+ignorées (`skipping`), aucune n'a été tentée.
+
+**Épinglage de clé (§ 7.3) opérationnalisé, pas seulement documenté** :
+le rôle télécharge la clé dans un répertoire temporaire, l'importe dans
+un trousseau isolé (`--no-default-keyring`), et casse si l'empreinte
+diffère de `0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05` — garde contre un
+changement de clé futur, pas contre l'absence structurelle d'une
+seconde source déjà actée en § 7.3.
+
+### 8.3 — Les trois démonstrations d'échec
+
+**Second échec forcé demandé (garde de vide) — exécuté** :
+```
+$ ansible-playbook --check -e gpu_cdi_spec_path="" roles/gpu_cdi/gpu_cdi.yml
+[...]
+TASK [Garde 0 : gpu_cdi_spec_path ne doit jamais être vide...]
+fatal: [localhost]: FAILED! => {"assertion": "gpu_cdi_spec_path | length > 0", ...}
+localhost : ok=1  changed=0  unreachable=0  failed=1 ...
+```
+Casse à la toute première tâche du rôle (`ok=1` = la seule collecte de
+faits), avant toute lecture, toute garde matérielle, toute écriture.
+
+**Échec forcé (sans `--device`), conçu pour séparer les deux causes** —
+exécuté, avec l'image de test (§ 8.5) :
+```
+$ podman run --rm docker.io/nvidia/cuda:12.6.2-base-ubi9 sh -c '
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      nvidia-smi -L && exit 1 || exit 0   # présent mais échoue = device en cause
+    else
+      ls /dev/nvidia* >/dev/null 2>&1 && exit 1 || exit 0   # absent : vérifier la vraie cause
+    fi'
+OK : nvidia-smi absent (attendu, non injecté sans --device) ET aucun
+nœud /dev/nvidia* visible -- échec dû à l'absence de périphérique, pas
+à l'absence d'outil
+```
+**Comment ce test sépare les deux causes** : établi au préalable, sur
+*cette même image*, que `nvidia-smi` n'y est **pas** embarqué
+(`which nvidia-smi` → absent, `nvidia-smi --version` → « executable
+file not found », rc=127) — c'est le pilote/CDI qui l'injecte au
+lancement, pas l'image. Sans `--device`, son absence est donc **attendue
+et non significative** ; le test ne s'arrête pas là et vérifie la cause
+réelle en listant `/dev/nvidia*` directement (présent dans toute image
+via `ls`, indépendant de CDI) — c'est cette absence-là, pas celle de
+l'outil, qui établit l'échec d'accès GPU. Un test qui se serait arrêté
+sur « `nvidia-smi` absent → échec » aurait été exactement le piège
+signalé : indiscernable d'un échec d'accès GPU réel.
+
+**Test nominal — tenté dès maintenant pour établir l'état de référence,
+échec attendu et confirmé (Phase 1 pas encore appliquée réellement)** :
+```
+$ podman run --rm --device nvidia.com/gpu=all docker.io/nvidia/cuda:12.6.2-base-ubi9 nvidia-smi -L
+Error: setting up CDI devices: unresolvable CDI devices nvidia.com/gpu=all
+```
+Attendu : `/etc/cdi/nvidia.yaml` n'existe pas encore. Ce test sera rejoué
+tel quel une fois l'installation réelle effectuée (§ 8.6) — c'est la
+preuve « avant » de la comparaison, pas un échec de ce livrable.
+
+### 8.4 — Terra : paquets installés en provenance de ce dépôt
+
+```
+$ dnf repoquery --installed --qf '%{name} from_repo=%{from_repo}\n' | grep -i 'from_repo=terra'
+asusctl from_repo=terra
+asusctl-rog-gui from_repo=terra
+cardwire from_repo=terra
+supergfxctl from_repo=terra
+terra-gpg-keys from_repo=terra
+terra-release from_repo=terra
+```
+**Six paquets réels en dépendent**, dont `asusctl` — central à toute la
+série GPU MUX de ce dépôt (attributs `asus-armoury`). **Terra reste
+nécessaire ; sa désactivation n'est pas proposée** — conforme à la
+consigne (« si aucun paquet n'en provient, la désactivation sera
+proposée comme décision à part » : ce n'est pas le cas ici).
+
+### 8.5 — Image de test téléchargée (exception signalée)
+
+`docker.io/nvidia/cuda:12.6.2-base-ubi9`, seule exception à
+l'interdiction de téléchargement, pour les tests § 8.3. Conservée en
+cache local Podman pour rejouer le test nominal après l'installation
+réelle — pas versionnée, pas un composant du dépôt.
+
+### 8.6 — SELinux, état de référence — et une découverte qui suspend l'exécution réelle
+
+**Avant toute installation** :
+```
+$ getenforce
+Enforcing
+$ sudo -n ausearch -m avc -ts recent
+<no matches>
+$ journalctl -t setroubleshoot --no-pager -n 20
+[...] SELinux is preventing power-profiles- from {read,open,getattr} access on the file /etc/passwd [...]
+```
+Aucun refus AVC récent ; les seuls refus journalisés (`setroubleshoot`)
+concernent `power-profiles-`, sans rapport avec ce travail — établi
+comme référence, pas comme une anomalie à traiter ici.
+
+**Découverte non anticipée, à traiter avant de poursuivre** : la
+commande `sudo -n ausearch` ci-dessus **a réussi sans mot de passe**.
+Vérification immédiate, par prudence :
+```
+$ sudo -n true
+$ echo $?
+0
+$ sudo -n -l
+[...]
+User mahieumi may run the following commands on Zephyrus-MM:
+    (ALL) NOPASSWD: ALL
+```
+**Ceci contredit directement `docs/gpu-mux-recovery.md`**, qui
+documente, plus tôt le même jour, un échec exact et sourcé de la même
+vérification (« sudo: a password is required », `groups=mahieumi,wheel`
+— membre de `wheel`, mais pas de règle `NOPASSWD`). Cause de l'écart
+**non établie dans cette session** : changement délibéré des `sudoers`
+par l'opérateur entre les deux séries, ou différence de contexte
+d'exécution non identifiée — les deux restent possibles, aucune n'est
+tranchée ici.
+
+**Ce livrable n'exploite pas cette capacité.** La consigne de la
+demande était explicite (« ne tente aucun contournement ») et présumait
+cette règle absente ; la trouver présente ne change pas ce que cette
+consigne demande — elle appelle à signaler avant d'agir, pas à profiter
+du fait que l'obstacle prévu s'est révélé ne pas en être un (voir la
+règle ajoutée à ce sujet dans `CLAUDE.md` § Avant d'agir). **L'exécution
+réelle du rôle (Phase 2, Phase 3 avec le test nominal, collecte des
+refus AVC réels) reste donc suspendue**, non par manque de moyen
+technique — il en existe visiblement un — mais dans l'attente d'une
+confirmation explicite que cette capacité est un fait accepté et pas un
+écart à corriger d'abord.
 
 ## Voir aussi
 

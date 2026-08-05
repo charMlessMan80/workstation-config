@@ -1,0 +1,383 @@
+---
+# Rôle gpu_cdi — rend la RTX 4090 utilisable depuis Podman rootless par
+# CDI natif (décision D7/D8, docs/machine-facts.md § Décisions). Ce rôle
+# N'INSTALLE RIEN D'AUTRE que le paquet retenu en Phase 1
+# (docs/gpu-containers.md § 7), n'active aucun autre dépôt, ne touche
+# jamais dgpu_disable/gpu_mux_mode/supergfxd/asus-shutdown, ne change
+# jamais l'état SELinux (aucune tâche ici n'appelle setenforce ni ne
+# bascule un mode permissif — voir docs/gpu-containers.md § Phase SELinux
+# pour la procédure séparée, en aval de ce rôle), et ne redémarre jamais
+# la machine.
+
+# --- Gardes préalables : échec bruyant si non satisfaites -----------------
+# Motif : générer une spécification CDI alors que les nœuds de calcul
+# sont absents produit un fichier CDI *incomplet* — le conteneur
+# démarre, le GPU est invisible, l'application se rabat sur le CPU sans
+# rien signaler. Toutes ces gardes sont des lectures, aucune n'a besoin
+# de privilège.
+
+- name: >-
+    Garde 0 : gpu_cdi_spec_path ne doit jamais être vide (démonstration
+    d'échec forcé : -e gpu_cdi_spec_path="")
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_spec_path | length > 0
+      - gpu_cdi_spec_path is not none
+    fail_msg: >-
+      gpu_cdi_spec_path est vide — aucune action ne peut être entreprise
+      sans savoir où écrire la spécification CDI. Ne PAS déduire un
+      chemin par défaut ici : le vide est un signal d'erreur de
+      configuration, pas une valeur à corriger silencieusement.
+    success_msg: "gpu_cdi_spec_path = {{ gpu_cdi_spec_path }}, non vide."
+
+- name: "Garde 1 : nvidia_uvm est chargé"
+  ansible.builtin.command:
+    cmd: "grep -q '^nvidia_uvm ' /proc/modules"
+  register: gpu_cdi_uvm_module
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: "Échouer bruyamment si nvidia_uvm n'est pas chargé"
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_uvm_module.rc == 0
+    fail_msg: >-
+      nvidia_uvm n'apparaît pas dans /proc/modules. Ce module est chargé
+      via le softdep de /usr/lib/modprobe.d/nvidia-uvm.conf quand
+      `nvidia` se charge — sa présence ici est nécessaire, une
+      spécification CDI générée sans lui référencerait des nœuds absents
+      (voir docs/machine-facts.md § GPU pour le softdep).
+    success_msg: "nvidia_uvm chargé."
+
+- name: "Garde 2 : les nœuds de périphérique UVM existent"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ gpu_cdi_uvm_devices }}"
+  register: gpu_cdi_uvm_stat
+  check_mode: false
+
+- name: "Échouer bruyamment si un nœud UVM est absent"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.ischr | default(false)
+    fail_msg: >-
+      {{ item.item }} est absent ou n'est pas un périphérique caractère —
+      une spécification CDI générée maintenant serait incomplète (voir
+      motif en tête de fichier).
+    success_msg: "{{ item.item }} présent."
+  loop: "{{ gpu_cdi_uvm_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: "Garde 3 : nvidia-smi est fonctionnel (pas seulement présent)"
+  ansible.builtin.command:
+    cmd: nvidia-smi -L
+  register: gpu_cdi_nvidia_smi
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: "Échouer bruyamment si nvidia-smi ne liste aucun GPU"
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_nvidia_smi.rc == 0
+      - "'GPU 0:' in gpu_cdi_nvidia_smi.stdout"
+    fail_msg: >-
+      `nvidia-smi -L` a échoué (rc={{ gpu_cdi_nvidia_smi.rc }}) ou n'a
+      listé aucun GPU (sortie : {{ gpu_cdi_nvidia_smi.stdout | default('(vide)') }}).
+      Le pilote doit être fonctionnel avant de générer une spécification
+      CDI qui prétendrait décrire un périphérique inutilisable.
+    success_msg: "nvidia-smi -L : {{ gpu_cdi_nvidia_smi.stdout }}"
+
+- name: "Garde 4 : Podman est en mode rootless"
+  ansible.builtin.command:
+    cmd: podman info --format '{{ "{{" }}.Host.Security.Rootless{{ "}}" }}'
+  register: gpu_cdi_podman_rootless
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: "Échouer bruyamment si Podman n'est pas en mode rootless"
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_podman_rootless.rc == 0
+      - gpu_cdi_podman_rootless.stdout | trim == "true"
+    fail_msg: >-
+      `podman info` ne rapporte pas host.security.rootless=true
+      (rc={{ gpu_cdi_podman_rootless.rc }}, sortie
+      '{{ gpu_cdi_podman_rootless.stdout | default("") }}'). Ce rôle
+      cible explicitement l'accès GPU rootless (docs/gpu-containers.md) —
+      un mode différent change les hypothèses de permissions sur
+      /dev/nvidia* et sort du périmètre documenté.
+    success_msg: "Podman rootless confirmé."
+
+# --- État de containers.conf avant toute installation (§ 0.3) ------------
+# Motif : un hook installé mais non référencé dans la configuration de
+# Podman reste inerte — à vérifier après installation, pas supposé.
+# Cette capture "avant" permet la comparaison, elle ne dépend d'aucun
+# privilège (le fichier est lisible par tous).
+
+- name: "Relever containers.conf système avant toute installation (somme de contrôle)"
+  ansible.builtin.stat:
+    path: /usr/share/containers/containers.conf
+    checksum_algorithm: sha256
+  register: gpu_cdi_containers_conf_before
+  check_mode: false
+
+- name: "Relever les runtimes OCI déclarés par Podman avant toute installation"
+  ansible.builtin.command:
+    cmd: podman info --format '{{ "{{" }}.Host.OCIRuntime.Name{{ "}}" }} {{ "{{" }}.Host.OCIRuntime.Path{{ "}}" }}'
+  register: gpu_cdi_oci_runtime_before
+  changed_when: false
+  check_mode: false
+
+- name: "Relever si un containers.conf utilisateur existe avant toute installation"
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.env.HOME }}/.config/containers/containers.conf"
+  register: gpu_cdi_user_containers_conf_before
+  check_mode: false
+
+# --- Vérification de l'empreinte de la clé COPR avant de lui faire confiance
+# Décision D7 (motif corrigé le 2026-08-05, docs/machine-facts.md) :
+# l'ancrage de confiance est TLS + épinglage de l'empreinte relevée, pas
+# une "corroboration indépendante" qui n'existe structurellement pour
+# aucune clé de projet COPR. Ce bloc opérationnalise l'épinglage : la clé
+# est importée dans un trousseau TEMPORAIRE, JAMAIS le trousseau système,
+# et purgée après coup quel que soit le résultat.
+
+- name: "Créer un répertoire temporaire isolé pour la vérification de clé (jamais le trousseau système)"
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: gpu_cdi_gpgcheck.
+  register: gpu_cdi_gpg_tmpdir
+  when: not ansible_check_mode
+
+- name: "Télécharger la clé publique du COPR (lecture seule, dans le répertoire temporaire)"
+  ansible.builtin.get_url:
+    url: "{{ gpu_cdi_repo_gpgkey_url }}"
+    dest: "{{ gpu_cdi_gpg_tmpdir.path }}/pubkey.gpg"
+    mode: "0600"
+  when: not ansible_check_mode
+
+- name: "Importer la clé dans le trousseau temporaire isolé (--no-default-keyring)"
+  ansible.builtin.command:
+    cmd: >-
+      gpg --homedir {{ gpu_cdi_gpg_tmpdir.path }} --no-default-keyring
+      --import {{ gpu_cdi_gpg_tmpdir.path }}/pubkey.gpg
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "Lire l'empreinte complète depuis le trousseau temporaire"
+  ansible.builtin.command:
+    cmd: >-
+      gpg --homedir {{ gpu_cdi_gpg_tmpdir.path }} --no-default-keyring
+      --list-keys --with-fingerprint --with-colons
+  register: gpu_cdi_gpg_fpr_raw
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "Épingler : l'empreinte relue doit correspondre à celle décidée en D7"
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_expected_key_fingerprint in gpu_cdi_gpg_fpr_raw.stdout
+    fail_msg: >-
+      L'empreinte de la clé servie par {{ gpu_cdi_repo_gpgkey_url }} ne
+      contient pas {{ gpu_cdi_expected_key_fingerprint }} (sortie brute :
+      {{ gpu_cdi_gpg_fpr_raw.stdout | default('(vide)') }}). La clé a
+      changé depuis la décision D7 (docs/machine-facts.md) — NE PAS
+      poursuivre : ceci doit être investigué et une nouvelle décision
+      consignée avant toute confiance renouvelée, pas contourné par une
+      mise à jour silencieuse de cette valeur.
+    success_msg: >-
+      Empreinte confirmée identique à celle épinglée par D7 :
+      {{ gpu_cdi_expected_key_fingerprint }}.
+  when: not ansible_check_mode
+
+- name: "Purger le trousseau temporaire (aucune trace laissée, succès ou échec)"
+  ansible.builtin.file:
+    path: "{{ gpu_cdi_gpg_tmpdir.path }}"
+    state: absent
+  when: not ansible_check_mode and gpu_cdi_gpg_tmpdir is defined
+
+# --- Dépôt COPR -----------------------------------------------------------
+# Seule tâche avec celles ci-dessous à requérir une élévation de
+# privilège (become: true) — aucune autre tâche de ce rôle n'écrit hors
+# de /tmp. gpgcheck=1 est câblé en dur dans le gabarit, jamais une
+# variable : aucune surcharge -e ne peut le mettre à 0.
+
+- name: "Écrire le fichier de dépôt COPR (gpgcheck=1, includepkgs, jamais --nogpgcheck)"
+  ansible.builtin.template:
+    src: copr-nvidia-container-toolkit.repo.j2
+    dest: "{{ gpu_cdi_repo_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: gpu_cdi_repo_write
+  when: not ansible_check_mode
+
+- name: "Relire le fichier de dépôt écrit, pour vérifier qu'il n'est jamais gpgcheck=0"
+  ansible.builtin.slurp:
+    src: "{{ gpu_cdi_repo_file }}"
+  register: gpu_cdi_repo_file_content
+  when: not ansible_check_mode
+
+- name: "Assertion : gpgcheck=1 présent, gpgcheck=0 absent, dans le fichier réellement écrit"
+  ansible.builtin.assert:
+    that:
+      - "'gpgcheck=1' in (gpu_cdi_repo_file_content.content | b64decode)"
+      - "'gpgcheck=0' not in (gpu_cdi_repo_file_content.content | b64decode)"
+    fail_msg: >-
+      Le fichier de dépôt écrit sur le disque ne contient pas
+      gpgcheck=1, ou contient gpgcheck=0 — vérifié sur le contenu réel
+      relu après écriture, pas sur le gabarit source. Interdiction
+      absolue de ce livrable : ne jamais désactiver la vérification de
+      signature des paquets.
+    success_msg: "gpgcheck=1 confirmé sur le fichier réellement écrit."
+  when: not ansible_check_mode
+
+# --- Installation -----------------------------------------------------
+
+- name: "Installer les paquets retenus (Phase 1, docs/gpu-containers.md § 7.4)"
+  ansible.builtin.dnf:
+    name: "{{ gpu_cdi_packages }}"
+    state: present
+  become: true
+  register: gpu_cdi_install
+  when: not ansible_check_mode
+
+# --- Vérification post-installation de containers.conf (§ 0.3) ----------
+# Ne suppose pas que le hook installé (nvidia-container-runtime,
+# nvidia-container-runtime-hook) est inerte : le vérifie.
+
+- name: "Relever containers.conf système après installation (somme de contrôle)"
+  ansible.builtin.stat:
+    path: /usr/share/containers/containers.conf
+    checksum_algorithm: sha256
+  register: gpu_cdi_containers_conf_after
+  when: not ansible_check_mode
+
+- name: "Relever les runtimes OCI déclarés par Podman après installation"
+  ansible.builtin.command:
+    cmd: podman info --format '{{ "{{" }}.Host.OCIRuntime.Name{{ "}}" }} {{ "{{" }}.Host.OCIRuntime.Path{{ "}}" }}'
+  register: gpu_cdi_oci_runtime_after
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "Relever si un containers.conf utilisateur existe après installation"
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.env.HOME }}/.config/containers/containers.conf"
+  register: gpu_cdi_user_containers_conf_after
+  when: not ansible_check_mode
+
+- name: >-
+    Assertion : ni containers.conf système, ni le runtime OCI actif,
+    n'ont changé du fait de l'installation (hook resté inerte)
+  ansible.builtin.assert:
+    that:
+      - gpu_cdi_containers_conf_after.stat.checksum == gpu_cdi_containers_conf_before.stat.checksum
+      - gpu_cdi_oci_runtime_after.stdout == gpu_cdi_oci_runtime_before.stdout
+      - gpu_cdi_user_containers_conf_after.stat.exists == gpu_cdi_user_containers_conf_before.stat.exists
+    fail_msg: >-
+      containers.conf ou le runtime OCI actif a changé après
+      l'installation de {{ gpu_cdi_packages | join(', ') }} — le
+      script de post-installation du paquet a modifié quelque chose que
+      ce rôle supposait inerte. Avant : checksum
+      {{ gpu_cdi_containers_conf_before.stat.checksum }}, runtime
+      '{{ gpu_cdi_oci_runtime_before.stdout }}'. Après : checksum
+      {{ gpu_cdi_containers_conf_after.stat.checksum }}, runtime
+      '{{ gpu_cdi_oci_runtime_after.stdout }}'. À investiguer avant de
+      poursuivre — ne pas présumer que ce changement est sans
+      conséquence.
+    success_msg: >-
+      containers.conf et le runtime OCI actif sont inchangés — les
+      hooks installés (nvidia-container-runtime,
+      nvidia-container-runtime-hook) restent inertes, comme prévu par
+      la consommation de CDI native.
+  when: not ansible_check_mode
+
+# --- Génération de la spécification CDI ----------------------------------
+# Motif du chemin : JAMAIS /run/cdi ou /var/run/cdi (tmpfs, disparaît au
+# redémarrage — voir docs/gpu-containers.md § 1). `creates:` rend cette
+# tâche idempotente : une spécification déjà présente n'est pas
+# régénérée par ce rôle (la péremption après mise à jour du pilote est
+# documentée, pas résolue ici — voir docs/gpu-containers.md § Péremption,
+# CDI-2).
+
+- name: "S'assurer que {{ gpu_cdi_spec_dir }} existe"
+  ansible.builtin.file:
+    path: "{{ gpu_cdi_spec_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: not ansible_check_mode
+
+- name: "Générer la spécification CDI dans {{ gpu_cdi_spec_path }} (jamais /run/cdi ou /var/run/cdi, tmpfs)"
+  ansible.builtin.command:
+    cmd: "nvidia-ctk cdi generate --output={{ gpu_cdi_spec_path }}"
+    creates: "{{ gpu_cdi_spec_path }}"
+  become: true
+  register: gpu_cdi_generate
+  when: not ansible_check_mode
+
+- name: "S'assurer que la spécification est lisible par tous (Podman rootless doit pouvoir la lire)"
+  ansible.builtin.file:
+    path: "{{ gpu_cdi_spec_path }}"
+    mode: "0644"
+  become: true
+  when: not ansible_check_mode
+
+# --- Vérification de complétude : nœuds UVM référencés -------------------
+# Motif (§ 1.5 de la demande) : une spécification qui existe et qui est
+# valide mais qui ne référence pas les nœuds UVM est un FAUX POSITIF —
+# le calcul CUDA échouera quand même. Ne pas se contenter de vérifier
+# que le fichier existe.
+
+- name: "Lire la spécification CDI générée"
+  ansible.builtin.slurp:
+    src: "{{ gpu_cdi_spec_path }}"
+  register: gpu_cdi_spec_content
+  when: not ansible_check_mode
+
+- name: >-
+    Échouer bruyamment si la spécification ne référence pas les nœuds
+    UVM (faux positif : fichier valide mais incomplet)
+  ansible.builtin.assert:
+    that:
+      - item in (gpu_cdi_spec_content.content | b64decode)
+    fail_msg: >-
+      {{ item }} n'apparaît nulle part dans
+      {{ gpu_cdi_spec_path }} — la spécification existe et sera acceptée
+      par Podman sans erreur, mais un conteneur qui la consomme n'aura
+      pas ce nœud : tout calcul CUDA utilisant la gestion mémoire
+      unifiée échouera, probablement de façon peu claire. Ne PAS
+      déclarer ce rôle en succès sur la seule existence du fichier.
+    success_msg: "{{ item }} référencé dans la spécification CDI."
+  loop: "{{ gpu_cdi_uvm_devices }}"
+  when: not ansible_check_mode
+
+# --- Rapport final ---------------------------------------------------------
+
+- name: "Rapporter l'état (mode simulation --check)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée. Dépôt qui serait écrit :
+      {{ gpu_cdi_repo_file }}. Paquets qui seraient installés :
+      {{ gpu_cdi_packages | join(', ') }}. Spécification qui serait
+      générée : {{ gpu_cdi_spec_path }}.
+  when: ansible_check_mode
+
+- name: "Rapporter l'état (exécution réelle)"
+  ansible.builtin.debug:
+    msg:
+      - "Dépôt COPR écrit : {{ gpu_cdi_repo_file }} (gpgcheck=1 confirmé sur le fichier réel)."
+      - "Paquets installés : {{ gpu_cdi_packages | join(', ') }}."
+      - "containers.conf et runtime OCI actif inchangés — hooks installés restent inertes."
+      - "Spécification CDI : {{ gpu_cdi_spec_path }}, nœuds UVM confirmés référencés."
+      - "SELinux non touché par ce rôle — voir docs/gpu-containers.md pour la procédure séparée fondée sur les refus AVC réels."
+      - "Prochaine étape : test nominal et échecs forcés (docs/gpu-containers.md § 3), hors de ce rôle."
+  when: not ansible_check_mode

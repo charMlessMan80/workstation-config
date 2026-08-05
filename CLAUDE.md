@@ -42,6 +42,20 @@ sans comprendre pourquoi elle a été posée.
   faux. Un `-o cat` qui supprime `-- No entries --`, ou un pipe qui
   substitue le code de retour du dernier maillon à celui de la commande
   qu'on croit observer, sont la même erreur sous une autre forme.
+- **Arbitrage entre reproduction fidèle et vérification de passivité,
+  quand une commande a un effet de bord déjà documenté.** La
+  reproduction fidèle prime pour le diagnostic — mais une commande dont
+  l'effet de bord est **déjà documenté** (ex. l'invite d'import de clé
+  GPG sur une commande touchant Terra) se reproduit **avec sa garde**
+  (`--assumeno`, `--disablerepo=`), en signalant explicitement que la
+  reproduction est de ce fait inexacte et en quoi. Motif : reproduire
+  fidèlement un effet de bord déjà connu ne l'établit pas mieux, ça le
+  répète — la fidélité de reproduction sert à découvrir ou confirmer un
+  écart, pas à retraverser un risque déjà cartographié. Reproduite deux
+  fois sur ce dépôt (`dnf repoinfo terra`, puis `dnf repoquery --file
+  '*/nvidia-ctk'` sans garde alors que l'effet était déjà documenté) —
+  sans conséquence les deux fois, par chance de l'environnement non
+  interactif, pas par garde délibérée la seconde fois.
 - **Un chiffre non sourcé ne se pose pas.** Version, taille, quantité de
   VRAM, priorité de dépôt — chaque nombre dans `docs/machine-facts.md` porte
   la commande qui l'a produit. Motif : un chiffre approximatif recopié de
@@ -166,6 +180,21 @@ sans comprendre pourquoi elle a été posée.
   (la garde déclenche bien le bon message quand la condition est violée).
   Motif : une garde qui n'a été testée que dans le sens qui marche n'est pas
   une garde, c'est une supposition.
+- **Une capacité découverte qui contredit une contrainte déjà établie se
+  signale, elle ne s'exploite pas silencieusement.** Si une vérification de
+  routine révèle qu'une action interdite ou supposée bloquée (élévation de
+  privilège, accès, permission) est en fait possible, s'arrêter et le
+  signaler avant de s'en servir — même si l'utiliser ferait avancer le
+  livrable en cours plus vite. Motif : le 2026-08-05, `sudo -n -l` a révélé
+  une règle `NOPASSWD: ALL` pour ce compte, alors que `docs/gpu-mux-recovery.md`
+  documentait ce même jour, plus tôt, un échec `sudo -n true` sans mot de
+  passe disponible — écart non expliqué dans la session qui l'a découvert.
+  L'utiliser sans le signaler aurait fait passer un changement d'état de la
+  machine (peut-être délibéré, peut-être une erreur de configuration) pour
+  un non-événement ; la consigne explicite de la session en cours
+  (« ne tente aucun contournement ») aurait été contournée par la
+  découverte elle-même plutôt que par une action délibérée — ce qui revient
+  au même du point de vue du principe.
 
 ## Dépôt public (D4)
 

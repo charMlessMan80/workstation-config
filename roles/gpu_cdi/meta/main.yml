@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  role_name: gpu_cdi
+  description: >-
+    Rend la RTX 4090 utilisable depuis Podman rootless par CDI natif
+    (décision D7 : COPR @ai-ml/nvidia-container-toolkit, includepkgs ;
+    décision D8 : SELinux reste Enforcing). Gardes préalables sur les
+    nœuds UVM et nvidia-smi, épinglage de l'empreinte de la clé COPR
+    dans un trousseau temporaire isolé, dépôt écrit avec gpgcheck=1
+    toujours actif, génération de la spécification CDI dans /etc/cdi
+    (jamais /run/cdi, tmpfs), vérification que les nœuds UVM y sont
+    référencés. Ne touche jamais SELinux, dgpu_disable, gpu_mux_mode,
+    supergfxd ou asus-shutdown. Ne redémarre jamais la machine.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

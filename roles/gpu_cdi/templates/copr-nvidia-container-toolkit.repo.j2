@@ -1,0 +1,10 @@
+[{{ gpu_cdi_repo_id }}]
+name=Copr repo for {{ gpu_cdi_copr_project }} owned by {{ gpu_cdi_copr_owner }} (accès GPU rootless — voir docs/gpu-containers.md § 7, docs/machine-facts.md § Décisions D7)
+baseurl={{ gpu_cdi_repo_baseurl }}
+type=rpm-md
+skip_if_unavailable=True
+gpgcheck=1
+gpgkey={{ gpu_cdi_repo_gpgkey_url }}
+repo_gpgcheck=0
+enabled=1
+includepkgs={{ gpu_cdi_packages | join(',') }}

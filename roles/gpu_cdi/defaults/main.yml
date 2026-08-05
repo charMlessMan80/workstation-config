@@ -1,0 +1,55 @@
+---
+# Source retenue (décision D7, docs/machine-facts.md § Décisions, motif
+# corrigé le 2026-08-05) : COPR du groupe Fedora AI/ML. Ancrage de
+# confiance explicité, pas supposé : TLS vers copr.fedorainfracloud.org
+# et download.copr.fedorainfracloud.org, plus la confiance accordée à
+# l'infrastructure Fedora et au groupe @ai-ml. Une clé de projet COPR n'a
+# pas de second canal de publication indépendant — comparer son
+# empreinte "à la page du projet" est circulaire pour tout projet COPR,
+# pas seulement celui-ci (voir docs/gpu-containers.md § 7.3). Ce rôle
+# n'essaie donc pas de re-corroborer l'empreinte contre une seconde
+# source : il l'épingle à la valeur relevée le 2026-08-05 et casse
+# bruyamment si le fichier de clé servi par le COPR ne correspond plus à
+# cette valeur — la garde contre un changement de clé non voulu, pas
+# contre l'absence structurelle d'une seconde source.
+gpu_cdi_copr_owner: "@ai-ml"
+gpu_cdi_copr_project: "nvidia-container-toolkit"
+gpu_cdi_repo_id: "copr:copr.fedorainfracloud.org:group_ai-ml:nvidia-container-toolkit"
+gpu_cdi_repo_file: "/etc/yum.repos.d/_copr:copr.fedorainfracloud.org:group_ai-ml:nvidia-container-toolkit.repo"
+gpu_cdi_repo_baseurl: "https://download.copr.fedorainfracloud.org/results/@ai-ml/nvidia-container-toolkit/fedora-$releasever-$basearch/"
+gpu_cdi_repo_gpgkey_url: "https://download.copr.fedorainfracloud.org/results/@ai-ml/nvidia-container-toolkit/pubkey.gpg"
+
+# Empreinte relevée le 2026-08-05 par import dans un trousseau temporaire
+# isolé (docs/gpu-containers.md § 7.3), acceptée par décision D7. Ne PAS
+# mettre à jour cette valeur sans repasser par une vérification et une
+# nouvelle décision consignée — c'est le seul rempart contre une clé de
+# projet COPR compromise ou remplacée à l'insu de l'opérateur.
+gpu_cdi_expected_key_fingerprint: "0E6C304C16654ADA1AF6CB8F1C34CABF2CC19B05"
+
+# Paquets retenus (docs/gpu-containers.md § 7.2 et § 7.4) : ce COPR ne
+# construit pas de variante "-base" — nvidia-container-toolkit embarque
+# nvidia-ctk ET les deux hooks d'exécution (inertes, jamais invoqués tant
+# que Podman consomme CDI nativement). nvidia-container-toolkit-selinux
+# fournit la politique vendeur, dont l'installation ne charge rien par
+# elle-même (semodule -i, non fait ici). Exclus délibérément :
+# -debuginfo, -debugsource, -operator-extensions (Kubernetes, sans
+# objet ici), .src (non installable par ce mécanisme).
+gpu_cdi_packages:
+  - nvidia-container-toolkit
+  - nvidia-container-toolkit-selinux
+
+# Chemin de la spécification CDI. JAMAIS /run/cdi ou /var/run/cdi
+# (tmpfs, disparaît au redémarrage — voir docs/gpu-containers.md § 1).
+# Variable pour permettre la démonstration d'échec forcé : -e
+# gpu_cdi_spec_path="" doit casser sur la garde dédiée, avant toute
+# action (écriture de dépôt, installation, génération).
+gpu_cdi_spec_dir: /etc/cdi
+gpu_cdi_spec_path: "{{ gpu_cdi_spec_dir }}/nvidia.yaml"
+
+# Nœuds dont l'absence de la spécification générée serait un faux
+# positif (§ 1.5 de la demande) : la spécification existe, elle est
+# valide, et le calcul CUDA échoue quand même parce que la gestion
+# mémoire unifiée n'a pas de périphérique CDI.
+gpu_cdi_uvm_devices:
+  - /dev/nvidia-uvm
+  - /dev/nvidia-uvm-tools
