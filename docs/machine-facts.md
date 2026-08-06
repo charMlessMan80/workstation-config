@@ -1911,3 +1911,43 @@ ouverture de session, `docs/desktop.md` § 6.7.
   (paramétrage de `desktop_target_output`). `kwinrc` jamais touché,
   aucun autre paquet, aucun nouveau dépôt, aucun changement de mode
   d'affichage ni d'échelle, aucune déconnexion, aucun redémarrage.
+- **2026-08-06 (série suivante) — deux corrections de revue, puis
+  résolution éditeur en lecture seule (`docs/editor.md`, nouveau).**
+  Corrections : titre de commentaire périmé dans
+  `roles/desktop/defaults/main.yml` (annonçait `Force` alors que le
+  code portait déjà `Apply initially` depuis § 6.4) — troisième
+  occurrence du même défaut dans ce dépôt, règle ajoutée à `CLAUDE.md`
+  § Avant d'agir (un commentaire qui énonce une décision se relit à
+  chaque révision de cette décision). Écart « dimensionné » contre
+  « maximisé » consigné comme choix assumé, pas corrigé (D11
+  ci-dessus, `docs/desktop.md` § 6.10) — sans conséquence tant
+  qu'aucun panneau Plasma n'occupe `DP-3`, symptôme nommé pour le cas
+  contraire.
+  Résolution éditeur, strictement en lecture seule : recensement par
+  interrogation des onze dépôts (89062 paquets hors Terra, 2739 sur
+  Terra, garde `--assumeno` conservée bien qu'aucune invite ne se
+  soit déclenchée — la clé `repo_gpgcheck` posée en D10 tient).
+  Candidats GUI (Kate, Geany, Qt Creator, GNOME Text Editor, gedit,
+  Zed et Cursor sur Terra) et terminal (Neovim, Vim, Emacs, Helix,
+  Micro, Kakoune, joe, nano déjà présent) recensés avec coût mesuré.
+  Ni `yaml-language-server` ni `ansible-language-server` empaquetés
+  dans aucun des onze dépôts (ce sont des paquets npm en amont ;
+  `node`/`npm` absents de ce poste). `ansible-lint` existe en rpm
+  (`python3-ansible-lint` 26.4.0) mais installerait un second
+  `ansible-lint` divergent du binaire D3a (26.6.0) — même piège
+  qu'ANS-1, signalé, rien installé. VSCode/VSCodium confirmés absents
+  de toute source déjà configurée sur ce poste (dépôts activés ou
+  désactivés, remote Flatpak) — les obtenir exigerait une nouvelle
+  source de confiance (D7/D10), non entrepris.
+  **Incident de méthode** : `dnf download` exécuté par erreur sur le
+  paquet `cursor` (Terra, ~195 MiB × 2 architectures) en tentant
+  d'inspecter son lanceur — contredit la consigne de lecture seule.
+  Reconnu immédiatement, fichiers supprimés, rien installé ni copié
+  ailleurs ; la question que cette commande devait trancher (nativité
+  Wayland de `cursor`) reste non déterminée, marquée en conséquence
+  plutôt que devinée. Aucune autre commande de ce type dans la série.
+  Aucun éditeur recommandé (hors périmètre de la demande) ; questions
+  discriminantes formulées à la place, `docs/editor.md` § 1.4.
+  Aucune action privilégiée. Aucun paquet installé, aucune extension
+  téléchargée, aucun dépôt ajouté, aucune configuration d'éditeur
+  créée.

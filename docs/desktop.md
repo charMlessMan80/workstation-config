@@ -789,6 +789,47 @@ par défaut (D1) ; une machine dont le nommage de connecteur diffère
 ferait échouer la mesure au lieu de placer silencieusement la règle
 sur une géométrie jamais vérifiée.
 
+### 6.10 — Écart assumé : « dimensionné », pas « maximisé »
+
+**Consignation, pas correction** — signalé en revue, non corrigé ici
+sur consigne explicite.
+
+La demande initiale (BUR-1) disait **maximisé** — un *état* de fenêtre
+(`maximizehoriz`/`maximizevert`, un booléen que KWin applique
+lui-même, avec ses éventuelles réservations de bord d'écran gérées en
+interne). Ce que le rôle produit est autre chose : une fenêtre
+**dimensionnée** aux pixels exacts de la sortie cible (`position`+
+`size`, § 6.3), pas mise dans l'état « maximisé » de KWin.
+
+**Motif de l'écart** : le mécanisme d'état (`maximizehoriz`/
+`maximizevert`) dépendait, dans la version du rôle envisagée au § 6.2,
+du même index d'écran (`screen`/`screenrule`) établi inopérant —
+`position`+`size` est la voie qui s'est vérifiée fonctionner (§ 6.8).
+L'état de maximisation propre n'a pas été retesté séparément une fois
+le pivot fait vers `position`+`size` — l'objectif (occuper visuellement
+toute la surface de `DP-3`) était atteint, la distinction d'état n'a
+pas été creusée plus loin à ce moment-là.
+
+**Sans conséquence aujourd'hui** : aucun panneau Plasma n'occupe
+`DP-3` sur ce poste (vérifié, aucune barre ni widget positionné sur
+cette sortie). La géométrie retenue (`0,1067 2560x734`) couvre donc
+toute la sortie, panneau compris — parce qu'il n'y a pas de panneau à
+éviter.
+
+**Symptôme à nommer, si ça change** : si un panneau Plasma est un jour
+ajouté sur `DP-3`, une fenêtre **dimensionnée** aux pixels ne s'ajuste
+pas à l'espace restant — elle passe dessous ou dessus du panneau,
+contrairement à une fenêtre réellement à l'état **maximisé**, que KWin
+aurait automatiquement contrainte à la zone utile. Reconnaissable par
+lecture directe : la géométrie mesurée d'une fenêtre kitty coïnciderait
+alors avec le rectangle plein de la sortie, pas avec le rectangle
+utile (zone de travail moins panneaux) que rapporterait
+`org.kde.KWin.activeOutputName`/l'API de géométrie de zone de travail.
+
+**Aucune correction entreprise ici** — consigné pour qu'un livrable
+futur qui ajouterait un panneau sur `DP-3` sache où regarder, pas pour
+être résolu dans cette série.
+
 ## Validation — BUR-1 (déploiement, 2026-08-06)
 
 **Actions privilégiées, exhaustives** :

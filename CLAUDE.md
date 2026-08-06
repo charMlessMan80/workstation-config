@@ -222,6 +222,21 @@ sans comprendre pourquoi elle a été posée.
   jamais reconfirmé qu'elle cassait encore à raison. Rejoué le 2026-08-06
   (`roles/gpu_cdi/tasks/main.yml`, garde gpgcheck) : les deux sens
   passent avec la logique corrigée.
+- **Un commentaire de code qui énonce une décision doit être relu à
+  chaque révision de cette décision.** Ce n'est pas une tâche de
+  nettoyage ultérieur, séparable de la révision elle-même — c'est une
+  partie de la révision : si le code change de valeur ou de mécanisme,
+  tout commentaire qui décrivait l'ancien état se relit et se corrige
+  dans le même geste, pas dans un passage suivant. Motif : troisième
+  occurrence du même défaut dans ce dépôt — la règle `pending_reboot`
+  restée fausse dans `roles/gpu_mux/` après correction du fait qu'elle
+  décrivait, un commentaire sur l'absence de `NOPASSWD` resté en place
+  après que D9 a changé cet état, et le titre de section « position+size
+  (Force) » dans `roles/desktop/defaults/main.yml` resté en place après
+  le passage à `Apply initially` (§ 6.4, corrigé le 2026-08-06). Un
+  commentaire périmé ne se contente pas d'être inutile : il se lit comme
+  s'il faisait encore autorité, et contredit silencieusement le code
+  juste en dessous.
 - **Une capacité découverte qui contredit une contrainte déjà établie se
   signale, elle ne s'exploite pas silencieusement.** Si une vérification de
   routine révèle qu'une action interdite ou supposée bloquée (élévation de

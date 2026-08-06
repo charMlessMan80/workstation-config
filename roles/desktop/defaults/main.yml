@@ -40,7 +40,12 @@ desktop_kitty_wmclassmatch: 1  # ExactMatch
 # et ré-écrire sa propre règle de façon idempotente.
 desktop_kwin_rule_id: desktop-kitty-screenpad
 
-# --- Mécanisme de placement : position+size (Force), pas screen+maximize
+# --- Mécanisme de placement : position+size (Apply initially), pas
+# screen+maximize — voir la politique de règle retenue plus bas
+# (desktop_kitty_placerule) ; ce titre a divergé du code une première
+# fois (annonçait « Force » alors que le code portait déjà la valeur 3,
+# Apply — corrigé le 2026-08-06, CLAUDE.md § un commentaire qui énonce
+# une décision se relit à chaque révision de cette décision).
 # -----------------------------------------------------------------------
 # ÉTAIT (première version de ce rôle, § 3 de la demande) : placement par
 # index d'écran (`screen`, `screenrule=Force`) combiné à la maximisation
@@ -86,3 +91,23 @@ desktop_kwin_rule_id: desktop-kitty-screenpad
 # initially` positionne chaque nouvelle fenêtre kitty sur DP-3 à sa
 # création (l'effet demandé) sans jamais reprendre la main ensuite.
 desktop_kitty_placerule: 3  # Apply initially (Rules::Apply)
+
+# --- Écart assumé : « dimensionné », pas « maximisé » (consigné, pas corrigé)
+# ---------------------------------------------------------------------------
+# La demande initiale de l'opérateur (BUR-1) disait « maximisé » — un
+# ÉTAT de fenêtre (maximizehoriz/maximizevert, un booléen que KWin gère
+# lui-même, y compris ses éventuelles réservations de bord d'écran).
+# Ce rôle produit autre chose : une fenêtre DIMENSIONNÉE aux pixels
+# exacts de la sortie cible (position+size, ci-dessus), pas mise dans
+# l'état « maximisé ». Choix assumé, pas un oubli : le mécanisme d'état
+# (maximizehoriz/maximizevert) dépendait, dans la première version de
+# ce rôle, du même index d'écran (screen/screenrule) établi inopérant
+# ci-dessus — position+size est la voie qui s'est vérifiée fonctionner,
+# l'état de maximisation n'a pas été retesté séparément une fois le
+# pivot fait. Sans conséquence aujourd'hui : aucun panneau Plasma
+# n'occupe DP-3 (vérifié, docs/desktop.md § 6). Symptôme à surveiller
+# si ça change : une fenêtre dimensionnée aux pixels de la sortie ne
+# respecte pas une réservation de bord d'écran ultérieure (panneau
+# Plasma ajouté sur DP-3) — elle passerait dessous ou dessus au lieu de
+# s'ajuster, contrairement à une fenêtre réellement à l'état maximisé.
+# Aucune correction entreprise ici (docs/desktop.md § 6.10).
