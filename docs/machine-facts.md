@@ -414,6 +414,28 @@ comparé au fichier de trace non versionné
   exécutée le 2026-08-05 (`docs/gpu-containers.md` § 7-8, décisions D7/D8/D9) :
   `/etc/cdi/nvidia.yaml` présent, `root:root`, `0644`, 19954 octets
   (relevé le 2026-08-06). (`ls -la /etc/cdi/`)
+  **Écart non expliqué, consigné plutôt qu'investigué a posteriori** : ce
+  même fichier faisait 19972 octets lors d'une génération antérieure, le
+  même jour (`docs/gpu-containers.md` § 9.5, `sha256sum` distincts avant/
+  après le premier essai réel de `regen-cdi-spec`) — sans perte
+  fonctionnelle constatée (`diff` avec une génération fraîche à ce moment
+  : identique, 21 chemins, les quatre nœuds critiques présents, test
+  conteneur réussi). Cause non établie : l'ancienne spécification a été
+  écrasée par la régénération elle-même et n'est pas versionnée, rien à
+  comparer après coup. `@VERIF : cause exacte de l'écart 19972 → 19954
+  octets entre deux générations de /etc/cdi/nvidia.yaml par nvidia-ctk
+  cdi generate le 2026-08-06 — candidat le plus vraisemblable,
+  l'avertissement "Could not locate libglxserver_nvidia.so.610.43.03"
+  observé pendant la génération (bibliothèque GLX serveur, sans objet
+  pour le calcul), non confirmé faute des deux sorties de génération
+  consignées côte à côte. Confirmable seulement à la prochaine
+  régénération réelle, en comparant deux relevés (sha256sum +
+  avertissements bruts) déjà consignés — pas en relisant un fichier qui
+  n'existe plus.` Règle ajoutée à `CLAUDE.md` § Matériel spécifique —
+  GPU/MUX : le `sha256sum` et les avertissements de génération se
+  consignent à chaque régénération, pas seulement après coup. Non
+  implémenté dans `roles/gpu_cdi/` ici — dette technique, hors périmètre
+  de ce livrable.
 - **[ÉTAIT, jusqu'au 2026-08-05] `nvidia-container-toolkit` : non
   installé.** Depuis la Phase 1 : `nvidia-container-toolkit-1.19.1-1.fc44.x86_64`
   et `nvidia-container-toolkit-selinux-1.19.1-1.fc44.noarch`, source COPR
@@ -576,10 +598,39 @@ refuse. Note datée (2026-08-04) : la cible EE-first est maintenue, mais son
 moyen d'installation reste à déterminer — `ansible-navigator` n'est pas
 empaqueté dans les dépôts Fedora 44 activés sur ce poste (voir « Points
 ouverts »), les options ouvertes sont `pipx`, un venv dédié, ou l'exécution
-directe des EE en `podman run`. `@VERIF : voie d'installation de la chaîne
-Ansible EE-first, à trancher au livrable dédié.` Motif : une décision dont
-le moyen d'exécution n'existe pas encore doit le dire, sinon elle se
-découvre inapplicable au moment de l'appliquer.
+directe des EE en `podman run`. **[MARQUEUR FERMÉ le 2026-08-06, note
+ci-dessous]** ÉTAIT marqué : « voie d'installation de la chaîne Ansible
+EE-first, à trancher au livrable dédié. » Motif de la garde initiale :
+une décision dont le moyen d'exécution n'existe pas encore doit le dire,
+sinon elle se découvre inapplicable au moment de l'appliquer.
+
+**[RÉSOLU le 2026-08-06, décision d'application différée]** Livrable
+dédié exécuté en lecture seule (`docs/ansible-chain.md`), marqueur fermé
+ci-dessus par recherche effective, pas par reformulation.
+Constat central : la seule image d'EE fidèle à AAP 2.6 (`ansible-core`
+2.16 par défaut ou 2.18 en option, sourcé sans authentification) vit
+derrière `registry.redhat.io`, exclu par D4 ; l'image communautaire
+publique la plus proche (`ghcr.io/ansible/community-ansible-dev-tools`)
+ne pin pas `ansible-core` et ne rapproche donc pas de cette fidélité.
+`ansible-lint` sous Python 3.14 système exige `ansible-core >= 2.20.0`
+(contrôle `ansible_compat`, sourcé) — strictement incompatible avec les
+deux versions réelles d'AAP 2.6, ce qui élimine `pipx` et un venv dédié
+comme voies de fidélité (ils resteraient bloqués sur un `ansible-core`
+plus récent que la production, ou casseraient `ansible-lint`).
+`ansible-navigator` réévalué comme n'apportant aucune capacité
+manquante pour l'usage de ce dépôt (`podman run` direct suffit) —
+recommandation : ne pas l'installer. **`ansible-navigator` retiré de la
+formulation de D3** (première phrase de cette décision, ci-dessus,
+« ÉTAIT » implicite depuis ce jour) — la voie recommandée est un EE
+construit localement par `ansible-builder` (déjà disponible par `dnf`,
+aucun `pip`/`pipx`) à partir d'une base publique, exécuté par `podman
+run` seul, argumentaire complet et options écartées dans
+`docs/ansible-chain.md` § 4. **Décision non appliquée dans ce
+livrable** (consigne explicite : lecture seule, aucune option
+appliquée) — reste `@VERIF : version d'ansible-core cible (2.16 ou
+2.18) pour la construction de l'EE local, à confirmer par l'opérateur
+depuis son environnement professionnel — voir docs/ansible-chain.md § 4`
+avant toute construction réelle, elle-même un livrable séparé.
 
 **D4 (2026-08-04, amendée) — dépôt public.** Interdits : secrets de toute
 nature (clés privées, jetons, mots de passe), données d'entreprise,
@@ -890,10 +941,13 @@ modifier `sudoers` dans un sens comme dans l'autre.
     conteneurs et la construction des EE — outiller Ansible avant de
     basculer reviendrait à bâtir l'outillage sur une couche (le mode
     graphique) qui va elle-même changer.
-  - Voir la note datée ajoutée à D3, qui porte son propre marqueur non
-    résolu : la cible EE-first est maintenue, mais son moyen d'installation
-    (`pipx`, venv dédié, ou `podman run` direct des EE) reste à trancher au
-    livrable dédié à la chaîne Ansible.
+  - **[RÉSOLU le 2026-08-06]** Voir la note datée ajoutée à D3 : livrable
+    dédié exécuté (`docs/ansible-chain.md`), `pipx` et venv dédié écartés
+    (mur `ansible_compat`/Python 3.14 démontré, incompatible avec les
+    deux versions réelles d'`ansible-core` d'AAP 2.6), recommandation
+    unique posée (EE construit localement par `ansible-builder`, exécuté
+    par `podman run` seul) — décision d'application différée à
+    l'opérateur, un seul point reste `@VERIF` (version cible 2.16/2.18).
 - **Nouveau point ouvert (2026-08-05) — règle `sudo NOPASSWD: ALL` active
   pour ce compte, contredisant l'état documenté plus tôt le même jour.**
   `sudo -n true` (exit 0) et `sudo -n -l` (« User mahieumi may run the
@@ -1375,3 +1429,60 @@ modifier `sudoers` dans un sens comme dans l'autre.
   lectures `ausearch`/`sudo -n true`. Aucune mise à jour de pilote, aucun
   nouveau dépôt, aucune modification de `/etc/sudoers`, aucun
   redémarrage.
+- **2026-08-06 — chaîne Ansible EE-first, résolution en lecture seule
+  (`docs/ansible-chain.md`).** Deux dettes du livrable précédent
+  traitées en premier : compteur `@VERIF` bruité par les règles qui
+  définissent le jeton lui-même (règle structurelle ajoutée à
+  `CLAUDE.md`, CLAUDE.md exclu de tout comptage de validation) ; écart
+  de taille non expliqué entre deux générations de la spécification CDI
+  consigné avec un `@VERIF` borné (§ Conteneurs), règle ajoutée à
+  `CLAUDE.md` imposant de consigner `sha256sum` et avertissements à
+  chaque régénération future.
+  Question centrale posée par la demande : d'où viendraient les EE,
+  sachant que D4 exclut toute authentification à un registre. Établi
+  sans s'authentifier nulle part (`skopeo inspect --no-creds`, aucune
+  image téléchargée au sens couches — métadonnées de manifeste/config
+  uniquement) : `registry.redhat.io` (EE officielles AAP) refuse même la
+  lecture de manifeste sans compte Customer Portal — démontré, pas
+  supposé. L'image communautaire historique (`quay.io/ansible/creator-ee`)
+  est archivée depuis 2024-08-26 ; sa remplaçante
+  (`ghcr.io/ansible/community-ansible-dev-tools`) est publique et
+  actuelle mais ne pin pas `ansible-core` — la consommer ne rapproche pas
+  de la fidélité à AAP 2.6, elle déplace le même écart de version dans
+  un conteneur. `ansible-builder` (déjà disponible par `dnf`, sans
+  `pip`/`pipx`) accepte n'importe quelle base publique et peut, lui,
+  épingler la version exacte voulue — seule voie identifiée qui atteigne
+  une fidélité réelle sans authentification.
+  `ansible-navigator` réévalué sur l'usage réel de ce dépôt (rôles
+  d'amorçage exécutés en CLI directe, pas de TUI) : aucune capacité
+  manquante par rapport à `podman run` direct pour `run`/`exec`/`lint` —
+  seules les sous-commandes interactives (sans objet ici) apportent
+  quelque chose de plus. Recommandation : ne pas l'installer.
+  Version d'`ansible-core` d'AAP 2.6 sourcée sans authentification (deux
+  pages publiques Red Hat, `access.redhat.com` et `redhat.com/blog`) :
+  2.16 par défaut, 2.18 en option. Mur trouvé par requête de métadonnées
+  (PyPI, aucune installation) et une discussion amont publique
+  (`ansible/ansible-lint#4822`) : `ansible-lint` sous Python 3.14 exige
+  `ansible-core >= 2.20.0` (contrôle `ansible_compat`) — les deux
+  versions réelles d'AAP 2.6 (2.16.14, 2.18.9) sont toutes deux
+  inférieures à ce seuil, ce qui élimine structurellement `pipx` et un
+  venv dédié comme voies de fidélité sur ce poste (Python 3.14 système,
+  sans alternative).
+  Recommandation unique posée, argumentée contre les quatre options
+  (`docs/ansible-chain.md` § 4) : EE construit localement par
+  `ansible-builder`, à partir d'une base publique épinglée par
+  empreinte, exécuté exclusivement par `podman run` direct — jamais
+  `ansible-navigator`, jamais `pipx`, jamais de venv. **Non appliquée**,
+  conformément à la consigne de ce livrable (lecture seule, décision
+  différée à l'opérateur) — `D3` marquée `[RÉSOLU le 2026-08-06, décision
+  d'application différée]`, un seul point reste `@VERIF` (version cible
+  2.16 vs 2.18, à confirmer par l'opérateur depuis son environnement
+  professionnel).
+  Aucune commande exécutée dans cette série n'a modifié l'état de la
+  machine : requêtes réseau anonymes (`skopeo inspect --no-creds`,
+  `curl` vers l'API PyPI, lectures de pages publiques), lectures locales
+  déjà en place (`man`, `registries.conf`), requêtes de métadonnées
+  `dnf` (`info`, `repoquery -l`, sans installation). Confirmé en fin de
+  série : `rpm -q` négatif sur les quatre outils recherchés, aucune
+  nouvelle image dans `podman images`, aucun fichier `auth.json` à
+  aucun des trois emplacements documentés, aucune action privilégiée.

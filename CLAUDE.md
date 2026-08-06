@@ -27,6 +27,19 @@ sans comprendre pourquoi elle a été posée.
   fermer le marqueur `gpu_mux_mode` — corriger l'écart entre la règle
   écrite et la pratique correcte plutôt que de laisser la règle se faire
   contourner en silence la prochaine fois.
+- **`CLAUDE.md` porte des règles, jamais des faits à vérifier — il
+  contient zéro marqueur `@VERIF` par construction, et tout comptage de
+  validation (`grep -c '@VERIF'`) doit l'exclure.** Les occurrences du
+  jeton `@VERIF` dans ce fichier appartiennent aux règles qui le
+  définissent ou le documentent (cette règle elle-même, par exemple) —
+  ce ne sont pas des marqueurs actionnables sur un fait de ce dépôt.
+  Motif : compté par erreur comme marqueurs actionnables dans un rapport
+  de livrable (2026-08-06) — précisément les occurrences documentant la
+  migration du jeton `À VÉRIFIER` vers `@VERIF` (§ plus bas) ont gonflé
+  le compte qu'elles décrivent. C'est le même défaut que celui déjà
+  identifié pour la garde équivalente (voir la règle sur le retrait d'un
+  marqueur uniquement après vérification effective) revenu par une autre
+  porte — le comptage, pas le retrait, cette fois.
 - **Reproduire une commande, c'est exécuter la commande exacte, pas une
   variante — y compris ses options de formatage et ses redirections.**
   `-o cat`, `--no-pager`, un pipe en bout de chaîne : ce sont elles qui
@@ -287,6 +300,18 @@ sans comprendre pourquoi elle a été posée.
   règle fausse ci-dessus, qui a survécu plusieurs livrables parce qu'elle
   était plausible — une propriété plausible par analogie n'est pas une
   propriété vérifiée.
+- **Le `sha256sum` d'un artefact régénéré et les avertissements produits
+  pendant sa génération se consignent à chaque régénération, pas
+  seulement quand un écart est déjà remarqué.** S'applique en premier
+  lieu à la spécification CDI (`nvidia-ctk cdi generate`, voir
+  `docs/gpu-containers.md` § Péremption), généralisable à tout artefact
+  régénéré en place par ce dépôt. Motif : un écart de taille
+  (19 972 → 19 954 octets) entre deux générations de
+  `/etc/cdi/nvidia.yaml` a été constaté le 2026-08-06 sans pouvoir être
+  expliqué — l'ancienne spécification avait déjà été écrasée, non
+  versionnée, rien à comparer après coup. Un écart futur doit être
+  explicable par comparaison de deux relevés déjà consignés, pas
+  investigable a posteriori sur un fichier qui n'existe plus.
 
 ## `docs/machine-facts.md`
 
