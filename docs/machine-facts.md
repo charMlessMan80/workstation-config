@@ -402,6 +402,31 @@ comparé au fichier de trace non versionné
   réglages d'écran de Plasma. Ce n'était déjà pas le mode actif avant
   bascule ; aucune régression.
 
+**[ÉCART CONSTATÉ le 2026-08-06, cause non établie]** Relevé fait dans
+le cadre du livrable bureau/terminal (`docs/desktop.md`), en lecture
+seule, sans changer aucun mode d'affichage — contredit le point ci-dessus
+sur deux aspects distincts :
+```
+$ kscreen-doctor -o
+Output: 1 DP-3 ...   Modes: 3840x1100@60.02*!   Scale: 1.5
+Output: 2 eDP-1 ...  Modes: 18:2560x1600@240.00*!  19:...@60.00   Scale: 1.5
+```
+1. **`eDP-1` est actif à `2560x1600@240.00`** (marqueurs `*` et `!` sur
+   le même mode), pas `@60.00` comme relevé le 2026-08-05 — la
+   « sélection manuelle » documentée ci-dessus comme restant à faire
+   semble avoir été faite entre-temps.
+2. **L'échelle a changé sur les deux sorties** : `DP-3` `1.4→1.5`,
+   `eDP-1` `1.25→1.5` — les deux sorties partagent désormais la même
+   échelle, ce qui n'était pas le cas le 2026-08-05.
+Cause non établie dans cette série : aucune commande n'a été exécutée
+ici qui expliquerait ce changement, et rien dans l'historique `dnf`/les
+journaux consultés pour `docs/desktop.md` ne le documente. Non
+investigué davantage — hors périmètre d'un livrable en lecture seule
+sur le placement d'un terminal ; aucune action entreprise, aucun mode
+changé par cette série. Géométries recalculées, cohérentes avec les
+nouvelles échelles (`3840/1.5=2560`, `2560/1.5≈1707`) — pas une mesure
+aberrante.
+
 ## Conteneurs
 
 - Podman `5.8.4` (API 5.8.4), mode rootless, `cgroupManager: systemd`,
@@ -456,21 +481,52 @@ comparé au fichier de trace non versionné
   `python3-resolvelib`, `python3-markupsafe`, `python3-cryptography`.
   (`dnf history info 21`)
 - `python3` : `3.14.6`. (`python3 --version`)
-- **`ansible-lint 26.6.0`**, installé le 2026-08-06 dans un venv dédié
-  `~/.venvs/ansible-lint`, créé avec `--system-site-packages` pour
-  réutiliser l'`ansible-core` système plutôt que d'en installer un
-  second (D3a, résolution complète dans `docs/ansible-chain.md`
-  § Résolution avant installation). Confirmé par sortie de l'outil
-  lui-même, pas déduit : `ansible-lint --version` → « ansible-lint 26.6.0
-  using ansible-core:2.20.7 » — même numéro que `ansible --version`
-  (système). `pip show ansible-core` dans ce venv : `Location:
-  /usr/lib/python3.14/site-packages` (le système, pas le venv) —
-  aucune copie dans `~/.venvs/ansible-lint/lib/python3.14/site-packages/`.
-  Prérequis : `python3-pip-26.0.1-2.fc44` installé (dépôt `fedora`, déjà
-  activé) — seul paquet système ajouté par cette résolution.
-- `python3-pip` : absent jusqu'au 2026-08-06, installé ce jour (dépôt
-  `fedora`, transaction dnf) pour permettre la résolution ci-dessus.
-  (`rpm -q python3-pip`, avant/après)
+- **`ansible-lint 26.6.0` (D3a) — procédure de reconstruction complète,
+  déplacée ici depuis `docs/ansible-chain.md` le 2026-08-06** (dette de
+  rangement : ce document décrit la chaîne active de ce dépôt, pas une
+  chaîne différée — voir motif détaillé dans le renvoi laissé à sa
+  place d'origine).
+  **Couplage identifié** : `ansible-lint` dépend d'`ansible-core` ; un
+  environnement Python isolé (venv classique, `pipx` par défaut)
+  installerait sa **propre** copie d'`ansible-core`, potentiellement
+  différente du 2.20.7 système qui exécute réellement les rôles de ce
+  dépôt — un lint qui valide contre une autre version que celle
+  d'exécution reproduit le décalage qu'on cherche à éviter.
+  **Commande exacte** :
+  ```
+  sudo dnf install -y python3-pip   # prérequis, dépôt fedora déjà activé
+  python3 -m venv --system-site-packages ~/.venvs/ansible-lint
+  ~/.venvs/ansible-lint/bin/pip install ansible-lint
+  ```
+  Le drapeau `--system-site-packages` est ce qui garantit une seule
+  version d'`ansible-core` en jeu : `pip`, à l'installation, détecte
+  l'`ansible-core` **système** (métadonnées
+  `/usr/lib/python3.14/site-packages/ansible_core-2.20.7.dist-info`,
+  déposées par `dnf`) comme satisfaisant la dépendance déclarée
+  d'`ansible-lint` (`ansible-core>=2.16.14`) et **ne le duplique pas**
+  — confirmé par contraste avant d'installer quoi que ce soit (essai
+  `pip install --dry-run`, sans écriture, dans un venv témoin sans
+  `--system-site-packages` : celui-là aurait installé un second
+  `ansible-core`, `2.21.2`, distinct du système).
+  **Preuve du partage, par la sortie de l'outil lui-même, pas déduite** :
+  ```
+  $ ansible --version | head -1                       # système
+  ansible [core 2.20.7]
+  $ ~/.venvs/ansible-lint/bin/ansible-lint --version   # venv
+  ansible-lint 26.6.0 using ansible-core:2.20.7 ...
+  $ ~/.venvs/ansible-lint/bin/pip show ansible-core
+  Location: /usr/lib/python3.14/site-packages   # le système, pas le venv
+  ```
+  Aucune copie dans `~/.venvs/ansible-lint/lib/python3.14/site-packages/`
+  (vérifié). `python3-pip` était absent jusqu'au 2026-08-06 — seul
+  paquet système ajouté par cette résolution (`rpm -q python3-pip`,
+  avant/après, dépôt `fedora`).
+  **Choix du lieu de cette entrée, argumenté** : un document dédié
+  (à la manière de `docs/gpu-containers.md` pour `gpu_cdi`) serait plus
+  propre à terme si D3a accumule d'autres procédures, mais créer un
+  nouveau fichier était hors périmètre du livrable qui a fait ce
+  déplacement (2026-08-06, résolution bureau/terminal) — reporté si
+  D3a grossit encore.
 - `git` : `2.55.0`. (`git --version`)
 - `claude` : `2.1.220 (Claude Code)`, gestionnaire de paquets `rpm`,
   chemin `/usr/bin/claude`, canal de mise à jour annoncé **`latest`**.
@@ -1562,3 +1618,73 @@ modifier `sudoers` dans un sens comme dans l'autre.
   système, aucune authentification à un registre, aucune modification
   de `sudoers` ni de `/etc/cdi/`, `terra` non désactivé, aucun
   redémarrage.
+- **2026-08-06 (série suivante) — bureau et terminal, résolution en
+  lecture seule (`docs/desktop.md`).** Dette de rangement traitée en
+  premier : procédure de reconstruction du venv `ansible-lint` déplacée
+  depuis `docs/ansible-chain.md` (requalifié D3b) vers ce fichier
+  § Chaîne Ansible (D3a) — un renvoi laissé à sa place d'origine, pas
+  une copie.
+  Contradiction relevée avant d'aller plus loin (`CLAUDE.md` § Avant
+  d'agir) : `eDP-1` lu actif à `@240` et les deux sorties à l'échelle
+  `1.5`, contre `@60` et des échelles `1.4`/`1.25` documentées le
+  2026-08-05 — consigné en « Affichage » ci-dessus, cause non établie,
+  aucune action entreprise.
+  Question centrale posée par la demande : comment KWin désigne un
+  écran dans une règle de fenêtre. Établi par lecture du schéma source
+  de KWin à la version exactement installée (`v6.7.3`,
+  `rulesettings.kcfg` : `screen` est un `Int` — « Screen number »,
+  aucune entrée `output`/`uuid` sur 81 entrées) et du code
+  d'application de la règle (`rules.cpp` :
+  `workspace()->outputs().indexOf()`/`.value()`) : **l'index est une
+  position dans une liste live, pas un identifiant persistant** —
+  aucun moyen d'utiliser l'UUID stable de `kscreen-doctor -o` dans une
+  règle KWin, cette possibilité n'existe pas dans le schéma. Ordre
+  d'énumération DRM identique sur les trois derniers démarrages
+  relevés (journal noyau, y compris de part et d'autre de la bascule
+  MUX) — mais correspondance exacte avec la liste interne de KWin non
+  prouvée, marquée d'un jeton de vérification dans `docs/desktop.md`
+  § 1.3. Aucun écran externe branché sur ce poste actuellement — risque
+  de branchement à chaud réel en général, sans objet pour la
+  configuration actuelle.
+  Mécanismes de démarrage établis par lecture du graphe de dépendances
+  systemd réel : autostart XDG (`xdg-desktop-autostart.target`,
+  générateur systemd natif, clés `X-KDE-autostart-phase`/`-after`
+  déjà en usage sur ce poste), restauration de session Plasma
+  (`plasma-restoresession.service`, distinct, tourne après tout le
+  reste), unité systemd personnalisée. `kwin_wayland` démarre en tout
+  premier, avant `ksmserver` et avant la cible d'autostart — favorable
+  au risque nommé par la demande, mais l'ordre de démarrage des
+  processus n'est pas prouvé équivalent à la disponibilité de l'état
+  interne de KWin (topologie entièrement énumérée).
+  Vingt candidats terminaux recensés dans les onze dépôts activés
+  (Terra : aucun), provenance et coût mesurés par simulation
+  `--assumeno` (0 à 82 paquets selon le candidat, `cool-retro-term`
+  seul à tirer une pile Qt5 complète en plus du Qt6 déjà présent).
+  Support Wayland natif établi par les dépendances déclarées (boîte à
+  outils incluse) : quatre candidats (`xterm`, `rxvt-unicode`, `st`,
+  `eterm`) sans aucune dépendance GTK/Qt/EFL, XWayland uniquement ; tous
+  les autres Wayland-capables nativement, `foot` étant le seul
+  exclusivement Wayland (aucune dépendance X11). Konsole présenté comme
+  option à part entière (déjà installé, zéro paquet neuf, seule
+  intégration KF6 directe du lot). **Aucun terminal recommandé.**
+  `DP-3` : échelle `1.5`, surface logique `2560×734` — calcul de
+  colonnes/lignes par approximation explicite (≈230-320 colonnes,
+  ≈31-43 lignes selon la taille de police), format impraticable en
+  panneau unique, intérêt d'un découpage en volets déjà natif dans la
+  plupart des candidats.
+  `kwinrulesrc` (vide actuellement) et `~/.config/autostart/*.desktop`
+  (absent) identifiés comme versionables sous D1/D4. Exemple concret
+  trouvé sur ce poste illustrant l'avertissement de la demande :
+  `~/.config/kwinrc` mélange une section `[Tiling]` indexée par UUID de
+  bureau et de sortie (état d'instance, non portable) avec un réglage
+  générique (`[Xwayland] Scale=1.5`, portable) — copier ce fichier tel
+  quel romprait D1.
+  Incident de méthode signalé : une requête `dnf list` sur les
+  candidats terminaux a été lancée sans garde sur Terra, déclenchant
+  l'invite d'import de clé déjà documentée — vérifié immédiatement
+  après coup, aucune clé importée (celle présente date du 2026-08-04),
+  corrigé pour le reste de la série.
+  Aucun paquet installé, aucune configuration Plasma modifiée, aucune
+  règle KWin créée, aucun autostart créé, aucun mode d'affichage
+  changé, aucune action privilégiée, aucun fichier écrit hors de ce
+  dépôt.

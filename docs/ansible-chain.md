@@ -38,90 +38,26 @@ des dépôts activés (avant le 2026-08-06, § 0) ; `pipx` 1.15.0-2.fc44 et
 
 ## 0. D3a — chaîne active de ce dépôt : lint local contre l'`ansible-core` système
 
-**Question posée, propre à D3a** (pas celle des § 1-4, qui portent sur
-D3b) : `ansible-lint` dépend d'`ansible-core`. L'installer dans un
-environnement isolé (`pipx`, venv classique) y installerait un
-**second** `ansible-core`, potentiellement différent du 2.20.7 système
-qui exécute réellement les rôles de ce dépôt — un lint qui valide contre
-une version différente de celle d'exécution reproduit exactement le
-décalage qu'on cherche à éviter, déplacé d'un cran. Établi avant toute
-installation, par métadonnées et par un essai `--dry-run` (n'installe
-rien, montre seulement ce qui serait fait) :
+**[DÉPLACÉ le 2026-08-06, dette de rangement]** La procédure de
+reconstruction du venv `~/.venvs/ansible-lint` (commande exacte, preuve
+du partage de l'`ansible-core` système, couplage identifié) vivait ici,
+mais D3a est la chaîne *active* de ce dépôt, tandis que ce document est
+requalifié comme portant sur D3b, *différée* (note en tête de fichier).
+Quelqu'un cherchant à reconstruire l'outillage courant n'a aucune raison
+d'ouvrir un document étiqueté « différé ». **Procédure déplacée vers
+`docs/machine-facts.md` § Chaîne Ansible** — c'est elle qui fait
+désormais foi ; ne pas la dupliquer ici. Ce qui reste ici : le lint des
+rôles, § 0.1 ci-dessous, qui est un historique d'exécution (pas une
+procédure de reconstruction) et qui garde donc sa place naturelle dans
+le récit de ce livrable.
 
-```
-$ python3 -m venv /tmp/.../isolated   # témoin, SANS --system-site-packages
-$ /tmp/.../isolated/bin/pip install --dry-run ansible-lint
-Collecting ansible-core>=2.16.14 (from ansible-lint)
-  Downloading ansible_core-2.21.2-py3-none-any.whl.metadata
-Would install ... ansible-core-2.21.2 ansible-lint-26.6.0 ...
-```
-Un venv isolé **installerait un second `ansible-core` (2.21.2, distinct
-du 2.20.7 système)** — exactement le piège nommé par la demande.
-
-```
-$ python3 -m venv --system-site-packages /tmp/.../shared
-$ /tmp/.../shared/bin/pip install --dry-run ansible-lint
-Requirement already satisfied: ansible-core>=2.16.14 in
-  /usr/lib/python3.14/site-packages (from ansible-lint) (2.20.7)
-Would install ansible-compat-26.6.0 ansible-lint-26.6.0 ... (jamais ansible-core)
-```
-Avec `--system-site-packages`, `pip` détecte l'`ansible-core` **système**
-(métadonnées `ansible_core-2.20.7.dist-info` déjà présentes sous
-`/usr/lib/python3.14/site-packages/`, déposées par le paquet `dnf`) comme
-satisfaisant la dépendance, et **ne le duplique pas** — seuls
-`ansible-lint` et ses dépendances propres (`black`, `yamllint`, etc.,
-aucune ne recoupant `ansible-core`) sont installés dans le venv.
-
-**Coût de chaque voie** :
-- Isolé (option écartée) : garantit zéro version unique — `ansible-lint`
-  validerait contre un `ansible-core` que rien n'exécute réellement sur
-  ce poste. Aucune mesure ne rendrait cette voie fiable sans figer
-  manuellement une version, ce qui la ramènerait au mur démontré au § 3.2
-  pour D3b (sans objet ici puisque D3a vise l'`ansible-core` système, pas
-  celui d'AAP — mais la mécanique de résolution `pip` est la même).
-- `--system-site-packages` (retenue) : coût nul en fidélité — une seule
-  version d'`ansible-core` en jeu, celle qui exécute réellement les
-  rôles. Coût réel : dépendance à ce que `dnf` continue de déposer des
-  métadonnées `dist-info` standard (déjà le cas, vérifié) ; si un jour
-  `ansible-core` était retiré du système, le venv perdrait sa seule
-  source et `ansible-lint` cesserait de fonctionner tant qu'il ne serait
-  pas réinstallé — comportement voulu, pas un défaut cette voie ne
-  masque rien.
-
-**Voie retenue : elle garantit une seule version d'`ansible-core` en
-jeu**, mesurée en fin d'installation par la sortie de l'outil
-lui-même, pas déduite :
-```
-$ python3 -m venv --system-site-packages ~/.venvs/ansible-lint
-$ ~/.venvs/ansible-lint/bin/pip install ansible-lint
-Successfully installed ansible-compat-26.6.0 ansible-lint-26.6.0 ... (17 paquets, aucun ansible-core)
-
-$ ~/.venvs/ansible-lint/bin/pip show ansible-core
-Location: /usr/lib/python3.14/site-packages   # le système, pas le venv
-Version: 2.20.7
-
-$ ansible --version | head -1                       # système
-ansible [core 2.20.7]
-
-$ ~/.venvs/ansible-lint/bin/ansible-lint --version   # venv
-ansible-lint 26.6.0 using ansible-core:2.20.7 ansible-compat:26.6.0 ...
-```
-Les trois lectures s'accordent sur **2.20.7** — la version qui exécute
-réellement les rôles de ce dépôt est celle contre laquelle
-`ansible-lint` valide. Aucune copie d'`ansible-core` dans le venv,
-confirmé (`find ~/.venvs/ansible-lint/lib/python3.14/site-packages
--iname "ansible_core*"` → vide).
-
-**Action réalisée** : `sudo dnf install -y python3-pip` (dépôt `fedora`,
-déjà activé — seul prérequis manquant pour faire tourner `pip`),
-`python3 -m venv --system-site-packages ~/.venvs/ansible-lint`, `pip
-install ansible-lint` dans ce venv. Aucune autre installation.
-
-### 0.2 — Lint des rôles d'amorçage
+### 0.1 — Lint des rôles d'amorçage
 
 `recovery`, `gpu_mux`, `gpu_cdi` : écrits sans lint, relus manuellement
 (dette posée explicitement au livrable GPU-1). Passés au lint le
-2026-08-06 avec l'outil résolu au § 0.1.
+2026-08-06 avec l'outil résolu dans `docs/machine-facts.md` § Chaîne
+Ansible (D3a, procédure de reconstruction déplacée depuis cette
+section).
 
 **Avant corrections** :
 ```
@@ -415,8 +351,9 @@ n'indique qu'installer `ansible-navigator` soit nécessaire ici.
 **[REQUALIFIÉ le 2026-08-06]** Ce mur ne concerne que D3b (fidélité à
 AAP 2.6). **Il ne bloque rien pour D3a** : le système porte
 `ansible-core` 2.20.7, qui satisfait déjà le contrôle décrit ci-dessous
-(`2.20.7 >= 2.20.0`) — c'est exactement pour cela que l'installation du
-§ 0.1 fonctionne sans y toucher. Ce mur ne redevient pertinent que si
+(`2.20.7 >= 2.20.0`) — c'est exactement pour cela que l'installation
+décrite dans `docs/machine-facts.md` § Chaîne Ansible (D3a) fonctionne
+sans y toucher. Ce mur ne redevient pertinent que si
 D3b est ouverte : viser une fidélité aux versions réelles d'AAP 2.6
 (2.16/2.18, § 3.1 ci-dessous) sous Python 3.14 s'y heurterait, ce que
 cette section démontre.
@@ -517,7 +454,7 @@ identifiant, aucune donnée d'entreprise — écarte tout chemin qui
 authentifie contre `registry.redhat.io`). **[REQUALIFIÉ le 2026-08-06]**
 ÉTAIT : « `roles/recovery`, `gpu_mux`, `gpu_cdi` sont des rôles
 d'amorçage à repasser au lint une fois la chaîne établie, pas à ce
-livrable » — fait depuis, par D3a (§ 0.2), sans attendre D3b.
+livrable » — fait depuis, par D3a (§ 0.1), sans attendre D3b.
 
 ### Option A — `pipx install ansible-lint`/`ansible-navigator`
 
@@ -643,7 +580,7 @@ Avant d'agir) :
 
 | # | Commande | Chemin cible | Motif |
 |---|---|---|---|
-| 1 | `sudo dnf install -y python3-pip` | paquet système, dépôt `fedora` (déjà activé) | seul prérequis manquant pour exécuter `pip` — nécessaire à la résolution du § 0.1 avant toute installation d'`ansible-lint` |
+| 1 | `sudo dnf install -y python3-pip` | paquet système, dépôt `fedora` (déjà activé) | seul prérequis manquant pour exécuter `pip` — nécessaire à la résolution reprise dans `docs/machine-facts.md` § Chaîne Ansible avant toute installation d'`ansible-lint` |
 
 Aucune autre élévation. La création du venv
 (`python3 -m venv --system-site-packages ~/.venvs/ansible-lint`) et
@@ -652,24 +589,26 @@ s'exécutent sans `sudo` — écriture dans `$HOME`, pas dans `/usr` ni
 `/etc`.
 
 **Commandes non privilégiées, exhaustives** : essais `pip install
---dry-run` (×2, témoin isolé et `--system-site-packages`, § 0.1) ;
-création du venv et installation réelle (§ 0.1) ; `pip show
-ansible-core`, `ansible --version`, `ansible-lint --version`, `find`
-(confirmation absence de copie, § 0.1) ; `ansible-lint` sur les trois
-rôles, avant et après corrections (§ 0.2) ; `ansible-playbook
---syntax-check`/`--check` sur les trois rôles, avant (via `git stash`)
-et après corrections (§ 0.2) ; test réversible du `noqa` mort dans
-`roles/recovery/tasks/main.yml` (retiré temporairement, lint relancé,
-restauré — `diff` confirmé identique à l'original) ; lecture du code
-source de la règle `command-instead-of-module` dans le paquet installé
-(fichier local, déjà présent dans le venv, pas une requête réseau).
-Aucune sortie vide sans investigation ; aucun code de retour non nul
-non expliqué (le seul rencontré, `rc=2` sur le lint « avant », est
-l'échec attendu et documenté § 0.2).
+--dry-run` (×2, témoin isolé et `--system-site-packages`) ; création du
+venv et installation réelle ; `pip show ansible-core`, `ansible
+--version`, `ansible-lint --version`, `find` (confirmation absence de
+copie) — ces commandes et leurs sorties vivent désormais dans
+`docs/machine-facts.md` § Chaîne Ansible, pas dupliquées ici ;
+`ansible-lint` sur les trois rôles, avant et après corrections (§ 0.1
+ci-dessus) ; `ansible-playbook --syntax-check`/`--check` sur les trois
+rôles, avant (via `git stash`) et après corrections (§ 0.1) ; test
+réversible du `noqa` mort dans `roles/recovery/tasks/main.yml` (retiré
+temporairement, lint relancé, restauré — `diff` confirmé identique à
+l'original) ; lecture du code source de la règle
+`command-instead-of-module` dans le paquet installé (fichier local,
+déjà présent dans le venv, pas une requête réseau). Aucune sortie vide
+sans investigation ; aucun code de retour non nul non expliqué (le seul
+rencontré, `rc=2` sur le lint « avant », est l'échec attendu et
+documenté § 0.1).
 
 **Confirmations finales D3a** : trois rôles au profil `production`,
 `0` défaut ; `--syntax-check` et `--check` identiques avant/après sur
-les trois rôles (table § 0.2) ; aucun `noqa` ajouté par ce livrable ;
+les trois rôles (table § 0.1) ; aucun `noqa` ajouté par ce livrable ;
 aucune modification de `sudoers`, `dgpu_disable`, `gpu_mux_mode`,
 `supergfxd`, `asus-shutdown`, `/etc/cdi/` ; `terra` non désactivé ;
 aucun redémarrage ; aucun EE construit ; aucune image téléchargée ;
