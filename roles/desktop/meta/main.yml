@@ -1,0 +1,25 @@
+---
+galaxy_info:
+  role_name: desktop
+  author: Mickael Mahieu
+  description: >-
+    Installe kitty (choix de l'opérateur, BUR-0 : rendu GPU, volets et
+    onglets natifs, scriptable ; depuis fedora/updates uniquement),
+    déploie une configuration sobre (police, taille, défilement arrière),
+    et l'ouvre maximisé sur le ScreenPad Plus (DP-3) à l'ouverture de
+    session. Règle KWin écrite par clé nommée dans kwinrulesrc (jamais
+    kwinrc, jamais une copie brute de fichier de configuration Plasma) —
+    correspondance sur l'app_id Wayland réel (relevé par introspection
+    D-Bus, pas déduit), placement forcé sur l'index d'écran établi par
+    essai contrôlé et vérifié à chaque exécution par la mesure (pas
+    supposé stable). Autostart XDG généré, sans chemin propre à cette
+    machine. Ne touche jamais kwinrc, sudoers, /etc/cdi/, gpu_mux_mode,
+    dgpu_disable. Ne change jamais de mode d'affichage ni d'échelle. Ne
+    redémarre jamais la machine, ne déconnecte jamais la session.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

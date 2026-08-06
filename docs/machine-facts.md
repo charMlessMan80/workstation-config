@@ -894,6 +894,62 @@ de `gpgcheck` ni de `repo_gpgcheck`.
 pourrait obtenir la publication de l'empreinte de la clé de signature du
 dépôt par un canal indépendant. Action humaine, non entreprise ici.
 
+**D11 (2026-08-06) — placement de fenêtre KWin : `position`+`size` en
+`Apply initially`, pas `screen`+`Force`.**
+
+Rôle `roles/desktop/` (kitty, choix de l'opérateur en BUR-0 —
+`docs/desktop.md` § 3), déployé et vérifié par la mesure. La règle
+KWin qui place la fenêtre kitty sur le ScreenPad Plus (`DP-3`) n'utilise
+**pas** l'index d'écran (`screen`/`screenrule`) envisagé initialement :
+testé et mesuré confondu avec `org.kde.KWin.activeOutputName` (la
+sortie « active » l'emporte sur l'index configuré, y compris en
+`Force`) — détail complet, `docs/desktop.md` § 6.2, pas dupliqué ici.
+Mécanisme retenu : `position` (Point) + `size` (Size), réglées sur la
+géométrie logique de `DP-3` **mesurée en direct à chaque exécution du
+rôle** (`kscreen-doctor -o`), jamais une valeur figée en dur — vérifié
+non confondu avec le même effet (`activeOutputName` tenu constant à
+`DP-3` pendant qu'un retour explicite à la géométrie d'`eDP-1` a bien
+déplacé la fenêtre, § 6.8).
+
+Politique de règle choisie : `Apply initially` (`...rule=3`), pas
+`Force` (`...rule=2`) — les deux mesurées également fiables, la
+distinction vient de leur effet documenté par l'interface KWin
+elle-même (source externe, `src/kcms/rules/optionsmodel.cpp`, tag
+`v6.7.3`) : `Force` s'applique en permanence à **toute** fenêtre kitty
+(le critère de correspondance, `wmclass=kitty`, est générique, pas
+limité à la fenêtre de démarrage), empêchant l'opérateur de la
+redéplacer, jamais, pour aucun usage ultérieur ; `Apply initially`
+s'applique une fois à la création puis libère la fenêtre. Retenu :
+`Apply initially`, pour ne pas contraindre en permanence un usage
+interactif au nom d'un besoin qui ne concerne que l'ouverture de
+session.
+
+**Fait propre à cette machine, exposé en variable** (D1) :
+`desktop_target_output: DP-3` (`roles/desktop/defaults/main.yml`) — le
+nom du connecteur cible, pas un index. La tâche de mesure échoue
+bruyamment (`failed_when`) si cette sortie n'existe pas sur la machine
+en cours d'exécution, plutôt que de placer silencieusement la règle
+sur une géométrie jamais vérifiée — vérifié dans les deux sens
+(`docs/desktop.md` § 6.9).
+
+**Confondant supplémentaire trouvé et écarté pendant la vérification** :
+le placement par défaut de KWin (aucune règle ne s'applique) coïncide
+actuellement avec la géométrie de `DP-3`, parce que
+`activeOutputName` vaut `DP-3` au moment des essais — démontré avec un
+terminal étranger à toute règle de ce dépôt (`konsole`). Ceci a rendu
+non probant un premier test de neutralisation par critère de
+correspondance désaccordé (`wmclass` invalide) — remplacé par le test
+décrit ci-dessus, qui isole la sortie active comme variable de
+contrôle. Mécanisme exact du placement par défaut de KWin : non lu
+dans le code source, seulement observé — `docs/desktop.md` § 6.3
+porte le marqueur `@VERIF` correspondant, non bloquant.
+
+**Autostart** : `~/.config/autostart/kitty-screenpad.desktop` déployé
+par le rôle, sans chemin absolu propre à cette machine. Effet réel non
+vérifiable sans déconnecter la session (interdit sans demande
+explicite) — commande de vérification préparée pour la prochaine
+ouverture de session, `docs/desktop.md` § 6.7.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1799,3 +1855,59 @@ dépôt par un canal indépendant. Action humaine, non entreprise ici.
   privilégiées énumérées. `terra` toujours activé, six paquets
   toujours présents, aucun nouveau dépôt, aucune modification de
   `sudoers` ni de `/etc/cdi/`, aucun redémarrage.
+- **2026-08-06 (série suivante) — déploiement de kitty sur le ScreenPad
+  Plus, `roles/desktop/` (D11).** Choix de l'opérateur exécuté (BUR-0) :
+  `kitty`, installé depuis `updates` (seul paquet demandé, dépendances
+  résolues par `dnf`, jamais `terra`). Configuration sobre déployée
+  (`~/.config/kitty/kitty.conf` : police, taille, défilement arrière,
+  chaque option motivée dans le fichier lui-même).
+  `app_id` Wayland réel mesuré par introspection D-Bus
+  (`org.kde.KWin.getWindowInfo`, `resourceClass="kitty"`), pas déduit —
+  porté dans `kwinrulesrc` par `wmclass`/`wmclassmatch=1` (`ExactMatch`).
+  Mécanisme de placement initialement envisagé (`screen`/`screenrule=
+  Force`, index d'écran) **testé et abandonné** : confondu avec
+  `org.kde.KWin.activeOutputName`, indépendamment de l'index configuré.
+  Remplacé par `position`+`size` (mesurées en direct à chaque
+  exécution, jamais figées), en `Apply initially` plutôt que `Force`
+  (motif complet, D11 ci-dessus) — vérifié non confondu avec le
+  placement par défaut de KWin (lui-même trouvé coïncident avec `DP-3`
+  au moment des essais, deuxième confondant identifié et écarté par un
+  test à variable de contrôle tenue constante, D11). Marqueur § 1.3 de
+  `docs/desktop.md` (BUR-0, stabilité de l'ordre `workspace()->outputs()`)
+  requalifié : la question devient sans objet, aucun mécanisme retenu
+  ne s'appuie plus sur un index de sortie.
+  Rechargement KWin par D-Bus (`org.kde.KWin.reconfigure`, asynchrone —
+  un handler `sleep 1` corrige une lecture prématurée trouvée en test),
+  jamais de redémarrage de session. Colonnes/lignes mesurées dans la
+  fenêtre réellement dimensionnée par la règle : 32 lignes, 274
+  colonnes — comparé à l'approximation théorique de BUR-0 pour 12 pt
+  (≈37 lignes, ≈267 colonnes), écart cohérent avec la réserve déjà
+  posée par BUR-0 sur son propre calcul.
+  Autostart XDG déployé (`~/.config/autostart/kitty-screenpad.desktop`,
+  aucun chemin propre à cette machine, aucun levier de phase posé par
+  réflexe — absence de besoin d'ordre établie par lecture du graphe de
+  dépendances systemd en BUR-0). Effet non vérifiable sans déconnecter
+  la session (interdit sans demande) — commande de vérification
+  préparée pour la prochaine ouverture.
+  Deux démonstrations enregistrées avec géométries mesurées (nominal :
+  fenêtre de test à `0,1067 2560x734` ; discriminante, sortie active
+  tenue à `DP-3` pendant que la règle ciblait `eDP-1` : fenêtre à
+  `315,0 1707x1067`, suit la règle pas le défaut coïncident) —
+  `docs/desktop.md` § 6.8. Idempotence confirmée (`changed=0` en
+  deuxième exécution). Garde sur `desktop_target_output` vérifiée dans
+  les deux sens (échec bruyant sur nom de sortie inexistant, succès
+  sans dérogation).
+  Recherche read-only d'une variante durable au correctif Terra
+  (`gpgkey=` déjà local dans `terra.repo`, vérifié sans effet sur
+  `repo_gpgcheck` — clés séparées par construction, `man dnf5.conf`) :
+  aucune trouvée, confirmé par recherche exhaustive dans `dnf5 --help`
+  et `dnf5.conf` plutôt que simplement non cherchée — régression,
+  commande de restauration et symptôme déjà consignés en D10,
+  complétés dans `docs/repositories.md` § 3.1.
+  Une seule action privilégiée (`dnf install -y kitty`, `become: true`)
+  — énumérée. `ansible-lint --profile production roles/desktop/` :
+  0 défaut, aucun `noqa`. `--syntax-check`/`--check`/exécution réelle/
+  deuxième exécution tous rejoués après la correction finale
+  (paramétrage de `desktop_target_output`). `kwinrc` jamais touché,
+  aucun autre paquet, aucun nouveau dépôt, aucun changement de mode
+  d'affichage ni d'échelle, aucune déconnexion, aucun redémarrage.

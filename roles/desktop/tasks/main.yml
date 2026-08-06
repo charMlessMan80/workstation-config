@@ -1,0 +1,279 @@
+---
+# Rôle desktop — installe et configure kitty (choix de l'opérateur,
+# BUR-0), le place maximisé sur le ScreenPad Plus (DP-3) à l'ouverture de
+# session via une règle KWin écrite par clé nommée (jamais une copie
+# brute d'un fichier de configuration Plasma — voir docs/desktop.md § 5
+# sur le mélange réglages/état trouvé dans kwinrc). Ce rôle ne touche
+# jamais kwinrc, sudoers, /etc/cdi/, gpu_mux_mode, dgpu_disable ; ne
+# change jamais de mode d'affichage ni d'échelle ; ne redémarre jamais et
+# ne déconnecte jamais la session.
+#
+# Mécanisme de placement : position+size mesurés en direct, pas un index
+# d'écran figé — voir le motif complet dans defaults/main.yml
+# (`screen`/`screenrule=Force` testé et abandonné, confondu avec
+# `activeOutputName`) et docs/desktop.md § 3.
+
+# --- Installation (seule action privilégiée du rôle) ----------------------
+
+- name: "Installer kitty (dépôts fedora/updates uniquement, aucun autre paquet demandé)"
+  ansible.builtin.dnf:
+    name: "{{ desktop_kitty_package }}"
+    state: present
+  become: true
+  register: desktop_kitty_install
+  when: not ansible_check_mode
+
+# --- Configuration kitty : fichier sobre, versionné, déployé tel quel -----
+
+- name: "S'assurer que le répertoire de configuration existe : {{ desktop_kitty_config_dir }}"
+  ansible.builtin.file:
+    path: "{{ desktop_kitty_config_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer kitty.conf (sobre : police, taille, défilement arrière — rien de plus)"
+  ansible.builtin.copy:
+    src: kitty.conf
+    dest: "{{ desktop_kitty_config_dir }}/kitty.conf"
+    mode: "0644"
+  when: not ansible_check_mode
+
+# --- Géométrie de DP-3, mesurée en direct — jamais figée en dur ----------
+# Motif du placement de ce bloc, avant l'écriture de la règle (pas
+# seulement après, pour vérification) : le mécanisme retenu (position +
+# size, § defaults/main.yml) a besoin de cette mesure pour construire la
+# règle elle-même, pas seulement pour la vérifier après coup.
+
+- name: "Relever la géométrie logique actuelle de la sortie cible (ScreenPad Plus) : {{ desktop_target_output }}"
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail
+      && kscreen-doctor -o | sed 's/\x1b\[[0-9;]*m//g' | awk -v target="{{ desktop_target_output }}" '
+        /^Output:/ { name=$3 }
+        /Geometry:/ && name==target { print $2, $3; exit }
+      '
+    executable: /bin/bash
+  register: desktop_dp3_geometry_raw
+  changed_when: false
+  check_mode: false
+  # Échec bruyant, pas silencieux (point 6 de la demande) : si
+  # desktop_target_output ne correspond à aucune sortie connue de
+  # kscreen-doctor (nom de connecteur différent sur une machine
+  # reconstruite, sortie débranchée), stdout reste vide et cette
+  # tâche échoue plutôt que d'écrire une règle sur une géométrie
+  # jamais mesurée.
+  failed_when: desktop_dp3_geometry_raw.stdout | trim | length == 0
+
+- name: "Décomposer la géométrie de DP-3 (x, y, largeur, hauteur logiques)"
+  ansible.builtin.set_fact:
+    desktop_dp3_x: "{{ (desktop_dp3_geometry_raw.stdout | trim).split(' ')[0].split(',')[0] | int }}"
+    desktop_dp3_y: "{{ (desktop_dp3_geometry_raw.stdout | trim).split(' ')[0].split(',')[1] | int }}"
+    desktop_dp3_w: "{{ (desktop_dp3_geometry_raw.stdout | trim).split(' ')[1].split('x')[0] | int }}"
+    desktop_dp3_h: "{{ (desktop_dp3_geometry_raw.stdout | trim).split(' ')[1].split('x')[1] | int }}"
+  check_mode: false
+
+- name: "Construire la liste des clés de la règle KWin à partir de la mesure"
+  ansible.builtin.set_fact:
+    desktop_kwin_rule_keys:
+      - {key: Description, value: "kitty placé sur ScreenPad Plus (DP-3) — géré par roles/desktop/", type: string}
+      - {key: wmclass, value: "{{ desktop_kitty_wmclass }}", type: string}
+      - {key: wmclassmatch, value: "{{ desktop_kitty_wmclassmatch }}", type: int}
+      - {key: position, value: "{{ desktop_dp3_x }},{{ desktop_dp3_y }}", type: point}
+      - {key: positionrule, value: "{{ desktop_kitty_placerule }}", type: int}
+      - {key: size, value: "{{ desktop_dp3_w }},{{ desktop_dp3_h }}", type: size}
+      - {key: sizerule, value: "{{ desktop_kitty_placerule }}", type: int}
+  check_mode: false
+
+# --- Règle KWin : écriture par clé nommée, jamais une copie de fichier ----
+# Motif du chemin retenu (kwinrulesrc, pas kwinrc) : kwinrulesrc porte les
+# règles de fenêtre, un espace de noms distinct de kwinrc (réglages
+# généraux) — docs/desktop.md § 5 documente kwinrc mélangeant réglages et
+# état de session (UUID de bureau/sortie), jamais touché ici.
+# Chaque clé est relue avant d'être écrite : kwriteconfig6 ne rapporte
+# jamais lui-même s'il a changé quelque chose, donc l'idempotence de ce
+# rôle dépend de cette lecture préalable, pas de la commande d'écriture.
+
+- name: "Relever la liste actuelle des règles dans kwinrulesrc"
+  ansible.builtin.command:
+    cmd: "kreadconfig6 --file {{ desktop_kwinrulesrc_path }} --group General --key rules"
+  register: desktop_kwin_rules_current
+  changed_when: false
+  check_mode: false
+
+- name: "Ajouter l'identifiant de règle de ce rôle à la liste, s'il n'y est pas déjà"
+  # Forme liste (argv), pas une chaîne shell-splittée : une valeur
+  # contenant un espace ou une ponctuation ne doit jamais être coupée en
+  # plusieurs arguments — défaut réel trouvé et corrigé sur la tâche
+  # suivante (§ Description), appliqué ici par cohérence préventive.
+  ansible.builtin.command:
+    argv:
+      - kwriteconfig6
+      - --file
+      - "{{ desktop_kwinrulesrc_path }}"
+      - --group
+      - General
+      - --key
+      - rules
+      - >-
+          {{ ((desktop_kwin_rules_current.stdout | trim).split(',')
+             | select('string') | reject('equalto', '') | list
+             + [desktop_kwin_rule_id]) | unique | join(',') }}
+  when:
+    - not ansible_check_mode
+    - desktop_kwin_rule_id not in (desktop_kwin_rules_current.stdout | trim).split(',')
+  # Cette commande, quand elle s'exécute (le "when" ci-dessus l'a déjà
+  # limitée au cas où la liste change réellement), modifie toujours
+  # kwinrulesrc — déclaré explicitement plutôt que laissé au
+  # comportement par défaut du module command.
+  changed_when: true
+  register: desktop_kwin_rules_write
+  notify: Reconfigure KWin
+
+- name: "Relever la valeur actuelle de chaque clé de la règle KWin de ce rôle"
+  ansible.builtin.command:
+    cmd: "kreadconfig6 --file {{ desktop_kwinrulesrc_path }} --group {{ desktop_kwin_rule_id }} --key {{ item.key }}"
+  loop: "{{ desktop_kwin_rule_keys }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: desktop_kwin_rule_current
+  changed_when: false
+  check_mode: false
+
+- name: "Écrire les clés de la règle KWin qui diffèrent de la valeur attendue"
+  # Forme liste (argv) — défaut réel trouvé lors des tests de ce
+  # livrable : la forme "cmd" en chaîne unique, découpée façon shell,
+  # coupait "Description" au premier espace — seul "kitty" était écrit.
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['kwriteconfig6', '--file', desktop_kwinrulesrc_path,
+         '--group', desktop_kwin_rule_id, '--key', item.item.key]
+        + (['--type', item.item.type] if item.item.type != 'string' else [])
+        + [item.item.value | string]
+      }}
+  loop: "{{ desktop_kwin_rule_current.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when:
+    - not ansible_check_mode
+    - (item.stdout | trim) != (item.item.value | string)
+  # Idem : ne s'exécute (via le "when" ci-dessus) que lorsque la valeur
+  # diffère réellement — donc modifie toujours kwinrulesrc quand elle
+  # tourne. Déclaré explicitement, pas laissé au défaut du module.
+  changed_when: true
+  register: desktop_kwin_rule_write
+  notify: Reconfigure KWin
+
+- name: "Appliquer immédiatement le rechargement de configuration KWin, si notifié (sans redémarrer la session)"
+  ansible.builtin.meta: flush_handlers
+
+# --- Vérification par la mesure : ferme ou requalifie le marqueur ouvert
+# au § 1.3 de docs/desktop.md (correspondance ordre DRM / liste interne
+# de KWin, laissée ouverte par BUR-0). Ne fait jamais confiance à la
+# règle écrite sans la vérifier contre la géométrie réelle d'une
+# fenêtre de test, mesurée en direct — pas une valeur supposée stable.
+
+- name: >-
+    Lancer une fenêtre kitty de test (PID isolé, jamais pkill sur les
+    fenêtres de l'opérateur) et relever sa géométrie réelle par
+    introspection D-Bus de KWin (org.kde.KWin.getWindowInfo)
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      kitty >/dev/null 2>&1 &
+      TEST_PID=$!
+      UUID=""
+      for i in $(seq 1 20); do
+        sleep 0.25
+        MATCHES=$(busctl --user call org.kde.KWin /WindowsRunner org.kde.krunner1 Match s "kitty" 2>/dev/null || true)
+        for candidate in $(echo "$MATCHES" | grep -oE '\{[0-9a-f-]+\}' || true); do
+          INFO=$(busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$candidate" 2>/dev/null || true)
+          if echo "$INFO" | grep -q "\"pid\" i $TEST_PID "; then
+            UUID="$candidate"
+            break 2
+          fi
+        done
+      done
+      if [ -z "$UUID" ]; then
+        kill "$TEST_PID" 2>/dev/null || true
+        echo "ÉCHEC : fenêtre de test kitty (pid=$TEST_PID) introuvable par introspection D-Bus après 5s" >&2
+        exit 1
+      fi
+      busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$UUID"
+      kill "$TEST_PID" 2>/dev/null || true
+  register: desktop_verify_window_info
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Extraire x/y/largeur/hauteur mesurés de la fenêtre de test"
+  ansible.builtin.set_fact:
+    desktop_measured_x: "{{ desktop_verify_window_info.stdout | regex_search('\"x\" d ([0-9.]+)', '\\1') | first | float }}"
+    desktop_measured_y: "{{ desktop_verify_window_info.stdout | regex_search('\"y\" d ([0-9.]+)', '\\1') | first | float }}"
+    desktop_measured_w: "{{ desktop_verify_window_info.stdout | regex_search('\"width\" d ([0-9.]+)', '\\1') | first | float }}"
+    desktop_measured_h: "{{ desktop_verify_window_info.stdout | regex_search('\"height\" d ([0-9.]+)', '\\1') | first | float }}"
+  when: not ansible_check_mode
+
+- name: >-
+    Échouer bruyamment si la fenêtre de test ne s'est pas ouverte sur
+    DP-3 — ferme ou requalifie le marqueur ouvert au § 1.3 de
+    docs/desktop.md, par la mesure, pas par supposition. Tolérance de
+    5 px pour les arrondis déjà observés.
+  ansible.builtin.assert:
+    that:
+      - (desktop_measured_x | float - desktop_dp3_x | float) | abs < 5
+      - (desktop_measured_y | float - desktop_dp3_y | float) | abs < 5
+      - (desktop_measured_w | float - desktop_dp3_w | float) | abs < 5
+      - (desktop_measured_h | float - desktop_dp3_h | float) | abs < 5
+    fail_msg: >-
+      La règle KWin place la fenêtre de test à x={{ desktop_measured_x }},
+      y={{ desktop_measured_y }}, {{ desktop_measured_w }}x{{ desktop_measured_h }}
+      — attendu (DP-3, mesuré) : x={{ desktop_dp3_x }}, y={{ desktop_dp3_y }},
+      {{ desktop_dp3_w }}x{{ desktop_dp3_h }}. La règle position+size
+      n'a pas produit l'effet attendu sur cette exécution — ne pas
+      déployer l'autostart sur cette base (les tâches suivantes ne
+      s'exécuteront pas, ce play s'arrête ici). Revoir
+      docs/desktop.md § 3 avant de relancer.
+    success_msg: >-
+      Fenêtre de test mesurée sur DP-3 (x={{ desktop_measured_x }},
+      y={{ desktop_measured_y }}, {{ desktop_measured_w }}x{{ desktop_measured_h }})
+      — règle position+size confirmée efficace par la mesure, pas
+      supposée.
+  when: not ansible_check_mode
+
+# --- Autostart : fichier .desktop généré, sans chemin propre à cette machine
+
+- name: "S'assurer que le répertoire autostart existe : {{ desktop_autostart_dir }}"
+  ansible.builtin.file:
+    path: "{{ desktop_autostart_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer l'entrée autostart (Exec=kitty, aucun chemin absolu propre à cette machine)"
+  ansible.builtin.template:
+    src: kitty-screenpad.desktop.j2
+    dest: "{{ desktop_autostart_desktop_file }}"
+    mode: "0644"
+  when: not ansible_check_mode
+
+# --- Rapport -----------------------------------------------------------
+
+- name: "Rapporter l'état (mode simulation --check)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée. kitty serait installé, la
+      règle KWin ({{ desktop_kwin_rule_id }}) écrite avec la géométrie
+      de DP-3 mesurée à cet instant, l'autostart déployé dans
+      {{ desktop_autostart_desktop_file }}.
+  when: ansible_check_mode
+
+- name: "Rapporter l'état (exécution réelle)"
+  ansible.builtin.debug:
+    msg:
+      - "kitty installé, configuration sobre déployée dans {{ desktop_kitty_config_dir }}/kitty.conf."
+      - "Règle KWin {{ desktop_kwin_rule_id }} écrite par clé nommée dans {{ desktop_kwinrulesrc_path }} — kwinrc jamais touché."
+      - "Géométrie DP-3 confirmée par la mesure : {{ desktop_dp3_x }},{{ desktop_dp3_y }} {{ desktop_dp3_w }}x{{ desktop_dp3_h }}."
+      - "Autostart déployé dans {{ desktop_autostart_desktop_file }} — effectif à la prochaine ouverture de session, pas vérifié ici."
+  when: not ansible_check_mode

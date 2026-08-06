@@ -1,0 +1,88 @@
+---
+# Choix de l'opérateur (BUR-0 → ce livrable) : kitty — rendu GPU, volets
+# et onglets natifs, scriptable. Un seul paquet demandé explicitement ;
+# ses dépendances (kitty-kitten, kitty-shell-integration, kitty-terminfo)
+# et la dépendance faible ripgrep sont résolues par dnf, pas listées ici
+# — toutes depuis fedora/updates, jamais terra ni un autre dépôt.
+desktop_kitty_package: kitty
+
+# Fait propre à cette machine (D1/D4, point 6 de la demande) : nom du
+# connecteur DRM du ScreenPad Plus, établi par lecture directe
+# (kscreen-doctor -o, docs/desktop.md BUR-0) — jamais un index ou une
+# valeur devinée. Exposé en variable, pas en dur dans tasks/main.yml,
+# précisément pour qu'une machine reconstruite avec un nommage de
+# connecteur différent fasse échouer la mesure (tasks/main.yml,
+# failed_when sur stdout vide) plutôt que de placer silencieusement la
+# règle sur une géométrie jamais vérifiée.
+desktop_target_output: DP-3
+
+desktop_config_home: "{{ ansible_facts.env.HOME }}/.config"
+desktop_kitty_config_dir: "{{ desktop_config_home }}/kitty"
+desktop_kwinrulesrc_path: "{{ desktop_config_home }}/kwinrulesrc"
+desktop_autostart_dir: "{{ desktop_config_home }}/autostart"
+desktop_autostart_desktop_file: "{{ desktop_autostart_dir }}/kitty-screenpad.desktop"
+
+# Critère de correspondance de la règle KWin (§ 2 de la demande) : app_id
+# Wayland réel de kitty, relevé par introspection D-Bus
+# (org.kde.KWin.getWindowInfo, champ "resourceClass") sur une fenêtre
+# kitty réellement en cours d'exécution le 2026-08-06 — pas déduit du nom
+# du paquet ni du binaire. Confirmé par la documentation propre de kitty
+# (`kitty --help` : "--class, --app-id=[kitty] ... On Wayland set the
+# application id", valeur par défaut déjà "kitty"). Champ exact dans
+# kwinrulesrc : `wmclass` (String), avec `wmclassmatch` (Int, schéma
+# source KWin v6.7.3 — 0=UnimportantMatch, 1=ExactMatch, 2=SubstringMatch,
+# 3=RegExpMatch) — voir docs/desktop.md § 2.
+desktop_kitty_wmclass: kitty
+desktop_kitty_wmclassmatch: 1  # ExactMatch
+
+# Identifiant de règle KWin — clé stable choisie par ce rôle (pas un id
+# généré par l'interface graphique), pour que le rôle sache reconnaître
+# et ré-écrire sa propre règle de façon idempotente.
+desktop_kwin_rule_id: desktop-kitty-screenpad
+
+# --- Mécanisme de placement : position+size (Force), pas screen+maximize
+# -----------------------------------------------------------------------
+# ÉTAIT (première version de ce rôle, § 3 de la demande) : placement par
+# index d'écran (`screen`, `screenrule=Force`) combiné à la maximisation
+# booléenne (`maximizehoriz`/`maximizevert`). **Testé de façon répétée
+# et rigoureuse le 2026-08-06 (méthode complète : docs/desktop.md § 3),
+# et abandonné** : la propriété `screen` — même en `Force`, même
+# combinée à `placement=PlacementMaximizing` en `Force` — ne détermine
+# PAS de façon fiable l'écran de destination sur cette version de KWin
+# (6.7.3). Le placement observé suit `org.kde.KWin.activeOutputName`
+# (la sortie « active », déterminée par le focus/l'interaction en
+# cours), pas la valeur numérique de la règle — démontré en observant le
+# même index (0 ou 1) produire tantôt eDP-1, tantôt DP-3, en corrélation
+# stricte avec activeOutputName relevé juste avant chaque essai, jamais
+# avec l'index configuré.
+#
+# Mécanisme retenu, testé fiable à travers plusieurs essais y compris
+# avec activeOutputName délibérément différent de la cible : `position`
+# (Point) + `size` (Size), réglées sur la géométrie logique **réellement
+# mesurée** de DP-3 au moment de l'exécution du rôle (`kscreen-doctor
+# -o`, jamais une valeur figée en dur) — ce mécanisme contourne
+# l'algorithme de placement plutôt que de tenter de l'influencer. Les
+# clés effectives (`position`, `size` et leurs valeurs) sont construites
+# dans tasks/main.yml à partir de la mesure en direct, pas ici en dur —
+# il n'y a donc pas de "valeur par défaut propre à cette machine" à
+# figer pour ces deux clés spécifiquement : la mesure fait foi à chaque
+# exécution, exactement l'esprit demandé au § 6, mais par une mesure
+# systématique plutôt que par une valeur par défaut assertée.
+#
+# Politique de règle (`positionrule`/`sizerule`) : `Apply initially`
+# (3), pas `Force` (2) — les deux ont été mesurées fiables à la création
+# de la fenêtre (géométrie identique, 0,1067 2560x734, dans les deux
+# cas, testé le 2026-08-06). Le choix se fait donc sur autre chose que
+# la fiabilité : les libellés et descriptions exacts de l'interface KWin
+# elle-même (source externe, `src/kcms/rules/optionsmodel.cpp`, tag
+# v6.7.3) sont sans ambiguïté — `Force` : "The window property will be
+# always forced to the given value." ; `Apply initially` : "The window
+# property will be only set to the given value after the window is
+# created. No further changes will be affected." `wmclass=kitty` en
+# `ExactMatch` matche GÉNÉRIQUEMENT toute fenêtre kitty, pas seulement
+# celle de démarrage — `Force` aurait donc empêché l'opérateur de
+# déplacer ou redimensionner N'IMPORTE QUELLE fenêtre kitty, y compris
+# celles ouvertes manuellement plus tard pour un autre usage. `Apply
+# initially` positionne chaque nouvelle fenêtre kitty sur DP-3 à sa
+# création (l'effet demandé) sans jamais reprendre la main ensuite.
+desktop_kitty_placerule: 3  # Apply initially (Rules::Apply)

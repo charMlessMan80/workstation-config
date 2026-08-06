@@ -101,7 +101,7 @@ pour un identifiant de ce type (§ 1.1). L'UUID existe dans KScreen
 (couche de configuration d'écrans indépendante), pas dans le moteur de
 règles de fenêtres de KWin.
 
-### 1.3 — Stabilité de l'index : établie partiellement, marquée pour le reste
+### 1.3 — Stabilité de l'index : établie partiellement, marquée pour le reste [REQUALIFIÉ le 2026-08-06, § 6.2/6.3]
 
 **Ce qui est établi, par lecture, sans manipuler d'écran** : l'ordre
 d'énumération des connecteurs DRM (niveau noyau, sous la liste KWin,
@@ -135,6 +135,21 @@ sessions, la sortie de checkOutput() via le service D-Bus de KWin
 observant le comportement réel d'une règle une fois qu'une (1) a été
 créée et testée dans un livrable ultérieur — non fait ici, ce livrable
 n'en crée aucune.`
+
+**[REQUALIFIÉ le 2026-08-06, BUR-1, § 6.2/6.3]** — Le marqueur
+ci-dessus portait sur la correspondance entre l'ordre d'énumération
+DRM et l'ordre `workspace()->outputs()` de KWin, dans l'hypothèse où
+le placement se ferait par **index d'écran**. Cette hypothèse
+elle-même s'est révélée fausse à l'usage : la propriété
+`screen`/`screenrule` s'est montrée confondue avec
+`org.kde.KWin.activeOutputName`, indépendamment de tout ordre
+d'énumération — § 6.2. Le mécanisme finalement retenu (`position`+
+`size`, § 6.3) ne consulte l'index de sortie à aucun moment. **Le
+marqueur ci-dessus reste donc non vérifié dans l'absolu, mais devient
+non bloquant** : ce dépôt ne s'appuie plus sur cet index pour quoi que
+ce soit, donc son statut non vérifié n'affecte aucune garantie
+actuellement en vigueur — à revisiter seulement si un futur livrable
+réintroduit une dépendance à `screen`.
 
 ## 2. Mécanisme de démarrage
 
@@ -485,7 +500,7 @@ ici : un futur rôle `desktop` écrirait des clés nommées dans
 `kwinrulesrc`/un fichier `.desktop` d'autostart généré, jamais une copie
 brute d'un export de configuration Plasma.
 
-## Validation
+## Validation — BUR-0 (lecture seule, 2026-08-04/05)
 
 **Commandes exécutées, toutes non modifiantes** :
 
@@ -528,11 +543,298 @@ d'affichage changé (la contradiction relevée en tête de document est
 **constatée**, pas **provoquée** par cette série) ; aucun fichier écrit
 hors de ce dépôt.
 
+## 6. BUR-1 — déploiement effectif (2026-08-06)
+
+Choix de l'opérateur (§ 3) : **kitty**. Rôle Ansible :
+[`roles/desktop/`](../roles/desktop/), playbook `desktop.yml`, détails
+d'exécution dans `roles/desktop/README.md` — cette section documente
+ce que le rôle a réellement produit et prouvé, pas son fonctionnement
+interne (déjà commenté dans le rôle lui-même).
+
+### 6.1 — Identifiant d'application réel (`app_id`), mesuré (point 2)
+
+Fenêtre kitty réelle lancée, identifiée par introspection D-Bus KWin
+(`org.kde.krunner1.Match` pour trouver l'UUID, filtré par PID pour
+n'identifier que la fenêtre de test — jamais une fenêtre de
+l'opérateur), puis interrogée directement :
+```
+$ busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "{5eedf1d9-3114-4305-ba2d-b3bd36317071}"
+a{sv} 29 ... "resourceClass" s "kitty" "resourceName" s "kitty" ...
+    "pid" i 88286 ... "x" d 0 "y" d 1067 "width" d 2560 "height" d 734
+```
+`resourceClass="kitty"` — confirmé, pas déduit du nom du paquet ni du
+binaire ; cohérent avec `kitty --help` (« `--class, --app-id=[kitty]`
+... valeur par défaut déjà "kitty" », documentation externe déjà citée
+en BUR-0). **Champ exact dans `kwinrulesrc`** portant ce critère :
+`wmclass` (String), avec son mode de correspondance `wmclassmatch`
+(Int) — schéma source `rulesettings.kcfg`/`rules.h`, KWin v6.7.3, déjà
+sourcé au § 1.1. Valeur retenue : `wmclassmatch=1` (`ExactMatch`) — pas
+`SubstringMatch`, pour ne pas matcher accidentellement une autre
+application dont le nom contiendrait « kitty ».
+
+### 6.2 — Mécanisme de placement écarté : index d'écran (`screen`)
+
+Première tentative, conforme à l'hypothèse de BUR-0 (§ 1) : règle
+`screen=<index>` + `screenrule=Force`, combinée à
+`maximizehoriz`/`maximizevert`. **Testé de façon répétée le
+2026-08-06 (fenêtres de test isolées par PID, géométrie relevée par
+`getWindowInfo`) et abandonné** : la valeur mesurée pour un même index
+configuré variait selon `org.kde.KWin.activeOutputName()` — la sortie
+« active » (déterminée par le focus/l'interaction en cours, pas par
+l'index de la règle) déterminait le placement réel, y compris avec
+`placement=PlacementMaximizing` en `Force`. Le détail du raisonnement
+et le point exact où la confusion a été identifiée sont conservés dans
+`roles/desktop/defaults/main.yml` (commentaire « ÉTAIT » sur
+`desktop_kitty_placerule`) — pas dupliqués ici (`CLAUDE.md` § une
+règle vit à un seul endroit ; ce principe s'applique par extension à
+un fait technique établi une fois, cité par renvoi plutôt que recopié).
+
+### 6.3 — Mécanisme retenu : `position`+`size`, et un second confondant trouvé puis écarté
+
+**Mécanisme retenu** : `position` (Point) et `size` (Size), réglées
+sur la géométrie logique de `DP-3` **mesurée en direct** à chaque
+exécution du rôle (`kscreen-doctor -o`, jamais figée en dur — variable
+`desktop_target_output`, § machine-facts). Ce mécanisme contourne
+l'algorithme de placement plutôt que de tenter de l'influencer par un
+index.
+
+**Second confondant trouvé pendant la vérification de ce mécanisme,
+avant d'affirmer quoi que ce soit** : une tentative de « neutraliser »
+la règle en désaccordant son critère de correspondance
+(`-e desktop_kitty_wmclass=bogus-nonexistent-app`, censée empêcher la
+règle de matcher la fenêtre de test) a échoué à démontrer quoi que ce
+soit — la fenêtre de test s'est quand même ouverte exactement à la
+géométrie de `DP-3`. Vérifié que ce n'était pas un résidu de fenêtre
+précédente (`pgrep -a kitty` : aucun processus), puis reproduit avec
+un terminal **totalement étranger à toute règle de ce dépôt**
+(`konsole`, jamais mentionné dans `kwinrulesrc`) :
+```
+$ busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "<uuid konsole>"
+... "resourceClass" s "org.kde.konsole" ... "x" d 0 "y" d 1067 "width" d 2560 "height" d 733.333
+```
+Même géométrie, sans aucune règle. Cause : `org.kde.KWin.activeOutputName()`
+valait `DP-3` au moment de ces essais — le placement par défaut de
+KWin (aucune règle ne s'applique) semble suivre la sortie active,
+comme le faisait déjà `screen`/`Force` avant son abandon (§ 6.2), pour
+une fenêtre **sans aucune règle cette fois**. `@VERIF : mécanisme exact
+du placement par défaut de KWin en l'absence de toute règle
+applicable (politique globale, kwinrc [Windows] Placement relevée vide
+sur ce poste — donc valeur compilée par défaut, non lue dans le code
+source à ce stade) — non lu dans le code source KWin, seulement observé
+empiriquement à deux reprises (konsole, kitty à critère désaccordé).`
+Ce point n'affecte cependant pas la validité du mécanisme retenu (voir
+la démonstration non confondue au § 6.8) : il explique seulement
+**pourquoi le test de neutralisation par critère désaccordé ne prouve
+rien** — le défaut coïncide avec la cible, masquant toute différence.
+Erreur de méthode réelle, documentée plutôt qu'effacée
+(`CLAUDE.md` § marquer l'historique).
+
+### 6.4 — Politique de règle : `Apply initially`, pas `Force` (point 3)
+
+Choix demandé explicitement par le point 3 : « appliquer initialement »
+(l'opérateur peut redéplacer la fenêtre ensuite) contre « forcer »
+(l'en empêche). Les deux valeurs ont été **mesurées fiables** à la
+création de la fenêtre de test (géométrie identique dans les deux cas,
+`0,1067 2560x734`) — le critère de choix n'est donc pas la fiabilité,
+mais l'effet réel de chaque politique, établi par une source externe
+autoritaire, pas par supposition : les chaînes descriptives de
+l'interface KWin elle-même (`src/kcms/rules/optionsmodel.cpp`, tag
+`v6.7.3`, source externe nommée) :
+- `Force` : *"The window property will be always forced to the given
+  value."*
+- `Apply initially` : *"The window property will be only set to the
+  given value after the window is created. No further changes will be
+  affected."*
+
+`wmclass=kitty` en `ExactMatch` matche **génériquement toute fenêtre
+kitty**, pas seulement celle de démarrage. `Force` aurait donc empêché
+l'opérateur de déplacer ou redimensionner **n'importe quelle** fenêtre
+kitty ouverte ensuite, y compris pour un usage sans rapport avec le
+ScreenPad Plus. `Apply initially` positionne chaque nouvelle fenêtre
+kitty sur `DP-3` à sa création — l'effet demandé — sans jamais reprendre
+la main par la suite. Retenu : `positionrule=3`, `sizerule=3`
+(`Rules::Apply`).
+
+### 6.5 — Rechargement de KWin sans redémarrage de session
+
+`org.kde.KWin.reconfigure()` (méthode D-Bus, `/KWin`,
+`org.kde.KWin`) — sans réponse (fire-and-forget). Un défaut réel a été
+trouvé pendant les tests : une vérification lancée immédiatement après
+l'appel pouvait encore lire l'ancienne règle. Corrigé par un second
+handler (`sleep 1`), chaîné via `listen:` sur le même topic —
+`roles/desktop/handlers/main.yml`. Aucune alternative nécessitant un
+redémarrage de session n'a été nécessaire ni utilisée.
+
+### 6.6 — Colonnes/lignes mesurées, comparées à la table théorique de BUR-0 (point 1)
+
+`~/.config/kitty/kitty.conf` déployé par le rôle (`font_family Noto
+Sans Mono`, `font_size 12.0`, `scrollback_lines 10000` — chaque option
+porte son motif en commentaire dans le fichier lui-même, pas dupliqué
+ici). Mesure réelle, pas seulement calculée, dans une fenêtre kitty
+dimensionnée par la règle déployée :
+```
+$ kitty sh -c "stty size > <fichier>; sleep 1"
+32 274
+```
+**32 lignes, 274 colonnes**, à comparer à la ligne « 12 pt » de la
+table théorique de BUR-0 (§ 4) : **≈267 colonnes, ≈37 lignes**. Écart :
++7 colonnes (+2,6 %), **-5 lignes (-13,5 %)**. La table théorique de
+BUR-0 se qualifiait déjà elle-même d'approximation (largeur de cellule
+≈ 0,6 × taille en pixels à 96 ppp, hauteur de ligne ≈ un multiple
+générique), « applicable une fois un choix fait par l'opérateur » —
+pas une prédiction exacte. L'écart mesuré est cohérent avec cette
+réserve : la cellule réelle de Noto Sans Mono à 12 pt est un peu plus
+étroite que l'heuristique (2560⁄274 ≈ 9,3 px mesurés contre 9,6 px
+supposés) et sa hauteur de ligne un peu plus grande (734⁄32 ≈ 22,9 px
+mesurés contre 20 px supposés) — pas une anomalie, la confirmation que
+l'approximation générique ne remplace pas une mesure avec la police
+réellement choisie.
+
+### 6.7 — Autostart (point 4)
+
+`roles/desktop/templates/kitty-screenpad.desktop.j2` déployé dans
+`~/.config/autostart/kitty-screenpad.desktop` — `Exec=kitty`,
+`TryExec=kitty`, aucun chemin absolu propre à cette machine.
+
+**Leviers `X-KDE-autostart-phase`/`X-KDE-autostart-after` : volontairement
+non utilisés.** Motif de l'abstention (point 4 : « utiliser seulement
+si justifiable ») : § 2.4 établit déjà, par lecture du graphe de
+dépendances systemd réel, que les applications autostart démarrent
+après que `kwin_wayland` (donc son état de sortie et sa lecture de
+`kwinrulesrc`) est déjà en place — la seule dépendance pertinente pour
+qu'une règle de placement s'applique correctement est déjà satisfaite
+par l'ordre par défaut. Aucun besoin d'ordre supplémentaire identifié
+vis-à-vis des autres applications autostart de ce poste (contrairement
+à `vboxclient.desktop:X-KDE-autostart-after=panel`, qui a un besoin
+propre) — donc pas de levier posé par réflexe.
+
+**Ne peut être prouvé qu'à la prochaine ouverture de session** — pas
+testé ici (`CLAUDE.md` : ne jamais déconnecter la session sans
+demander). Commande de vérification préparée, à exécuter après une
+prochaine connexion normale :
+```
+$ systemctl --user status app-kitty\\x2dscreenpad@autostart.service
+$ busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "<uuid à retrouver via Match 'kitty'>"
+# attendu : "x" d 0 "y" d 1067 "width" d 2560 "height" d 734 (valeurs à
+# comparer à `kscreen-doctor -o` relevé au moment du test, pas figées)
+```
+`@VERIF : effet réel de l'entrée autostart à la prochaine ouverture de
+session — non testable dans cette série sans déconnecter la session,
+interdit sans demande explicite ; commande de vérification ci-dessus
+prête à l'emploi.`
+
+### 6.8 — Démonstrations (point 5), géométries enregistrées
+
+**Nominal** — rôle exécuté sans dérogation, fenêtre de test mesurée :
+```
+x=0.0, y=1067.0, 2560.0x734.0   (cible DP-3 mesurée : 0,1067 2560x734)
+```
+Assertion du rôle : succès (`Fenêtre de test mesurée sur DP-3 ...
+règle position+size confirmée efficace par la mesure, pas supposée.`).
+**Insuffisant seul** — § 6.3 montre que le placement par défaut (sans
+aucune règle) coïncide actuellement avec cette même géométrie, parce
+que `activeOutputName` vaut `DP-3`. Ce nominal ne discrimine donc pas,
+à lui seul, « la règle fonctionne » de « la règle est sans effet et la
+coïncidence masque tout ».
+
+**Démonstration discriminante** — la règle est temporairement reciblée
+sur la géométrie d'`eDP-1` (`315,0 1707x1067`, mesurée en direct,
+`kwriteconfig6` hors rôle) **pendant que `activeOutputName` reste
+`DP-3`** (relevé juste avant l'essai, variable de contrôle tenue
+constante) :
+```
+$ busctl --user call org.kde.KWin /KWin org.kde.KWin activeOutputName
+s "DP-3"
+$ # fenêtre de test kitty lancée, règle ciblant eDP-1
+"height" d 1067.33 "width" d 1707.33 "x" d 315 "y" d 0
+```
+La fenêtre suit la **règle** (eDP-1), pas la sortie active coïncidente
+(DP-3) — preuve propre, non confondue, que le mécanisme `position`+
+`size` détermine réellement le placement. C'est cette démonstration,
+et non la neutralisation par critère désaccordé (§ 6.3, écartée comme
+non probante), qui répond au point 5 (« même commande, règle
+[donnant une cible différente], doit ouvrir ailleurs — si le résultat
+est identique dans les deux cas, la règle ne fait rien »). État
+restauré immédiatement après (règle reciblée sur `DP-3`, rôle rejoué,
+assertion de nouveau au succès).
+
+**Idempotence** : deuxième exécution du rôle sans dérogation,
+`changed=0` (`PLAY RECAP ... changed=0 ... failed=0`).
+
+**Marqueur § 1.3 : fermé par cette double preuve** — pas seulement
+requalifié en théorie (§ 1.3 ci-dessus) mais démontré en pratique : le
+mécanisme retenu ne dépend d'aucun index de sortie, et son effet a été
+isolé de tout confondant connu (sortie active, coïncidence de
+géométrie par défaut).
+
+### 6.9 — Fait propre à la machine, exposé et affirmé (point 6)
+
+Le pivot du § 6.2/6.3 élimine l'index d'écran comme fait à figer — il
+n'est plus utilisé. Le fait propre à cette machine qui subsiste est le
+**nom du connecteur** de la sortie cible, jusqu'ici en dur dans le
+script de mesure. Corrigé : `desktop_target_output: DP-3`
+(`roles/desktop/defaults/main.yml`, motif en commentaire), interpolé
+dans la tâche de mesure (`tasks/main.yml`). **Affirmé, pas supposé** :
+la tâche de mesure échoue bruyamment (`failed_when` sur stdout vide)
+si `desktop_target_output` ne correspond à aucune sortie connue de
+`kscreen-doctor -o` — vérifié dans les deux sens (`CLAUDE.md` § toute
+garde se démontre dans les deux sens) :
+```
+$ ansible-playbook -e desktop_target_output=sortie-inexistante roles/desktop/desktop.yml
+... fatal: [localhost]: FAILED! => {... "failed_when_result": true, "stdout": ""}
+$ ansible-playbook roles/desktop/desktop.yml   # sans dérogation : succès, DP-3 mesurée
+```
+Un rebuild de cette machine rejouerait ce rôle avec cette même valeur
+par défaut (D1) ; une machine dont le nommage de connecteur diffère
+ferait échouer la mesure au lieu de placer silencieusement la règle
+sur une géométrie jamais vérifiée.
+
+## Validation — BUR-1 (déploiement, 2026-08-06)
+
+**Actions privilégiées, exhaustives** :
+
+| # | Commande | Cible | Motif |
+|---|---|---|---|
+| 1 | `dnf install -y kitty` (module `ansible.builtin.dnf`, `become: true`) | paquet `kitty` (dépôt `updates`) | seule installation demandée, choix de l'opérateur (BUR-0) |
+
+Toutes les autres actions du rôle (`kwriteconfig6`/`kreadconfig6` sur
+`~/.config/kwinrulesrc`, écriture dans `~/.config/kitty/`,
+`~/.config/autostart/`, appels D-Bus `busctl --user`) s'exécutent sans
+`sudo`, dans l'espace utilisateur.
+
+**Validation Ansible** :
+```
+$ ansible-playbook --syntax-check roles/desktop/desktop.yml   # succès
+$ ansible-playbook --check roles/desktop/desktop.yml          # succès, aucune écriture
+$ ansible-playbook roles/desktop/desktop.yml                  # succès, changed>0 (première écriture réelle)
+$ ansible-playbook roles/desktop/desktop.yml                  # succès, changed=0 (idempotence confirmée)
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/desktop/
+Passed: 0 failure(s), 0 warning(s) — profil production, aucune dérogation noqa
+```
+
+**Confirmations finales** : aucun paquet installé hors `kitty` (et ses
+dépendances résolues par `dnf`, jamais `terra`) ; aucun nouveau dépôt ;
+`kwinrc` jamais touché (seul `kwinrulesrc` modifié) ; aucun changement
+de mode d'affichage ni d'échelle ; aucune déconnexion de session ;
+aucun redémarrage ; `sudoers`, `/etc/cdi/`, `gpu_mux_mode` non touchés
+(hors périmètre de ce rôle, jamais référencés par lui).
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : trois
+marqueurs actionnables dans ce document — § 1.3 (correspondance
+DRM/`outputs()`, non bloquante, expliquée), § 6.3 (mécanisme exact du
+placement par défaut de KWin, non lu dans le code source), § 6.7
+(effet réel de l'autostart, vérifiable seulement à la prochaine
+session). Ce paragraphe-ci n'ajoute aucune occurrence du jeton
+lui-même — périphrase seulement, conformément à la règle qui l'exige.
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — état d'affichage
   post-bascule (§ Affichage), inventaire GPU, D1/D4.
 - [`docs/ansible-chain.md`](ansible-chain.md) — chaîne Ansible D3a/D3b,
   sans rapport direct mais même discipline de sourcing.
+- [`docs/repositories.md`](repositories.md) — dossier Terra (D10),
+  y compris le point 0 de BUR-1 (variante durable envisagée pour
+  `repo_gpgcheck`, aucune trouvée).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici,
   notamment la garde sur Terra et le jeton de vérification jamais nu.

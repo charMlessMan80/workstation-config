@@ -1,0 +1,19 @@
+---
+# Reconfigure KWin sans redémarrer la session — mécanisme documenté,
+# établi par introspection D-Bus (docs/desktop.md § 3) :
+# org.kde.KWin.reconfigure (méthode, sans réponse) demande à KWin de
+# relire kwinrulesrc et sa configuration générale. Aucune alternative
+# nécessitant un redémarrage de session n'est utilisée.
+- name: Reconfigure KWin
+  ansible.builtin.command:
+    cmd: busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure
+  changed_when: false
+
+- name: >-
+    Laisser KWin achever le rechargement (reconfigure est asynchrone,
+    sans réponse — une vérification lancée immédiatement après pouvait
+    encore lire l'ancienne règle, défaut réel trouvé lors des tests)
+  ansible.builtin.command:
+    cmd: sleep 1
+  changed_when: false
+  listen: Reconfigure KWin

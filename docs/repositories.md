@@ -213,6 +213,69 @@ si le cache est un jour vidé, la même commande, rejouée manuellement,
 résout la même situation en quelques secondes. Pas de rôle créé par
 réflexe.
 
+### 3.1 — Variante durable envisagée (BUR-1 point 0) : aucune trouvée
+
+**Question posée** : `gpgkey=` pointant vers un fichier local plutôt
+qu'une URL rendrait-il l'import `repo_gpgcheck` durable, ou existe-t-il
+un autre mécanisme `dnf5` documenté pour ça ? Recherche en lecture
+seule, sans présumer de nom d'option.
+
+**`gpgkey=` de `terra.repo` pointe déjà vers un fichier local** —
+vérifié directement, pas supposé :
+```
+$ cat /etc/yum.repos.d/terra.repo
+[terra]
+...
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever
+repo_gpgcheck=1
+...
+```
+Et pourtant l'invite s'est reproduite trois fois (§ ci-dessus, historique
+depuis le 2026-08-04) : `gpgkey=file://...` gouverne l'import utilisé
+par `gpgcheck` (vérification de signature de paquet, contre la base rpm
+partagée, déjà stable — § 2), **pas** l'import utilisé par
+`repo_gpgcheck` (vérification de signature des métadonnées de dépôt).
+La note de `man dnf5.conf` déjà citée au § 2 le dit explicitement :
+« *OpenPGP keys for this check [repo_gpgcheck] are stored separately
+from OpenPGP keys used in package signature verification* » — un
+`gpgkey=` local ne change donc rien au fait que `repo_gpgcheck`
+importe et conserve sa propre clé, dans le pubring par-dépôt sous
+`~/.cache/libdnf5/`, indépendamment de la source (URL ou fichier) de
+`gpgkey=`. Vérifié par lecture directe du fichier de dépôt et par la
+documentation amont — pas déduit par supposition.
+
+**Recherche exhaustive d'un mécanisme `dnf5` alternatif** — aucune
+option `dnf5.conf` ni sous-commande de gestion de clé trouvée en dehors
+de celles déjà connues :
+```
+$ dnf5 --help | grep -iE 'key|trust|import|gpg'
+  --no-gpgchecks         disable OpenPGP signature checking (if RPM policy allows)
+  --nogpgcheck           Alias for '--no-gpgchecks'
+$ dnf5 repo --help | grep -iE 'key|trust|import|gpg'
+(rien)
+$ man dnf5.conf   # options pkg_gpgcheck, localpkg_gpgcheck, repo_gpgcheck
+# — les trois seules options liées à la vérification OpenPGP ; aucune
+# ne porte de mécanisme de persistance distinct du cache par-dépôt.
+```
+`--no-gpgchecks`/`--nogpgcheck` désactive la vérification — c'est la
+dégradation que ce point exclut explicitement, pas une variante
+durable.
+
+**Conclusion** : aucune variante durable et non dégradante n'existe
+dans `dnf5` pour ce cas précis — confirmé, pas seulement non trouvé
+faute de chercher. Le correctif § 3 (copie de cache à cache, aucun
+import, aucune dégradation) reste la réponse correcte, et **restera à
+rejouer** à chaque fois que le cache utilisateur perd cette clé. Les
+trois conditions demandées par ce point sont déjà consignées au § 3 :
+régression (`dnf clean all`, suppression de `~/.cache/libdnf5`,
+changement de `terra.repo` — ex. bascule de version Fedora qui change
+le nom de version dans l'URL/le hash de répertoire), commande de
+restauration exacte (le bloc `mkdir -p`/`cp` § 3), symptôme
+reconnaissable (invite d'import de clé GPG, ou message
+`Signing key not found`/avertissement de signature, sur une commande
+`dnf`/`dnf5` non privilégiée touchant `terra` — disparaît une fois la
+copie refaite, § 3 « Preuve que la friction a disparu »).
+
 ## 4. Inventaire des onze dépôts activés
 
 | Dépôt | Provenance | Ancrage de confiance réel | Fourni sur ce poste | `gpgcheck` | `repo_gpgcheck` |
