@@ -1,0 +1,106 @@
+---
+# Choix de l'opérateur (D12, docs/machine-facts.md § Décisions — voir
+# la note de renumérotation dans le rapport de ce livrable, la demande
+# désignait ce choix « D12 » mais ce numéro était déjà pris) : Helix en
+# terminal, Kate en graphique. Motif complet : docs/editor.md § D12 —
+# résumé ici, Helix embarque coloration tree-sitter et configuration
+# complète sans gestionnaire de greffons (contrairement à Neovim, dont
+# l'intérêt réel suppose des greffons récupérés hors dépôts) ; Kate est
+# natif KF6, déjà intégré à la session Plasma, avec terminal embarqué
+# et mécanisme d'outils externes. Zed et Cursor écartés (magasin
+# d'extensions propre, télémétrie, dépendance à terra).
+editor_helix_package: helix
+editor_kate_package: kate
+
+# D11 renumérotée (docs/machine-facts.md § Décisions) : npm n'est pas
+# ouvert comme surface d'approvisionnement. Ni yaml-language-server, ni
+# ansible-language-server, ni aucun serveur de langage récupéré par ce
+# canal — aucun des deux n'est empaqueté dans les onze dépôts (constaté
+# en EDI-0, docs/editor.md § 1.2), les installer supposerait node/npm
+# (absents de ce poste) et un modèle de dépendances transitives hors du
+# contrôle rpm. Contrepartie assumée : pas de complétion ni de
+# diagnostic YAML/Ansible dans l'éditeur — ansible-lint et yamllint
+# (venv D3a) appelés en ligne de commande ou via outil externe Kate
+# pointant explicitement ce binaire, jamais un second binaire installé.
+# Ces deux noms sont les cibles de la garde (tasks/main.yml) — jamais
+# installés par ce rôle, vérifiés absents après exécution.
+editor_forbidden_binaries:
+  - node
+  - npm
+
+# Binaire ansible-lint faisant autorité (D3a, docs/ansible-chain.md) —
+# jamais un second `ansible-lint`/`yamllint` installé en paquet système
+# à côté. yamllint est déjà présent dans ce venv (1.38.0, vérifié avant
+# ce livrable) : aucun paquet yamllint n'est installé par ce rôle non
+# plus, pour la même raison.
+editor_ansible_lint_venv: "{{ ansible_facts.env.HOME }}/.venvs/ansible-lint"
+
+editor_config_home: "{{ ansible_facts.env.HOME }}/.config"
+editor_helix_config_dir: "{{ editor_config_home }}/helix"
+editor_kate_config_dir: "{{ editor_config_home }}/kate"
+editor_kate_externaltools_dir: "{{ editor_kate_config_dir }}/externaltools"
+
+# Greffons Kate à activer — kate-plugins (dépendance faible, installée
+# par ce rôle) ne les active PAS lui-même : vérifié par lecture directe
+# de ~/.config/katerc après une première ouverture de Kate sans aucune
+# configuration, le 2026-08-06 — aucun groupe [Kate Plugins] n'existe
+# tant que rien n'a jamais été activé. Groupe et clé sourcés dans le
+# code (pas supposés) : `apps/lib/katepluginmanager.cpp`, tag v26.04.3
+# (version installée exacte) — groupe « Kate Plugins », clé =
+# KatePluginInfo::saveName(), qui renvoie le nom de base du fichier
+# .so du greffon (QFileInfo(metaData.fileName()).baseName()) ; vérifié
+# par lecture directe des bibliothèques installées
+# (/usr/lib64/qt6/plugins/kf6/ktexteditor/*.so — chaîne `library=` dans
+# le fichier .rc intégré de katekonsoleplugin, confirmée). Deux
+# greffons activés : outils externes (nécessaire pour appeler
+# ansible-lint/yamllint sans serveur de langage, § D11) et terminal
+# intégré (cité comme motif de choix de Kate en D12 — sans l'activer,
+# ce motif ne serait pas vrai). Le greffon client LSP n'est PAS activé
+# : D11 interdit tout serveur de langage à lui connecter, l'activer
+# sans rien à connecter n'aurait aucun effet utile (sobriété — pas
+# d'option sans motif).
+editor_kate_plugins:
+  - externaltoolsplugin
+  - katekonsoleplugin
+
+# Outils externes Kate — un fichier par outil sous
+# editor_kate_externaltools_dir, groupe [General], clés sourcées dans
+# le code (`addons/externaltools/kateexternaltool.cpp`, tag v26.04.3) :
+# category/name/executable/arguments/mimetypes/save/output/trigger.
+# `arguments` utilise `%{Document:FilePath}` — syntaxe de substitution
+# de variable KTextEditor sourcée dans
+# `src/utils/katevariableexpansionmanager.cpp` (ktexteditor, tag
+# v6.28.0, version installée exacte) : délimiteurs `%{` / `}`,
+# variable `Document:FilePath` = chemin complet du document courant.
+# `mimetypes` = `application/yaml`, relevé par lecture locale
+# (`xdg-mime query filetype`) sur un fichier .yml de ce dépôt, pas
+# supposé. `save=CurrentDocument` (le fichier est sauvegardé avant
+# l'appel — sinon l'outil linterait une version obsolète sur disque).
+# `output=DisplayInPane` (panneau de sortie de Kate, pas d'insertion
+# dans le document). `trigger=None` (appel manuel seulement — jamais
+# automatique à la sauvegarde, pour ne jamais surprendre l'opérateur
+# par un lancement qu'il n'a pas demandé).
+# « keys » est une LISTE de {key, value} (pas un dict) — même patron
+# que desktop_kwin_rule_keys (roles/desktop/), pour pouvoir la parcourir
+# avec `subelements` dans tasks/main.yml.
+editor_kate_tools:
+  - filename: ansible-lint-d3a
+    keys:
+      - {key: category, value: Ansible}
+      - {key: name, value: "ansible-lint (venv D3a)"}
+      - {key: executable, value: "{{ editor_ansible_lint_venv }}/bin/ansible-lint"}
+      - {key: arguments, value: "%{Document:FilePath}"}
+      - {key: mimetypes, value: application/yaml}
+      - {key: save, value: CurrentDocument}
+      - {key: output, value: DisplayInPane}
+      - {key: trigger, value: "None"}
+  - filename: yamllint-d3a
+    keys:
+      - {key: category, value: Ansible}
+      - {key: name, value: "yamllint (venv D3a)"}
+      - {key: executable, value: "{{ editor_ansible_lint_venv }}/bin/yamllint"}
+      - {key: arguments, value: "%{Document:FilePath}"}
+      - {key: mimetypes, value: application/yaml}
+      - {key: save, value: CurrentDocument}
+      - {key: output, value: DisplayInPane}
+      - {key: trigger, value: "None"}

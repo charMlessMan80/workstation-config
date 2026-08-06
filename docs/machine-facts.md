@@ -950,6 +950,65 @@ vérifiable sans déconnecter la session (interdit sans demande
 explicite) — commande de vérification préparée pour la prochaine
 ouverture de session, `docs/desktop.md` § 6.7.
 
+**D12 (2026-08-06) — npm n'est pas ouvert comme surface
+d'approvisionnement.** Note de numérotation, signalée plutôt que
+résolue en silence (`CLAUDE.md` § une découverte qui contredit un fait
+déjà documenté se signale) : la demande de ce livrable désignait cette
+décision « D11 », déjà pris par la décision de placement de fenêtre
+KWin ci-dessus (même jour, commit antérieur) — renumérotée D12 sans
+toucher au D11 existant.
+
+Ni `node`, ni `npm`, ni aucun serveur de langage récupéré par ce
+canal. Motif : `yaml-language-server` et `ansible-language-server` ne
+sont empaquetés dans aucun des onze dépôts (constaté en EDI-0,
+`docs/editor.md` § 1.2) ; les installer supposerait une surface
+d'approvisionnement échappant entièrement à `docs/repositories.md`,
+sans les ancrages de confiance établis en D7 et D10, avec un modèle de
+dépendances transitives sans commune mesure avec rpm. **Contrepartie
+assumée** : pas de complétion ni de diagnostic YAML/Ansible en place
+dans l'éditeur — remplacée par `ansible-lint`/`yamllint` (venv D3a)
+appelés en ligne de commande ou via outil externe Kate, jamais un
+second binaire installé. Garde automatisée dans `roles/editor/`,
+démontrée dans les deux sens (`docs/editor.md` § 2.3).
+
+**D13 (2026-08-06) — deux éditeurs selon la tâche : Helix en terminal,
+Kate en graphique.** Numérotation renumérotée pour la même raison que
+D12 (la demande désignait ce choix « D12 »). Helix embarque coloration
+tree-sitter et configuration complète sans aucun gestionnaire de
+greffons — contrairement à Neovim, dont l'intérêt réel suppose des
+greffons récupérés hors dépôts, même objection que D12 à plus petite
+échelle. Kate est natif KF6, déjà intégré à la session Plasma, avec
+terminal embarqué et mécanisme d'outils externes. Zed et Cursor
+écartés : magasin d'extensions propre (nouvelle surface
+d'approvisionnement), télémétrie, dépendance à `terra` pour les deux —
+détail complet, `docs/editor.md` § 1.2/1.3/2.
+
+Rôle `roles/editor/` : installe les deux depuis `fedora`/`updates`
+uniquement (`kate` n'était pas installé, `helix` non plus — vérifié
+avant installation). Kate configuré exclusivement par clé nommée
+(`kwriteconfig6`, jamais une copie de fichier — même discipline qu'à
+BUR-1 sur `kwinrulesrc`) : deux greffons activés (outils externes,
+terminal intégré — jamais le client LSP, rien à lui connecter sous
+D12), deux outils externes déployés pointant explicitement les
+binaires `ansible-lint`/`yamllint` du venv D3a. Helix configuré avec
+une seule option motivée (numérotation de ligne absolue), aucun
+`languages.toml` — l'absence de serveur de langage pour `yaml` est
+déjà documentée par le fichier fourni avec le paquet
+(`hx --health yaml` : *not found in $PATH* pour les deux serveurs,
+sans erreur bloquante), conforme à D12.
+
+Mode d'affichage de Kate établi par la mesure, pas par déduction des
+dépendances : greffon de plateforme Qt réellement chargé
+(`libqwayland.so`), `libqxcb.so` absent de l'espace d'adressage du
+processus — **Wayland natif**, confirmé (`docs/editor.md` § 2.4).
+
+`ansible-lint --version` vérifié inchangé après exécution du rôle
+(`ansible-core:2.20.7`) — preuve qu'aucun second binaire n'a été
+introduit. Défaut réel trouvé et corrigé en cours de route : la sortie
+colorée d'`ansible-lint --version` insère des codes ANSI *au milieu*
+de la chaîne à comparer, faisant échouer une comparaison naïve —
+corrigé par `NO_COLOR=1`.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1951,3 +2010,57 @@ ouverture de session, `docs/desktop.md` § 6.7.
   Aucune action privilégiée. Aucun paquet installé, aucune extension
   téléchargée, aucun dépôt ajouté, aucune configuration d'éditeur
   créée.
+- **2026-08-06 (série suivante) — Helix et Kate, `roles/editor/`
+  (D12, D13 — numérotation corrigée, la demande désignait ces deux
+  décisions D11/D12, déjà pris par le placement de fenêtre KWin ci-
+  dessus, signalé plutôt que résolu en silence).** Deux corrections de
+  revue traitées avant ce livrable : commentaire périmé dans
+  `roles/desktop/defaults/main.yml` (troisième occurrence du même
+  défaut, règle ajoutée à `CLAUDE.md`) et écart « dimensionné » contre
+  « maximisé » consigné comme choix assumé — les deux déjà couverts
+  par l'entrée précédente.
+  Résolution avant installation : Kate absent (`rpm -q kate`), Helix
+  absent ; `yamllint` déjà présent dans le venv D3a (1.38.0) — aucun
+  rpm `yamllint` installé, même piège qu'ANS-1 évité. Simulation
+  `helix`/`kate` (`--assumeno --disablerepo=terra`) : aucune
+  correspondance `node`/`npm`.
+  Rôle exécuté réellement : 9 paquets, tous `fedora`/`updates`, aucun
+  `terra` (`dnf history info`). Helix configuré avec une option motivée
+  (numérotation de ligne absolue) ; aucun `languages.toml` — l'absence
+  de serveur de langage pour `yaml` déjà documentée par le paquet
+  (`hx --health yaml`). Kate configuré exclusivement par clé nommée
+  (`kwriteconfig6`) : greffons outils-externes/terminal-intégré activés
+  (groupe `[Kate Plugins]`, clé = nom de base du `.so`, sourcé dans
+  `katepluginmanager.cpp` tag v26.04.3 et confirmé par lecture directe
+  de `~/.config/katerc` après une première ouverture sans configuration
+  — le groupe n'existe pas par défaut) ; deux outils externes déployés
+  (`ansible-lint-d3a`, `yamllint-d3a`, schéma sourcé dans
+  `kateexternaltool.cpp` tag v26.04.3, `arguments=%{Document:FilePath}`
+  sourcé dans `katevariableexpansionmanager.cpp` ktexteditor tag
+  v6.28.0, `mimetypes=application/yaml` relevé par `xdg-mime` local) —
+  confirmé a posteriori par comparaison directe avec les ~17 outils
+  que Kate a lui-même écrits au même format après activation du
+  greffon. Client LSP non activé (D12, rien à lui connecter).
+  Garde D12 démontrée dans les deux sens : nominal (chaque exécution),
+  échec forcé (`-e '{"editor_forbidden_binaries": ["sh"]}'` — jamais
+  node/npm réellement installés pour le test). `command -v node npm`
+  après exécution : rien, code non nul.
+  Mode d'affichage de Kate établi par mesure directe du processus réel
+  (greffon Qt `libqwayland.so` chargé, `libqxcb.so` absent) : Wayland
+  natif, pas déduit des dépendances déclarées.
+  `ansible-lint --version` inchangé (`ansible-core:2.20.7`) après
+  exécution du rôle — aucun second binaire introduit. Défaut réel
+  trouvé et corrigé : codes ANSI de couleur insérés au milieu de la
+  sortie d'`ansible-lint --version`, faisant échouer à tort une
+  comparaison de sous-chaîne — corrigé par `NO_COLOR=1`.
+  Marqueur `@VERIF` sur la nativité Wayland de Cursor (ouvert en
+  EDI-0) requalifié : Cursor écarté par D13, la question devient sans
+  objet — fermé par requalification, pas par vérification effective.
+  Une seule action privilégiée (`dnf install -y helix kate`,
+  `become: true`) — énumérée. `ansible-lint --profile production
+  roles/editor/` : 0 défaut, aucun `noqa`. `--syntax-check`/`--check`/
+  exécution réelle/deuxième exécution (`changed=0`) tous rejoués.
+  Aucun paquet hors `helix`/`kate` et leurs dépendances, aucun dépôt
+  ajouté, aucun `dnf download`, `kwinrulesrc`/`kwinrc`/`sudoers`/
+  `/etc/cdi/`/`gpu_mux_mode` non touchés, aucune déconnexion, aucun
+  redémarrage.

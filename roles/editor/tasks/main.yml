@@ -1,0 +1,233 @@
+---
+# Rôle editor — installe et configure Helix (terminal) et Kate
+# (graphique), choix de l'opérateur D12 (docs/editor.md,
+# docs/machine-facts.md § Décisions). N'installe jamais node/npm ni
+# aucun serveur de langage (D11) — garde explicite ci-dessous. N'écrit
+# aucune configuration Kate par copie de fichier brute (clés nommées,
+# kwriteconfig6) — même discipline qu'à BUR-1 sur kwinrulesrc.
+# N'installe rien depuis terra. Ne touche jamais sudoers, /etc/cdi/,
+# kwinrc, kwinrulesrc, gpu_mux_mode.
+
+# --- Installation (seule action privilégiée du rôle) ----------------------
+# kate n'est pas installé sur ce poste au moment d'écrire ce rôle
+# (vérifié, rpm -q kate) ; helix non plus. Les deux via le module dnf
+# (idempotent par nature : si déjà présent, state=present ne change
+# rien) — pas de conditionnel « si absent » à écrire à la main, dnf le
+# fait déjà (CLAUDE.md § déterminer ce que l'outil gère déjà).
+
+- name: "Installer Helix et Kate (fedora/updates uniquement — jamais terra)"
+  ansible.builtin.dnf:
+    name:
+      - "{{ editor_helix_package }}"
+      - "{{ editor_kate_package }}"
+    state: present
+    disablerepo: terra
+  become: true
+  register: editor_install
+  when: not ansible_check_mode
+
+# --- Garde D11 : aucun node/npm sur le système, dans les deux sens ---------
+# Vérifie le PATH réel (command -v), pas seulement l'absence d'un
+# paquet rpm nommé « nodejs » — un binaire node/npm pourrait provenir
+# d'ailleurs (pip, un binaire déposé à la main). C'est délibérément un
+# test d'exécution, pas une lecture de base rpm.
+
+- name: "Garde D11 — vérifier qu'aucun des binaires interdits n'est sur le PATH : {{ editor_forbidden_binaries | join(', ') }}"
+  # "||", pas "&&" : on veut détecter la présence de N'IMPORTE LEQUEL
+  # des binaires interdits (rc=0 dès que l'un est trouvé). Un "&&"
+  # court-circuiterait sur le premier binaire absent sans jamais tester
+  # le second — défaut trouvé et corrigé avant la première exécution.
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "{{ editor_forbidden_binaries | map('regex_replace', '^(.*)$', 'command -v \\1') | join(' || ') }}"
+  register: editor_forbidden_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si un binaire interdit par D11 est présent (npm n'est pas une surface d'approvisionnement ouverte)"
+  ansible.builtin.assert:
+    that:
+      - editor_forbidden_check.rc != 0
+    fail_msg: >-
+      Un binaire parmi {{ editor_forbidden_binaries | join(', ') }} est
+      présent sur le PATH ({{ editor_forbidden_check.stdout | trim }}) —
+      D11 (docs/machine-facts.md § Décisions) interdit node/npm comme
+      surface d'approvisionnement pour cet éditeur, sous quelque forme
+      que ce soit. Ce rôle s'arrête plutôt que de continuer sur une
+      prémisse violée.
+    success_msg: >-
+      Aucun des binaires interdits par D11 ({{ editor_forbidden_binaries | join(', ') }})
+      n'est présent sur le PATH — garde vérifiée.
+
+# --- Helix : config.toml sobre, aucun serveur de langage inscrit ----------
+# languages.toml n'est PAS déployé : le fichier livré avec le paquet
+# (helix-parsers) référence déjà yaml-language-server/
+# ansible-language-server pour le langage yaml sans qu'aucun des deux
+# ne soit présent — `hx --health yaml` le rapporte lui-même
+# ("not found in $PATH"), sans erreur bloquante. C'est exactement le
+# comportement attendu par D11 (absence documentée, pas corrigée) ;
+# écrire un languages.toml pour supprimer cette mention irait à
+# l'encontre de la consigne plutôt que de la respecter.
+
+- name: "S'assurer que le répertoire de configuration Helix existe : {{ editor_helix_config_dir }}"
+  ansible.builtin.file:
+    path: "{{ editor_helix_config_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer config.toml (sobre : numérotation de ligne absolue, motivée par la corrélation avec ansible-lint/yamllint — rien de plus)"
+  ansible.builtin.copy:
+    src: helix-config.toml
+    dest: "{{ editor_helix_config_dir }}/config.toml"
+    mode: "0644"
+  when: not ansible_check_mode
+
+# --- Kate : greffons puis outils externes, tout par clé nommée ------------
+# kwriteconfig6/kreadconfig6 exclusivement — jamais une copie de
+# fichier (même discipline qu'à BUR-1 sur kwinrulesrc). Chaque clé est
+# relue avant d'être écrite : kwriteconfig6 ne rapporte jamais lui-même
+# s'il a changé quelque chose, l'idempotence de ce rôle en dépend.
+# Fichier ciblé par son nom simple (katerc) : kreadconfig6/kwriteconfig6
+# résolvent un nom simple dans le répertoire de configuration standard
+# ($XDG_CONFIG_HOME), comme kitty et KWin le font déjà pour kwinrulesrc
+# en BUR-1 (là avec --file explicite ; ici le nom court suffit, testé).
+
+- name: "Relever l'état actuel de chaque greffon Kate (groupe « Kate Plugins », sourcé dans katepluginmanager.cpp, tag v26.04.3)"
+  ansible.builtin.command:
+    argv:
+      - kreadconfig6
+      - --file
+      - katerc
+      - --group
+      - Kate Plugins
+      - --key
+      - "{{ item }}"
+  loop: "{{ editor_kate_plugins }}"
+  register: editor_kate_plugins_current
+  changed_when: false
+  check_mode: false
+
+- name: "Activer les greffons Kate nécessaires (outils externes, terminal intégré) — jamais le client LSP (D11, rien à lui connecter)"
+  ansible.builtin.command:
+    argv:
+      - kwriteconfig6
+      - --file
+      - katerc
+      - --group
+      - Kate Plugins
+      - --key
+      - "{{ item.item }}"
+      - --type
+      - bool
+      - "true"
+  loop: "{{ editor_kate_plugins_current.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - not ansible_check_mode
+    - (item.stdout | trim) != 'true'
+  changed_when: true
+  register: editor_kate_plugins_write
+
+- name: "S'assurer que le répertoire des outils externes Kate existe : {{ editor_kate_externaltools_dir }}"
+  ansible.builtin.file:
+    path: "{{ editor_kate_externaltools_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Relever la valeur actuelle de chaque clé de chaque outil externe Kate"
+  ansible.builtin.command:
+    argv:
+      - kreadconfig6
+      - --file
+      - "{{ editor_kate_externaltools_dir }}/{{ item.0.filename }}"
+      - --group
+      - General
+      - --key
+      - "{{ item.1.key }}"
+  loop: "{{ editor_kate_tools | subelements('keys') }}"
+  loop_control:
+    label: "{{ item.0.filename }}:{{ item.1.key }}"
+  register: editor_kate_tools_current
+  changed_when: false
+  check_mode: false
+
+- name: "Écrire les clés des outils externes Kate qui diffèrent de la valeur attendue"
+  ansible.builtin.command:
+    argv:
+      - kwriteconfig6
+      - --file
+      - "{{ editor_kate_externaltools_dir }}/{{ item.item.0.filename }}"
+      - --group
+      - General
+      - --key
+      - "{{ item.item.1.key }}"
+      - "{{ item.item.1.value }}"
+  loop: "{{ editor_kate_tools_current.results }}"
+  loop_control:
+    label: "{{ item.item.0.filename }}:{{ item.item.1.key }}"
+  when:
+    - not ansible_check_mode
+    - (item.stdout | trim) != (item.item.1.value | string)
+  changed_when: true
+  register: editor_kate_tools_write
+
+# --- Vérification D11 : ansible-lint reste le seul binaire faisant autorité
+# Pas un test d'installation de ce rôle (ce rôle n'installe ni
+# ansible-lint ni yamllint) — une confirmation que rien de ce qui
+# précède n'en a introduit un second, par effet de bord.
+
+- name: "Vérifier qu'ansible-lint (venv D3a) reste appelable et rapporte toujours ansible-core:2.20.7"
+  # NO_COLOR=1 : sans cette variable, ansible-lint insère des codes
+  # ANSI de couleur au milieu de sa propre sortie (y compris entre
+  # "ansible-core:" et "2.20.7") — défaut réel trouvé ici, la
+  # comparaison de sous-chaîne échouait à tort alors que la version
+  # était correcte. `--nocolor` ferait la même chose (documenté
+  # équivalent par ansible-lint --help), NO_COLOR retenue car standard
+  # et déjà nommée dans son aide.
+  ansible.builtin.command:
+    cmd: "{{ editor_ansible_lint_venv }}/bin/ansible-lint --version"
+  environment:
+    NO_COLOR: "1"
+  register: editor_ansible_lint_version
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si ansible-lint ne rapporte plus ansible-core:2.20.7 (preuve qu'aucun second binaire n'a été introduit)"
+  ansible.builtin.assert:
+    that:
+      - "'ansible-core:2.20.7' in editor_ansible_lint_version.stdout"
+    fail_msg: >-
+      ansible-lint (venv D3a) ne rapporte plus ansible-core:2.20.7 —
+      {{ editor_ansible_lint_version.stdout }} — un second binaire a
+      peut-être été introduit, ou le venv D3a a changé sans que ce
+      livrable ne le documente.
+    success_msg: "ansible-lint (venv D3a) inchangé : {{ editor_ansible_lint_version.stdout }}"
+  when: not ansible_check_mode
+
+# --- Rapport -----------------------------------------------------------
+
+- name: "Rapporter l'état (mode simulation --check)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée. Helix et Kate seraient
+      installés, config.toml déployé pour Helix, greffons et outils
+      externes activés pour Kate (garde D11, ansible-lint venv D3a
+      non revérifiés en mode simulation).
+  when: ansible_check_mode
+
+- name: "Rapporter l'état (exécution réelle)"
+  ansible.builtin.debug:
+    msg:
+      - "Helix et Kate installés depuis fedora/updates — jamais terra."
+      - "Garde D11 vérifiée : aucun node/npm sur le PATH."
+      - "Helix : {{ editor_helix_config_dir }}/config.toml déployé, aucun serveur de langage inscrit."
+      - "Kate : greffons {{ editor_kate_plugins | join(', ') }} activés, outils externes déployés dans {{ editor_kate_externaltools_dir }}."
+      - "ansible-lint (venv D3a) : {{ editor_ansible_lint_version.stdout }} — aucun second binaire introduit."
+  when: not ansible_check_mode

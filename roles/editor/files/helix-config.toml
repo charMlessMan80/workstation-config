@@ -1,0 +1,13 @@
+# config.toml — configuration sobre, déployée par roles/editor/.
+# Aucun thème, aucun raccourci exotique — chaque option porte son motif
+# ; rien n'est posé "par défaut recommandé" sans raison.
+
+[editor]
+# Numérotation absolue plutôt que relative (les deux existent dans
+# Helix) : ansible-lint et yamllint (venv D3a, D11) rapportent des
+# numéros de ligne absolus (fichier:ligne:colonne) sur la ligne de
+# commande — la numérotation doit correspondre pour permettre de
+# sauter directement du rapport de lint à la ligne concernée dans
+# l'éditeur, sans conversion mentale. Explicite plutôt que de dépendre
+# du défaut de l'outil, qui pourrait changer entre versions.
+line-number = "absolute"
