@@ -1,6 +1,7 @@
 ---
 galaxy_info:
   role_name: gpu_mux
+  author: Mickael Mahieu
   description: >-
     Écrit gpu_mux_mode par écriture directe dans current_value (D2bis,
     D2ter révoquée en partie le 2026-08-05) après une série de gardes en

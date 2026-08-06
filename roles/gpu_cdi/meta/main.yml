@@ -1,6 +1,7 @@
 ---
 galaxy_info:
   role_name: gpu_cdi
+  author: Mickael Mahieu
   description: >-
     Rend la RTX 4090 utilisable depuis Podman rootless par CDI natif
     (décision D7 : COPR @ai-ml/nvidia-container-toolkit, includepkgs ;

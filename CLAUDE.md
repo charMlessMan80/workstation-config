@@ -40,6 +40,21 @@ sans comprendre pourquoi elle a été posée.
   identifié pour la garde équivalente (voir la règle sur le retrait d'un
   marqueur uniquement après vérification effective) revenu par une autre
   porte — le comptage, pas le retrait, cette fois.
+- **Le jeton `@VERIF` ne s'écrit jamais nu hors d'un marqueur réel —
+  en prose, il s'écrit entre accents graves ou par périphrase.** Un
+  marqueur réel a la forme `@VERIF : <où le confirmer>` et porte un fait
+  précis à vérifier ; toute autre mention du jeton (expliquer la règle,
+  renvoyer à un marqueur ailleurs, décrire un comptage) doit soit
+  l'entourer d'accents graves (`` `@VERIF` ``, déjà une forme de mise à
+  distance mais encore comptée par `grep -c` — à réserver aux contextes
+  où le fichier lui-même n'est pas celui qu'on compte), soit le nommer
+  sans l'écrire (« le jeton de vérification », « le marqueur »). Motif :
+  la réponse retenue au constat précédent (2026-08-06 : le compte
+  s'auto-gonfle dès qu'on écrit le jeton dans le fichier qu'il décrit)
+  traitait le symptôme — ne pas figer de chiffre — sans traiter la
+  cause, écrire le jeton nu en prose. `grep -c '@VERIF'` doit rester une
+  preuve ; un compteur qui inclut ses propres mentions ne mesure plus
+  que lui-même.
 - **Reproduire une commande, c'est exécuter la commande exacte, pas une
   variante — y compris ses options de formatage et ses redirections.**
   `-o cat`, `--no-pager`, un pipe en bout de chaîne : ce sont elles qui

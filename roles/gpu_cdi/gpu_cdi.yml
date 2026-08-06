@@ -10,7 +10,7 @@
 # n'avait pas été corrigée ici. `--ask-become-pass` reste accepté (sans
 # effet si aucun mot de passe n'est demandé) pour qui exécuterait ce
 # rôle sur un autre compte que celui de ce poste.
-- name: gpu_cdi — accès GPU rootless par CDI natif (D7/D8)
+- name: GPU CDI — accès GPU rootless par CDI natif (D7/D8)
   hosts: localhost
   connection: local
   gather_facts: true

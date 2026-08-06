@@ -333,7 +333,7 @@
 # documentée, pas résolue ici — voir docs/gpu-containers.md § Péremption,
 # CDI-2).
 
-- name: "S'assurer que {{ gpu_cdi_spec_dir }} existe"
+- name: "S'assurer que le répertoire cible existe ({{ gpu_cdi_spec_dir }})"
   ansible.builtin.file:
     path: "{{ gpu_cdi_spec_dir }}"
     state: directory
@@ -343,7 +343,7 @@
   become: true
   when: not ansible_check_mode
 
-- name: "Générer la spécification CDI dans {{ gpu_cdi_spec_path }} (jamais /run/cdi ou /var/run/cdi, tmpfs)"
+- name: "Générer la spécification CDI (jamais /run/cdi ou /var/run/cdi, tmpfs) : {{ gpu_cdi_spec_path }}"
   ansible.builtin.command:
     cmd: "nvidia-ctk cdi generate --output={{ gpu_cdi_spec_path }}"
     creates: "{{ gpu_cdi_spec_path }}"

@@ -71,7 +71,10 @@
     fail_msg: >-
       {{ "gpu_mux_mode introuvable sous " ~ gpu_mux_mode_dir
          if not gpu_mux_mode_attribute_stat.stat.exists
-         else "Valeur cible " ~ gpu_mux_target_value ~ " absente de possible_values (" ~ (gpu_mux_mode_possible_values.stdout | default('inconnu')) ~ ") — vérifier gpu_mux_target_value avant de relancer." }}
+         else "Valeur cible " ~ gpu_mux_target_value ~
+              " absente de possible_values (" ~
+              (gpu_mux_mode_possible_values.stdout | default('inconnu')) ~
+              ") — vérifier gpu_mux_target_value avant de relancer." }}
     success_msg: >-
       gpu_mux_mode présent, valeur cible {{ gpu_mux_target_value }} valide
       parmi {{ gpu_mux_mode_possible_values.stdout }}.
@@ -251,7 +254,10 @@
   ansible.builtin.debug:
     msg:
       - "BASCULE EN ATTENTE DE REDÉMARRAGE — PAS APPLIQUÉE tant que la machine n'a pas redémarré."
-      - "gpu_mux_mode/current_value avant écriture : {{ gpu_mux_mode_current.stdout }} (voir CLAUDE.md § Matériel spécifique — GPU / MUX pour ce que current_value reflète avant reboot)."
+      - "gpu_mux_mode/current_value avant écriture :
+         {{ gpu_mux_mode_current.stdout }} (voir CLAUDE.md § Matériel
+         spécifique — GPU / MUX pour ce que current_value reflète avant
+         reboot)."
       - "pending_reboot : {{ gpu_mux_pending_reboot_before.stdout }} → {{ gpu_mux_pending_reboot_after.stdout }}."
       - "dgpu_disable (jamais écrit par ce rôle) : {{ gpu_mux_dgpu_disable_value }}."
       - "Instantané pré-bascule : {{ gpu_mux_trace_file.dest }}."

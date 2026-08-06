@@ -1,6 +1,7 @@
 ---
 galaxy_info:
   role_name: recovery
+  author: Mickael Mahieu
   description: >-
     Vérifie et prépare un chemin de retour SSH sur ce poste avant une
     bascule du MUX GPU (voir docs/gpu-mux-recovery.md). N'installe rien,

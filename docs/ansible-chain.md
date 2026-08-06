@@ -1,21 +1,222 @@
-# Chaîne Ansible EE-first (D3) — résolution en lecture seule
+# Chaîne Ansible (D3a/D3b) — lint local et EE différé, en lecture seule
 
-**Ce document ne configure rien.** Toutes les commandes citées ont été
-exécutées le 2026-08-06, en lecture seule : aucun paquet installé, aucune
-image téléchargée (au sens couches d'image — seules des métadonnées de
-manifeste/config ont été interrogées, précision § Validation), aucun EE
-construit, aucune authentification à un registre, aucun dépôt ajouté,
-aucun fichier écrit hors de ce dépôt. La décision entre les options du
-§ 4 vient dans un livrable séparé, après revue.
+**[REQUALIFIÉ le 2026-08-06]** Ce document a d'abord été écrit sous un
+cadrage inversé : il traitait la fidélité à AAP 2.6 comme la question
+posée par *ce dépôt*. **Ce n'est pas le cas** — la cible de
+`workstation-config` est cette machine elle-même (`localhost`, Fedora
+44), pas AAP 2.6/RHEL 9, géré ailleurs (préambule de `CLAUDE.md`). D3 a
+été scindée en conséquence dans `docs/machine-facts.md` :
+- **D3a** — la chaîne réellement active de ce dépôt. L'`ansible-core`
+  **système** (2.20.7) fait autorité, puisque c'est lui qui exécute les
+  rôles sur la cible réelle. Résolue et appliquée le 2026-08-06, § 0
+  ci-dessous.
+- **D3b** — une chaîne EE-first à fidélité AAP 2.6, différée, pour le
+  jour où ce poste développerait du contenu *destiné* à AAP. **Non
+  ouverte.** Tout le contenu ci-dessous à partir du § 1 (écrit sous
+  l'ancien cadrage, avant la correction) porte en réalité sur D3b, pas
+  sur la chaîne active de ce dépôt — requalifié section par section,
+  **aucun fait sourcé n'est supprimé**, seuls les titres et les
+  conclusions changent de portemanteau.
+
+**Ce document ne configure rien** au-delà de ce qui est explicitement
+marqué comme appliqué (§ 0 uniquement — installation d'`ansible-lint`,
+seule action du 2026-08-06 qui écrit sur ce poste). Tout le reste (§ 1 à
+§ 4) reste une résolution en lecture seule sur D3b : aucun paquet
+installé pour cette partie, aucune image téléchargée (au sens couches
+d'image — seules des métadonnées de manifeste/config ont été
+interrogées, précision § Validation), aucun EE construit, aucune
+authentification à un registre, aucun dépôt ajouté, aucun fichier écrit
+hors de ce dépôt. La décision d'ouvrir D3b, et le choix entre les
+options du § 4, restent différés à un livrable séparé.
 
 Faits déjà établis, non revérifiés ici : `ansible-core` 2.20.7 sur
 Python 3.14 (système) ; `ansible-builder` 3.1.0-8.fc44 disponible dans
 Fedora ; `ansible-navigator`, `ansible-runner`, `ansible-lint` absents
-des dépôts activés ; `pipx` 1.15.0-2.fc44 et `python3-pip` 26.0.1-2.fc44
-disponibles mais non installés ; Podman 5.8.4 rootless, `crun`,
+des dépôts activés (avant le 2026-08-06, § 0) ; `pipx` 1.15.0-2.fc44 et
+`python3-pip` 26.0.1-2.fc44 disponibles ; Podman 5.8.4 rootless, `crun`,
 `overlay`.
 
-## 1. D'où viennent les Execution Environments ?
+## 0. D3a — chaîne active de ce dépôt : lint local contre l'`ansible-core` système
+
+**Question posée, propre à D3a** (pas celle des § 1-4, qui portent sur
+D3b) : `ansible-lint` dépend d'`ansible-core`. L'installer dans un
+environnement isolé (`pipx`, venv classique) y installerait un
+**second** `ansible-core`, potentiellement différent du 2.20.7 système
+qui exécute réellement les rôles de ce dépôt — un lint qui valide contre
+une version différente de celle d'exécution reproduit exactement le
+décalage qu'on cherche à éviter, déplacé d'un cran. Établi avant toute
+installation, par métadonnées et par un essai `--dry-run` (n'installe
+rien, montre seulement ce qui serait fait) :
+
+```
+$ python3 -m venv /tmp/.../isolated   # témoin, SANS --system-site-packages
+$ /tmp/.../isolated/bin/pip install --dry-run ansible-lint
+Collecting ansible-core>=2.16.14 (from ansible-lint)
+  Downloading ansible_core-2.21.2-py3-none-any.whl.metadata
+Would install ... ansible-core-2.21.2 ansible-lint-26.6.0 ...
+```
+Un venv isolé **installerait un second `ansible-core` (2.21.2, distinct
+du 2.20.7 système)** — exactement le piège nommé par la demande.
+
+```
+$ python3 -m venv --system-site-packages /tmp/.../shared
+$ /tmp/.../shared/bin/pip install --dry-run ansible-lint
+Requirement already satisfied: ansible-core>=2.16.14 in
+  /usr/lib/python3.14/site-packages (from ansible-lint) (2.20.7)
+Would install ansible-compat-26.6.0 ansible-lint-26.6.0 ... (jamais ansible-core)
+```
+Avec `--system-site-packages`, `pip` détecte l'`ansible-core` **système**
+(métadonnées `ansible_core-2.20.7.dist-info` déjà présentes sous
+`/usr/lib/python3.14/site-packages/`, déposées par le paquet `dnf`) comme
+satisfaisant la dépendance, et **ne le duplique pas** — seuls
+`ansible-lint` et ses dépendances propres (`black`, `yamllint`, etc.,
+aucune ne recoupant `ansible-core`) sont installés dans le venv.
+
+**Coût de chaque voie** :
+- Isolé (option écartée) : garantit zéro version unique — `ansible-lint`
+  validerait contre un `ansible-core` que rien n'exécute réellement sur
+  ce poste. Aucune mesure ne rendrait cette voie fiable sans figer
+  manuellement une version, ce qui la ramènerait au mur démontré au § 3.2
+  pour D3b (sans objet ici puisque D3a vise l'`ansible-core` système, pas
+  celui d'AAP — mais la mécanique de résolution `pip` est la même).
+- `--system-site-packages` (retenue) : coût nul en fidélité — une seule
+  version d'`ansible-core` en jeu, celle qui exécute réellement les
+  rôles. Coût réel : dépendance à ce que `dnf` continue de déposer des
+  métadonnées `dist-info` standard (déjà le cas, vérifié) ; si un jour
+  `ansible-core` était retiré du système, le venv perdrait sa seule
+  source et `ansible-lint` cesserait de fonctionner tant qu'il ne serait
+  pas réinstallé — comportement voulu, pas un défaut cette voie ne
+  masque rien.
+
+**Voie retenue : elle garantit une seule version d'`ansible-core` en
+jeu**, mesurée en fin d'installation par la sortie de l'outil
+lui-même, pas déduite :
+```
+$ python3 -m venv --system-site-packages ~/.venvs/ansible-lint
+$ ~/.venvs/ansible-lint/bin/pip install ansible-lint
+Successfully installed ansible-compat-26.6.0 ansible-lint-26.6.0 ... (17 paquets, aucun ansible-core)
+
+$ ~/.venvs/ansible-lint/bin/pip show ansible-core
+Location: /usr/lib/python3.14/site-packages   # le système, pas le venv
+Version: 2.20.7
+
+$ ansible --version | head -1                       # système
+ansible [core 2.20.7]
+
+$ ~/.venvs/ansible-lint/bin/ansible-lint --version   # venv
+ansible-lint 26.6.0 using ansible-core:2.20.7 ansible-compat:26.6.0 ...
+```
+Les trois lectures s'accordent sur **2.20.7** — la version qui exécute
+réellement les rôles de ce dépôt est celle contre laquelle
+`ansible-lint` valide. Aucune copie d'`ansible-core` dans le venv,
+confirmé (`find ~/.venvs/ansible-lint/lib/python3.14/site-packages
+-iname "ansible_core*"` → vide).
+
+**Action réalisée** : `sudo dnf install -y python3-pip` (dépôt `fedora`,
+déjà activé — seul prérequis manquant pour faire tourner `pip`),
+`python3 -m venv --system-site-packages ~/.venvs/ansible-lint`, `pip
+install ansible-lint` dans ce venv. Aucune autre installation.
+
+### 0.2 — Lint des rôles d'amorçage
+
+`recovery`, `gpu_mux`, `gpu_cdi` : écrits sans lint, relus manuellement
+(dette posée explicitement au livrable GPU-1). Passés au lint le
+2026-08-06 avec l'outil résolu au § 0.1.
+
+**Avant corrections** :
+```
+$ NO_COLOR=1 ~/.venvs/ansible-lint/bin/ansible-lint roles/recovery roles/gpu_mux roles/gpu_cdi
+WARNING  Listing 9 violation(s) that are fatal
+Failed: 9 failure(s), 0 warning(s) in 19 files processed of 23 encountered.
+Last profile that met the validation criteria was 'min'.
+rc=2
+```
+Neuf constats, un par un — **corrigés, aucun `noqa` posé par ce
+livrable** (aucun ne relevait d'une règle inapplicable) :
+
+| # | Règle | Fichier | Constat | Correction |
+|---|---|---|---|---|
+| 1 | `name[casing]` | `roles/gpu_cdi/gpu_cdi.yml` | Nom de play `gpu_cdi — …` ne commence pas par une majuscule | `GPU CDI — …` (même motif que `Recovery — …`, déjà conforme dans `roles/recovery/recovery.yml`) |
+| 2 | `name[casing]` | `roles/gpu_mux/gpu_mux.yml` | Idem, `gpu_mux — …` | `GPU MUX — …` |
+| 3 | `schema[meta]` | `roles/gpu_cdi/meta/main.yml` | `galaxy_info.author` manquant (règle non contournable — l'outil l'indique lui-même : « This rule is not skippable ») | `author: Mickael Mahieu` ajouté (identité déjà publique dans chaque commit git, D4) |
+| 4 | `schema[meta]` | `roles/gpu_mux/meta/main.yml` | Idem | Idem |
+| 5 | `schema[meta]` | `roles/recovery/meta/main.yml` | Idem | Idem |
+| 6 | `name[template]` | `roles/gpu_cdi/tasks/main.yml:336` | Jinja `{{ gpu_cdi_spec_dir }}` au milieu du nom de tâche, pas à la fin | Reformulé, Jinja en fin (parenthèses) : « S'assurer que le répertoire cible existe ({{ gpu_cdi_spec_dir }}) » |
+| 7 | `name[template]` | `roles/gpu_cdi/tasks/main.yml:346` | Idem, avec en plus du texte statique après le Jinja | Texte statique déplacé avant le Jinja : « Générer la spécification CDI (jamais /run/cdi ou /var/run/cdi, tmpfs) : {{ gpu_cdi_spec_path }} » |
+| 8 | `yaml[line-length]` | `roles/gpu_mux/tasks/main.yml:74` | Ligne à 207 caractères (> 160) — `fail_msg` d'une garde `assert` | Repliée sur plusieurs lignes (scalaire replié `>-`, sémantique de rendu identique — vérifié, § ci-dessous) |
+| 9 | `yaml[line-length]` | `roles/gpu_mux/tasks/main.yml:257` (254 avant la correction n°8) | Ligne à 186 caractères | Repliée sur plusieurs lignes (chaîne YAML entre guillemets, repliage natif — vérifié) |
+
+**Garde touchée (constat n°8) : les deux démonstrations rejouées**,
+conformément à la règle posée au livrable CDI-2 (une garde modifiée
+perd la démonstration qui la validait). La tâche visée est l'`assert`
+« Échouer bruyamment si gpu_mux_mode est absent ou si la valeur cible
+n'est pas dans possible_values » — seul son `fail_msg` a été reformaté
+(retour à la ligne), pas sa condition `that:`.
+```
+$ ansible-playbook --check roles/gpu_mux/gpu_mux.yml
+ok: [localhost] => {"msg": "gpu_mux_mode présent, valeur cible 1 valide parmi 0;1."}
+
+$ ansible-playbook --check -e gpu_mux_target_value=99 roles/gpu_mux/gpu_mux.yml
+fatal: [localhost]: FAILED! => {"msg": "Valeur cible 99 absente de possible_values (0;1) — vérifier gpu_mux_target_value avant de relancer."}
+```
+Cas nominal : passe, message inchangé. Échec forcé (valeur hors
+`possible_values`) : casse avec le message exact de la branche modifiée
+— aucun saut de ligne parasite (vérifié aussi hors ligne, par un rendu
+Jinja isolé reproduisant l'expression exacte : le repliage `>-` traite
+les retours à la ligne entre jetons comme des espaces, y compris à une
+indentation plus profonde, tant qu'ils ne coupent pas un littéral de
+chaîne). Le second repliage (constat n°9, un message `debug`
+d'information, pas une garde) a été vérifié de la même façon
+(`yaml.safe_load` : chaîne repliée strictement identique à l'originale).
+
+**Après corrections** :
+```
+$ NO_COLOR=1 ~/.venvs/ansible-lint/bin/ansible-lint roles/recovery roles/gpu_mux roles/gpu_cdi
+Passed: 0 failure(s), 0 warning(s) in 19 files processed of 23 encountered.
+Last profile that met the validation criteria was 'production'.
+rc=0
+```
+Profil `production` atteint (le plus strict des profils d'`ansible-lint`),
+`0` défaut. Le ratio « 19 fichiers traités sur 23 rencontrés » est
+identique avant et après — comptage interne de l'outil (fichiers non
+YAML/Ansible rencontrés en parcourant les rôles : `README.md` ×3,
+`.gitignore`, un gabarit `.j2`, deux fichiers de trace JSON — ni erreur
+ni périmètre réduit, `rc=0` et « 0 failure(s) » en attestent).
+
+**Constat en marge, non corrigé, hors périmètre** : un commentaire
+`# noqa: command-instead-of-module` préexistant dans
+`roles/recovery/tasks/main.yml` (avant ce livrable, justifié en ligne
+pour l'usage de `firewall-cmd --query-service` via `ansible.builtin.command`)
+s'est révélé **inopérant** — testé en le retirant temporairement puis en
+relançant le lint sur ce seul fichier : `Passed: 0 failure(s)` malgré
+son absence. Cause établie par lecture du code de la règle elle-même
+(`ansiblelint/rules/command_instead_of_module.py`, installé dans le
+venv) : `firewall-cmd` ne figure pas dans la liste `_modules` de
+commandes couvertes par cette règle — le constat que ce commentaire
+anticipait ne se produit donc jamais avec ce jeu de règles, avec ou
+sans le commentaire. Ni corrigé ni retiré : ce livrable ne modifie que
+ce que le lint signale lui-même (consigne explicite), et ce commentaire
+n'a été signalé par aucun constat de ce lint — fichier restauré à
+l'identique après le test (`diff` confirmé). Consigné ici pour que la
+prochaine session n'ait pas à le redécouvrir.
+
+**Idempotence des rôles inchangée après corrections** : les trois
+diffèrent uniquement sur des noms/messages (aucune tâche ajoutée,
+retirée, ni reconditionnée) — confirmé en comparant `--check` avant/après
+via `git stash` (état exact du dépôt avant ce livrable, restauré) :
+
+| Rôle | `ok`/`changed`/`skipped` avant | après |
+|---|---|---|
+| `recovery` | 10 / 0 / 0 | 10 / 0 / 0 |
+| `gpu_mux` | 18 / 1 / 4 | 18 / 1 / 4 |
+| `gpu_cdi` | 41 / 0 / 53 | 41 / 0 / 53 |
+
+Le `changed=1` de `gpu_mux` est préexistant (la tâche d'écriture de
+`gpu_mux_mode` prédit un changement en `--check`, indépendamment de ce
+livrable) — identique dans les deux relevés, pas une régression
+introduite ici.
+
+## 1. D3b (différée) : d'où viendraient les Execution Environments ?
 
 ### 1.1 — Registre officiel AAP : authentification exigée, démontré sans s'authentifier
 
@@ -154,22 +355,32 @@ d'exclure catégoriquement ce fichier du dépôt — la contrainte technique
 (emplacement hors arborescence) et la règle du dépôt (D4) coïncident
 déjà, sans mesure supplémentaire à prendre.
 
-### 1.6 — Conclusion sur D3 : la fidélité annoncée n'est pas atteignable telle qu'énoncée
+### 1.6 — Conclusion sur D3b : la fidélité annoncée n'est pas atteignable telle qu'énoncée, si D3b est un jour ouverte
 
-D3 ne nomme pas explicitement d'où viendrait l'EE de référence, mais son
-intention (« vérifier dans l'image d'Execution Environment ») implique
-la fidélité à AAP 2.6. **Cette fidélité n'est atteignable par aucune
-image déjà construite et publiquement accessible** (§ 1.2, § 1.3) — la
-seule image alignée sur AAP 2.6 est derrière une authentification que
-D4 interdit d'utiliser sur ce poste. Elle reste atteignable **par
-construction locale** avec `ansible-builder` (§ 1.4), à partir d'une
-base entièrement publique. **D3 n'est pas invalidée dans son intention,
-mais sa formulation actuelle (qui présume `ansible-navigator` comme
-moyen d'exécution, § 2, sans jamais avoir résolu la provenance de l'EE)
-doit être amendée** — recommandation détaillée § 4, décision différée à
+**[REQUALIFIÉ le 2026-08-06]** Cette conclusion portait initialement sur
+« D3 » tout court, sous le cadrage inversé (§ note en tête de document)
+— elle ne s'applique **qu'à D3b**, différée, pas à la chaîne active de
+ce dépôt (D3a, § 0, qui n'a besoin d'aucun EE et n'est pas concernée par
+la question « d'où viendrait l'EE de référence »).
+
+Pour D3b, si elle est un jour ouverte : son intention (fidélité à AAP
+2.6, cadrage EE-first) implique une fidélité de version. **Cette
+fidélité n'est atteignable par aucune image déjà construite et
+publiquement accessible** (§ 1.2, § 1.3) — la seule image alignée sur
+AAP 2.6 est derrière une authentification que D4 interdit d'utiliser sur
+ce poste. Elle reste atteignable **par construction locale** avec
+`ansible-builder` (§ 1.4), à partir d'une base entièrement publique.
+Recommandation détaillée § 4, décision d'ouvrir D3b différée à
 l'opérateur.
 
 ## 2. `ansible-navigator` : ce qu'il apporte réellement ici
+
+**Analyse valable pour D3a et pour D3b** — contrairement au reste de ce
+document (§ 1, § 3, § 4, requalifiés comme portant sur D3b), ce constat
+ne dépendait pas du cadrage inversé initial : que la question soit
+« exécuter contre l'`ansible-core` système » (D3a) ou « exécuter dans un
+EE fidèle à AAP » (D3b), `ansible-navigator` n'apporte de capacité
+manquante dans aucun des deux cas. Non requalifié, conservé tel quel.
 
 Documentation amont lue (`docs.ansible.com/projects/navigator/subcommands/`,
 externe, sans authentification) — sous-commandes pertinentes pour
@@ -199,7 +410,16 @@ seulement ergonomique. **Conforme à la règle « une couche de moins vaut
 mieux qu'une couche de plus » (`CLAUDE.md` § Avant d'agir)** : rien
 n'indique qu'installer `ansible-navigator` soit nécessaire ici.
 
-## 3. Le problème Python 3.14
+## 3. Le problème Python 3.14 (spécifique à D3b — sans objet pour D3a)
+
+**[REQUALIFIÉ le 2026-08-06]** Ce mur ne concerne que D3b (fidélité à
+AAP 2.6). **Il ne bloque rien pour D3a** : le système porte
+`ansible-core` 2.20.7, qui satisfait déjà le contrôle décrit ci-dessous
+(`2.20.7 >= 2.20.0`) — c'est exactement pour cela que l'installation du
+§ 0.1 fonctionne sans y toucher. Ce mur ne redevient pertinent que si
+D3b est ouverte : viser une fidélité aux versions réelles d'AAP 2.6
+(2.16/2.18, § 3.1 ci-dessous) sous Python 3.14 s'y heurterait, ce que
+cette section démontre.
 
 ### 3.1 — Version d'`ansible-core` dans AAP 2.6 (sourcé, sans authentification)
 
@@ -215,10 +435,10 @@ externes) :
   2.18** pour AAP 2.6, présenté comme apportant des changements plus
   significatifs que la version par défaut.
 
-**Aucun `@VERIF` nécessaire ici** : les deux versions (2.16 par défaut,
-2.18 en option) sont établies par une source externe publique nommée
-précisément, sans authentification — pas besoin du bundle professionnel
-de l'opérateur pour ce fait précis.
+**Aucun jeton de vérification nécessaire ici** : les deux versions (2.16
+par défaut, 2.18 en option) sont établies par une source externe
+publique nommée précisément, sans authentification — pas besoin du
+bundle professionnel de l'opérateur pour ce fait précis.
 
 ### 3.2 — Installabilité d'`ansible-lint`/`ansible-core` sous Python 3.14 : requête de métadonnées, aucune installation
 
@@ -276,22 +496,28 @@ Aucune des deux ne déclare de borne haute sur Python — `pip install`
 les accepterait sous 3.14 — mais **`ansible-lint`, apparié à l'une ou
 l'autre, refuserait de s'exécuter sous Python 3.14** (le contrôle
 `ansible_compat` ci-dessus). Le système `ansible-core 2.20.7` de ce
-poste **satisfait** ce contrôle (`2.20.7 >= 2.20.0`) — ce qui explique
-que la chaîne système fonctionne pour du lint générique, mais confirme,
-chiffres à l'appui, ce que D3 affirmait qualitativement : **cet
-`ansible-core` système ne peut pas être substitué à celui d'AAP 2.6 pour
-valider du lint fidèle à la production, parce que la version qui
-satisferait Python 3.14 et celle qui correspond à AAP 2.6 sont
-mutuellement exclusives sur cette machine.**
+poste **satisfait** ce contrôle (`2.20.7 >= 2.20.0`) — c'est précisément
+ce qui rend D3a possible sans aucun mur (§ 0, § 3 en tête). Mais chiffres
+à l'appui : **cet `ansible-core` système ne peut pas être substitué à
+celui d'AAP 2.6 pour valider du lint fidèle à *cette* production-là**
+(D3b, différée) — **la version qui satisfait Python 3.14 et celle qui
+correspond à AAP 2.6 sont mutuellement exclusives sur cette machine.**
+Sans rapport avec D3a, qui ne vise jamais la fidélité AAP.
 
-## 4. Options, coûts, recommandation
+## 4. D3b — options, coûts, recommandation
 
-Contraintes intégrées : D1 (reconstructible depuis ce dépôt — écarte
-toute image `latest` non épinglée par empreinte comme cible finale) ;
-D4 (aucun identifiant, aucune donnée d'entreprise — écarte tout chemin
-qui authentifie contre `registry.redhat.io`) ; `roles/recovery`,
-`gpu_mux`, `gpu_cdi` sont des rôles d'amorçage à repasser au lint une
-fois la chaîne établie, pas à ce livrable.
+**Portée requalifiée** : les quatre options ci-dessous évaluent
+comment atteindre une fidélité de version à AAP 2.6 (D3b, différée) —
+pas comment lint ce dépôt lui-même (D3a, résolu au § 0 par une cinquième
+voie, `--system-site-packages`, qui n'était pas dans ce périmètre
+initial puisque D3b et D3a n'étaient pas encore distinguées). Contraintes
+intégrées : D1 (reconstructible depuis ce dépôt — écarte toute image
+`latest` non épinglée par empreinte comme cible finale) ; D4 (aucun
+identifiant, aucune donnée d'entreprise — écarte tout chemin qui
+authentifie contre `registry.redhat.io`). **[REQUALIFIÉ le 2026-08-06]**
+ÉTAIT : « `roles/recovery`, `gpu_mux`, `gpu_cdi` sont des rôles
+d'amorçage à repasser au lint une fois la chaîne établie, pas à ce
+livrable » — fait depuis, par D3a (§ 0.2), sans attendre D3b.
 
 ### Option A — `pipx install ansible-lint`/`ansible-navigator`
 
@@ -374,7 +600,7 @@ possible à la construction : le `ansible --version` du résultat doit
 correspondre exactement à ce qui a été demandé dans
 `execution-environment.yml` — écart détectable immédiatement.
 
-## Recommandation
+## Recommandation (pour D3b, si elle est un jour ouverte — sans objet pour D3a, déjà résolue au § 0)
 
 **Option D** — `ansible-builder` (déjà disponible par `dnf`, sans
 `pip`/`pipx`) pour construire un EE minimal, épinglé à
@@ -410,7 +636,47 @@ choisie, la construction elle-même (`execution-environment.yml`,
 `ansible-builder`, épinglage par empreinte) est un livrable séparé, hors
 périmètre de cette résolution en lecture seule.
 
-## Validation
+## Validation — D3a (ce livrable, 2026-08-06)
+
+**Action privilégiée, unique, énumérée explicitement** (`CLAUDE.md` §
+Avant d'agir) :
+
+| # | Commande | Chemin cible | Motif |
+|---|---|---|---|
+| 1 | `sudo dnf install -y python3-pip` | paquet système, dépôt `fedora` (déjà activé) | seul prérequis manquant pour exécuter `pip` — nécessaire à la résolution du § 0.1 avant toute installation d'`ansible-lint` |
+
+Aucune autre élévation. La création du venv
+(`python3 -m venv --system-site-packages ~/.venvs/ansible-lint`) et
+l'installation d'`ansible-lint` dedans (`pip install ansible-lint`)
+s'exécutent sans `sudo` — écriture dans `$HOME`, pas dans `/usr` ni
+`/etc`.
+
+**Commandes non privilégiées, exhaustives** : essais `pip install
+--dry-run` (×2, témoin isolé et `--system-site-packages`, § 0.1) ;
+création du venv et installation réelle (§ 0.1) ; `pip show
+ansible-core`, `ansible --version`, `ansible-lint --version`, `find`
+(confirmation absence de copie, § 0.1) ; `ansible-lint` sur les trois
+rôles, avant et après corrections (§ 0.2) ; `ansible-playbook
+--syntax-check`/`--check` sur les trois rôles, avant (via `git stash`)
+et après corrections (§ 0.2) ; test réversible du `noqa` mort dans
+`roles/recovery/tasks/main.yml` (retiré temporairement, lint relancé,
+restauré — `diff` confirmé identique à l'original) ; lecture du code
+source de la règle `command-instead-of-module` dans le paquet installé
+(fichier local, déjà présent dans le venv, pas une requête réseau).
+Aucune sortie vide sans investigation ; aucun code de retour non nul
+non expliqué (le seul rencontré, `rc=2` sur le lint « avant », est
+l'échec attendu et documenté § 0.2).
+
+**Confirmations finales D3a** : trois rôles au profil `production`,
+`0` défaut ; `--syntax-check` et `--check` identiques avant/après sur
+les trois rôles (table § 0.2) ; aucun `noqa` ajouté par ce livrable ;
+aucune modification de `sudoers`, `dgpu_disable`, `gpu_mux_mode`,
+`supergfxd`, `asus-shutdown`, `/etc/cdi/` ; `terra` non désactivé ;
+aucun redémarrage ; aucun EE construit ; aucune image téléchargée ;
+aucune authentification à un registre ; aucun nouveau dépôt système (le
+seul paquet installé, `python3-pip`, vient d'un dépôt déjà activé).
+
+## Validation — D3b (résolution en lecture seule, premier livrable du 2026-08-06, contenu inchangé)
 
 **Commandes exécutées, toutes non modifiantes** :
 
@@ -452,30 +718,27 @@ réseau anonymes, lectures de fichiers déjà lisibles par l'utilisateur,
 requêtes de métadonnées `dnf` qui n'écrivent que dans le cache
 utilisateur/système déjà en place).
 
-**Décompte du jeton de vérification, `CLAUDE.md` exclu (§ 0.1)** —
-piège méthodologique rencontré en écrivant cette section même :
-compter ce jeton *dans un fichier qui décrit ce comptage* est
-auto-référentiel — écrire le nombre trouvé, ou même l'exemple de
-commande, ajoute une occurrence de plus et rend le chiffre qu'on vient
-d'écrire déjà faux. Pour ne pas reproduire ici, sous une autre forme, le
-défaut exact du § 0.1 (confondre une mention du jeton avec un marqueur
-actionnable), ce document ne fige aucun chiffre en dur : le compte brut
-final, mesuré après la dernière écriture de ce fichier, est donné dans
-le rapport de livrable qui accompagne la poussée, pas ici.
-Ventilation qualitative, stable indépendamment du compte exact :
+**Décompte du jeton de vérification, `CLAUDE.md` exclu.** Le livrable
+précédent avait rencontré un piège méthodologique en écrivant cette
+section même : compter ce jeton *dans un fichier qui décrit ce
+comptage* est auto-référentiel — écrire le jeton nu (même dans
+l'exemple d'une commande, même entre accents graves) ajoute une
+occurrence de plus. **Cause traitée à la racine dans ce livrable**
+(règle ajoutée à `CLAUDE.md` : le jeton ne s'écrit jamais nu hors d'un
+marqueur réel — périphrase sinon) — cette section elle-même, comme le
+reste du document, a été relue et corrigée pour n'écrire le jeton que
+dans ses marqueurs réels. Le compte brut égale donc maintenant le
+compte de marqueurs actionnables, sans ventilation à faire :
 - `docs/ansible-chain.md` porte **un seul marqueur actionnable** (§ 4,
-  version `ansible-core` réellement en production, bornée) — le reste
-  des occurrences du jeton dans ce fichier sont des mentions en prose
-  (cette section, le renvoi dans « Voir aussi », la phrase confirmant
-  qu'aucun marqueur n'était nécessaire au § 3.1).
-- `docs/machine-facts.md` porte **cinq marqueurs actionnables** après
-  ce livrable : trois déjà présents avant lui et non revérifiés ici
-  (clé Terra, déclenchement d'`asus-shutdown.service`, canal `claude
-  doctor`), un nouveau (§ 0.2, écart de taille CDI), et un nouveau qui
-  remplace l'ancien marqueur D3 fermé par ce livrable (version
-  `ansible-core` cible, 2.16 ou 2.18) — l'ancien marqueur D3 est retiré
-  de sa forme active et conservé en historique (§ D3, note du
-  2026-08-06), pas compté une deuxième fois.
+  version `ansible-core` réellement en production, bornée).
+- `docs/machine-facts.md` porte **quatre marqueurs actionnables** :
+  clé Terra, déclenchement d'`asus-shutdown.service`, canal `claude
+  doctor` (les trois déjà présents avant ce livrable, non revérifiés
+  ici), et l'écart de taille de la spécification CDI (§ 0.2 du livrable
+  du 2026-08-06). L'ancien marqueur D3 (« voie d'installation... ») est
+  fermé et conservé en historique, sans le jeton nu ; le marqueur sur la
+  version cible d'`ansible-core` pour D3b vit uniquement ici, pas
+  dupliqué dans `docs/machine-facts.md` (qui y renvoie par périphrase).
 
 **Confirmations finales** : aucun paquet installé (`rpm -q` négatif sur
 les quatre outils recherchés) ; aucune image téléchargée au sens couches
@@ -486,8 +749,9 @@ construit ; aucune authentification à un registre (`--no-creds` partout,
 
 ## Voir aussi
 
-- [`docs/machine-facts.md`](machine-facts.md) — D3 (chaîne Ansible
-  EE-first), D4 (dépôt public), dette technique sur l'outillage Ansible.
-- [`CLAUDE.md`](../CLAUDE.md) — règle sur le comptage `@VERIF` excluant
-  ce fichier (§ Sourcing, ajoutée dans ce livrable) ; règle « avant
-  d'agir : qu'est-ce que l'outil fait déjà lui-même ? ».
+- [`docs/machine-facts.md`](machine-facts.md) — D3a/D3b (scission du
+  2026-08-06), D4 (dépôt public), dette technique sur l'outillage
+  Ansible.
+- [`CLAUDE.md`](../CLAUDE.md) — règles sur le jeton de vérification : ce
+  fichier exclu de tout comptage, jeton jamais écrit nu en prose ; règle
+  « avant d'agir : qu'est-ce que l'outil fait déjà lui-même ? ».

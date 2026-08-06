@@ -456,6 +456,21 @@ comparé au fichier de trace non versionné
   `python3-resolvelib`, `python3-markupsafe`, `python3-cryptography`.
   (`dnf history info 21`)
 - `python3` : `3.14.6`. (`python3 --version`)
+- **`ansible-lint 26.6.0`**, installé le 2026-08-06 dans un venv dédié
+  `~/.venvs/ansible-lint`, créé avec `--system-site-packages` pour
+  réutiliser l'`ansible-core` système plutôt que d'en installer un
+  second (D3a, résolution complète dans `docs/ansible-chain.md`
+  § Résolution avant installation). Confirmé par sortie de l'outil
+  lui-même, pas déduit : `ansible-lint --version` → « ansible-lint 26.6.0
+  using ansible-core:2.20.7 » — même numéro que `ansible --version`
+  (système). `pip show ansible-core` dans ce venv : `Location:
+  /usr/lib/python3.14/site-packages` (le système, pas le venv) —
+  aucune copie dans `~/.venvs/ansible-lint/lib/python3.14/site-packages/`.
+  Prérequis : `python3-pip-26.0.1-2.fc44` installé (dépôt `fedora`, déjà
+  activé) — seul paquet système ajouté par cette résolution.
+- `python3-pip` : absent jusqu'au 2026-08-06, installé ce jour (dépôt
+  `fedora`, transaction dnf) pour permettre la résolution ci-dessus.
+  (`rpm -q python3-pip`, avant/après)
 - `git` : `2.55.0`. (`git --version`)
 - `claude` : `2.1.220 (Claude Code)`, gestionnaire de paquets `rpm`,
   chemin `/usr/bin/claude`, canal de mise à jour annoncé **`latest`**.
@@ -590,47 +605,58 @@ par D-Bus ou par activation par socket — c'est le cas ici. Voir le détail
 complet, avec le journal cité intégralement, dans
 `docs/gpu-mux-recovery.md` § Résultats observés du 2026-08-05.
 
-**D3 — chaîne Ansible EE-first.** `ansible-navigator` exécute et vérifie dans
-l'image d'Execution Environment. L'`ansible-core` système (2.20.7 /
-Python 3.14) sert à l'édition et ne fait pas autorité : il est plus récent
-que la cible AAP 2.6 et accepterait des constructions que la production
-refuse. Note datée (2026-08-04) : la cible EE-first est maintenue, mais son
-moyen d'installation reste à déterminer — `ansible-navigator` n'est pas
-empaqueté dans les dépôts Fedora 44 activés sur ce poste (voir « Points
-ouverts »), les options ouvertes sont `pipx`, un venv dédié, ou l'exécution
-directe des EE en `podman run`. **[MARQUEUR FERMÉ le 2026-08-06, note
-ci-dessous]** ÉTAIT marqué : « voie d'installation de la chaîne Ansible
-EE-first, à trancher au livrable dédié. » Motif de la garde initiale :
-une décision dont le moyen d'exécution n'existe pas encore doit le dire,
-sinon elle se découvre inapplicable au moment de l'appliquer.
+**[CORRIGÉE le 2026-08-06] ÉTAIT** — D3 : chaîne EE-first.
+`ansible-navigator` exécute et vérifie dans l'image d'Execution
+Environment. L'`ansible-core` système (2.20.7 / Python 3.14) sert à
+l'édition et ne fait pas autorité : il est plus récent que la cible AAP
+2.6 et accepterait des constructions que la production refuse. Note
+datée (2026-08-04) : la cible EE-first est maintenue, mais son moyen
+d'installation reste à déterminer — `ansible-navigator` n'est pas
+empaqueté dans les dépôts Fedora 44 activés sur ce poste, les options
+ouvertes sont `pipx`, un venv dédié, ou l'exécution directe des EE en
+`podman run`.
 
-**[RÉSOLU le 2026-08-06, décision d'application différée]** Livrable
-dédié exécuté en lecture seule (`docs/ansible-chain.md`), marqueur fermé
-ci-dessus par recherche effective, pas par reformulation.
-Constat central : la seule image d'EE fidèle à AAP 2.6 (`ansible-core`
-2.16 par défaut ou 2.18 en option, sourcé sans authentification) vit
-derrière `registry.redhat.io`, exclu par D4 ; l'image communautaire
-publique la plus proche (`ghcr.io/ansible/community-ansible-dev-tools`)
-ne pin pas `ansible-core` et ne rapproche donc pas de cette fidélité.
-`ansible-lint` sous Python 3.14 système exige `ansible-core >= 2.20.0`
-(contrôle `ansible_compat`, sourcé) — strictement incompatible avec les
-deux versions réelles d'AAP 2.6, ce qui élimine `pipx` et un venv dédié
-comme voies de fidélité (ils resteraient bloqués sur un `ansible-core`
-plus récent que la production, ou casseraient `ansible-lint`).
-`ansible-navigator` réévalué comme n'apportant aucune capacité
-manquante pour l'usage de ce dépôt (`podman run` direct suffit) —
-recommandation : ne pas l'installer. **`ansible-navigator` retiré de la
-formulation de D3** (première phrase de cette décision, ci-dessus,
-« ÉTAIT » implicite depuis ce jour) — la voie recommandée est un EE
-construit localement par `ansible-builder` (déjà disponible par `dnf`,
-aucun `pip`/`pipx`) à partir d'une base publique, exécuté par `podman
-run` seul, argumentaire complet et options écartées dans
-`docs/ansible-chain.md` § 4. **Décision non appliquée dans ce
-livrable** (consigne explicite : lecture seule, aucune option
-appliquée) — reste `@VERIF : version d'ansible-core cible (2.16 ou
-2.18) pour la construction de l'EE local, à confirmer par l'opérateur
-depuis son environnement professionnel — voir docs/ansible-chain.md § 4`
-avant toute construction réelle, elle-même un livrable séparé.
+**Motif inversé, corrigé par l'opérateur le 2026-08-06** : la cible de
+*ce dépôt* est cette machine elle-même (`workstation-config` configure
+`localhost`, Fedora 44) — pas AAP 2.6/RHEL 9, géré ailleurs (préambule
+de `CLAUDE.md`). L'`ansible-core` système ne « fait pas autorité » que
+pour du contenu *destiné* à AAP ; pour les rôles de ce dépôt, c'est
+l'inverse — il fait autorité, puisque c'est lui qui exécute réellement
+les rôles sur la cible réelle. Le livrable du 2026-08-06
+(`docs/ansible-chain.md`) a été mené sous la prémisse inversée : ses
+faits sourcés restent valables (registres, versions, mur
+`ansible_compat`), seul le cadrage — à quelle chaîne ils s'appliquent —
+était faux. Non supprimé, requalifié ci-dessous et dans
+`docs/ansible-chain.md` lui-même.
+
+**D3a (2026-08-06) — chaîne de ce dépôt.** `ansible-core` **système**
+(2.20.7), qui fait autorité puisqu'il exécute les rôles sur la cible
+réelle (`localhost`). Lint local (`ansible-lint`, installé en venv
+`--system-site-packages` pour ne jamais dupliquer cet `ansible-core` —
+voir « Chaîne Ansible » et `docs/ansible-chain.md` § Résolution avant
+installation). Aucun EE, aucun registre. Motif : `workstation-config`
+configure cette machine ; y introduire un EE serait de la sur-couverture
+pure — le motif qui fermait déjà `ansible-navigator` au livrable
+précédent s'applique a fortiori à l'EE lui-même pour cette chaîne-ci.
+Ancien marqueur (« voie d'installation... à trancher au livrable dédié »)
+**fermé** : la voie est l'`ansible-core` déjà présent, rien à installer
+pour l'exécution des rôles ; `ansible-lint` est le seul ajout, résolu
+au livrable du 2026-08-06 (§ Journal des séries).
+
+**D3b (2026-08-06, différée) — chaîne de développement de contenu
+destiné à AAP 2.6 / RHEL 9**, si ce poste sert un jour à cela. EE
+construit par `ansible-builder` depuis une base publique épinglée par
+empreinte, exécuté en `podman run` direct, `ansible-navigator` écarté
+(aucune capacité manquante établie pour cet usage non plus). **Non
+ouverte** — aucun EE construit, aucune image téléchargée, aucune
+authentification. La résolution complète est conservée dans
+`docs/ansible-chain.md` et reste valable, une fois requalifiée comme
+portant sur D3b et non sur la chaîne de ce dépôt. Le jeton de
+vérification borné sur la version cible d'`ansible-core` (2.16 ou 2.18,
+posé dans `docs/ansible-chain.md` § 4) reste maintenu, sans objet tant
+que D3b n'est pas ouverte — à lire par l'opérateur dans son
+environnement professionnel avant toute construction réelle, elle-même
+un livrable séparé.
 
 **D4 (2026-08-04, amendée) — dépôt public.** Interdits : secrets de toute
 nature (clés privées, jetons, mots de passe), données d'entreprise,
@@ -930,24 +956,26 @@ modifier `sudoers` dans un sens comme dans l'autre.
   ansible-navigator ansible-runner ansible-lint pipx python3-pip`,
   `rpm -q pipx python3-pip`, `python3 -m pip --version`)
   Deux conséquences :
-  - `roles/recovery/` — et le rôle `gpu_mux` qui exécutera la bascule
-    elle-même, pas encore écrit à la date de cet inventaire — sont/seront
-    des **rôles d'amorçage validés manuellement** (`--syntax-check`,
-    `--check`, exécution réelle, démonstrations d'échec forcé), pas passés
-    au lint : `ansible-lint` n'existe sur aucune voie d'installation testée
-    sur ce poste à ce jour. À repasser au lint une fois la chaîne Ansible
-    établie.
-    Motif de l'ordre retenu : le basculement MUX conditionne CDI, les
-    conteneurs et la construction des EE — outiller Ansible avant de
-    basculer reviendrait à bâtir l'outillage sur une couche (le mode
-    graphique) qui va elle-même changer.
-  - **[RÉSOLU le 2026-08-06]** Voir la note datée ajoutée à D3 : livrable
-    dédié exécuté (`docs/ansible-chain.md`), `pipx` et venv dédié écartés
-    (mur `ansible_compat`/Python 3.14 démontré, incompatible avec les
-    deux versions réelles d'`ansible-core` d'AAP 2.6), recommandation
-    unique posée (EE construit localement par `ansible-builder`, exécuté
-    par `podman run` seul) — décision d'application différée à
-    l'opérateur, un seul point reste `@VERIF` (version cible 2.16/2.18).
+  - **[RÉSOLU le 2026-08-06]** `roles/recovery/`, `roles/gpu_mux/` et
+    `roles/gpu_cdi/` étaient jusqu'ici des **rôles d'amorçage validés
+    manuellement** (`--syntax-check`, `--check`, exécution réelle,
+    démonstrations d'échec forcé), pas passés au lint. ÉTAIT : motif de
+    l'ordre retenu — le basculement MUX conditionne CDI, les conteneurs
+    et la construction des EE, outiller Ansible avant de basculer
+    reviendrait à bâtir l'outillage sur une couche qui va elle-même
+    changer. Les trois rôles sont maintenant passés au lint (§ Journal
+    des séries, 2026-08-06) : `ansible-lint` 26.6.0, contre
+    `ansible-core` système 2.20.7 (garantie d'une seule version en jeu —
+    voir ci-dessous), profil `production` atteint, `0` défaut. Neuf
+    constats corrigés (aucun `noqa` posé par ce livrable) —
+    `docs/ansible-chain.md` § Lint des rôles d'amorçage pour le détail.
+  - **[RÉSOLU le 2026-08-06, cadrage corrigé]** Voir D3a/D3b (ci-dessus,
+    correction du motif inversé de D3). La chaîne de *ce dépôt* (D3a) ne
+    nécessite ni `pipx`, ni venv isolé, ni EE — seulement `ansible-lint`
+    installé de façon à réutiliser l'`ansible-core` système, jamais un
+    second. La chaîne EE-first à fidélité AAP 2.6 (D3b) reste différée,
+    non ouverte ; son jeton de vérification (version cible 2.16/2.18)
+    n'a plus d'objet tant qu'elle n'est pas ouverte.
 - **Nouveau point ouvert (2026-08-05) — règle `sudo NOPASSWD: ALL` active
   pour ce compte, contredisant l'état documenté plus tôt le même jour.**
   `sudo -n true` (exit 0) et `sudo -n -l` (« User mahieumi may run the
@@ -1431,11 +1459,11 @@ modifier `sudoers` dans un sens comme dans l'autre.
   redémarrage.
 - **2026-08-06 — chaîne Ansible EE-first, résolution en lecture seule
   (`docs/ansible-chain.md`).** Deux dettes du livrable précédent
-  traitées en premier : compteur `@VERIF` bruité par les règles qui
-  définissent le jeton lui-même (règle structurelle ajoutée à
-  `CLAUDE.md`, CLAUDE.md exclu de tout comptage de validation) ; écart
-  de taille non expliqué entre deux générations de la spécification CDI
-  consigné avec un `@VERIF` borné (§ Conteneurs), règle ajoutée à
+  traitées en premier : compteur du jeton de vérification bruité par les
+  règles qui le définissent (règle structurelle ajoutée à `CLAUDE.md`,
+  CLAUDE.md exclu de tout comptage de validation) ; écart de taille non
+  expliqué entre deux générations de la spécification CDI consigné avec
+  un jeton borné (§ Conteneurs), règle ajoutée à
   `CLAUDE.md` imposant de consigner `sha256sum` et avertissements à
   chaque régénération future.
   Question centrale posée par la demande : d'où viendraient les EE,
@@ -1475,9 +1503,13 @@ modifier `sudoers` dans un sens comme dans l'autre.
   `ansible-navigator`, jamais `pipx`, jamais de venv. **Non appliquée**,
   conformément à la consigne de ce livrable (lecture seule, décision
   différée à l'opérateur) — `D3` marquée `[RÉSOLU le 2026-08-06, décision
-  d'application différée]`, un seul point reste `@VERIF` (version cible
-  2.16 vs 2.18, à confirmer par l'opérateur depuis son environnement
-  professionnel).
+  d'application différée]`, un seul point reste ouvert et marqué (version
+  cible 2.16 vs 2.18, à confirmer par l'opérateur depuis son
+  environnement professionnel). **[CORRIGÉ le 2026-08-06, série
+  suivante]** Cadrage de cette entrée lui-même requalifié : D3 était
+  scindée sous l'hypothèse fausse que la fidélité AAP concernait la
+  chaîne de ce dépôt — voir la note « Motif inversé » ajoutée à D3 et
+  les entrées D3a/D3b, plus haut dans cette section.
   Aucune commande exécutée dans cette série n'a modifié l'état de la
   machine : requêtes réseau anonymes (`skopeo inspect --no-creds`,
   `curl` vers l'API PyPI, lectures de pages publiques), lectures locales
@@ -1486,3 +1518,47 @@ modifier `sudoers` dans un sens comme dans l'autre.
   série : `rpm -q` négatif sur les quatre outils recherchés, aucune
   nouvelle image dans `podman images`, aucun fichier `auth.json` à
   aucun des trois emplacements documentés, aucune action privilégiée.
+- **2026-08-06 (série suivante) — scission de D3, chaîne de lint locale,
+  lint des rôles d'amorçage, dette du compteur du jeton de
+  vérification.** Correction
+  d'un cadrage inversé signalé par l'opérateur : la série précédente
+  traitait la fidélité à AAP 2.6 comme la question posée par ce dépôt —
+  faux, la cible de `workstation-config` est cette machine elle-même.
+  D3 scindée (marquée `[CORRIGÉE le 2026-08-06]`, historique conservé) :
+  **D3a**, chaîne active de ce dépôt, `ansible-core` système fait
+  autorité ; **D3b**, chaîne EE-first à fidélité AAP 2.6, différée, non
+  ouverte. Le livrable précédent (`docs/ansible-chain.md`) entièrement
+  relu et requalifié comme portant sur D3b — aucun fait sourcé retiré,
+  seuls les titres et conclusions corrigés.
+  Pour D3a : établi avant toute installation, par un essai `pip install
+  --dry-run` comparant un venv isolé (installerait un second
+  `ansible-core`, 2.21.2, distinct du système) à un venv
+  `--system-site-packages` (réutilise l'`ansible-core` système 2.20.7,
+  ne le duplique pas) — retenue, seule voie garantissant une seule
+  version en jeu. `python3-pip` installé (dépôt `fedora`, seule action
+  privilégiée de cette série), `ansible-lint` 26.6.0 installé dans
+  `~/.venvs/ansible-lint`. Preuve par la sortie de l'outil lui-même :
+  `ansible-lint --version` rapporte `ansible-core:2.20.7`, identique à
+  `ansible --version` système.
+  `recovery`, `gpu_mux`, `gpu_cdi` passés au lint : 9 constats avant
+  correction (`name[casing]` ×2, `schema[meta]` ×3 — `author` manquant,
+  `name[template]` ×2, `yaml[line-length]` ×2), tous corrigés, aucun
+  `noqa` posé. Un `noqa` préexistant dans `roles/recovery/` s'est révélé
+  inopérant (règle `command-instead-of-module` ne couvre pas
+  `firewall-cmd`) — constaté, non touché, hors périmètre. Garde touchée
+  par une correction (`fail_msg` d'un `assert` dans `gpu_mux`) :
+  démonstration rejouée dans les deux sens, message identique. Profil
+  `production` atteint, `0` défaut, après correction. `--syntax-check`
+  et `--check` des trois rôles identiques avant/après (comparaison par
+  `git stash`) — aucun changement de comportement.
+  Dette du compteur : cause traitée à la racine (le jeton ne s'écrit
+  plus nu en prose nulle part dans `docs/machine-facts.md` ni
+  `docs/ansible-chain.md` — règle ajoutée à `CLAUDE.md`), pas seulement
+  le symptôme (ne plus figer de chiffre, réponse du livrable précédent,
+  jugée insuffisante). Compte brut désormais égal au compte de marqueurs
+  actionnables aux deux fichiers : 4 dans `docs/machine-facts.md`, 1
+  dans `docs/ansible-chain.md`.
+  Aucun EE construit, aucune image téléchargée, aucun nouveau dépôt
+  système, aucune authentification à un registre, aucune modification
+  de `sudoers` ni de `/etc/cdi/`, `terra` non désactivé, aucun
+  redémarrage.
