@@ -2064,3 +2064,60 @@ corrigé par `NO_COLOR=1`.
   ajouté, aucun `dnf download`, `kwinrulesrc`/`kwinrc`/`sudoers`/
   `/etc/cdi/`/`gpu_mux_mode` non touchés, aucune déconnexion, aucun
   redémarrage.
+- **2026-08-06 (série suivante) — modèle IA local, résolution en
+  lecture seule (`docs/local-ai.md`, nouveau).** Dernier volet de la
+  demande initiale de l'opérateur. Trois usages (complétion, chat,
+  agent) évalués séparément sur l'enveloppe VRAM mesurée, pas les
+  16376 MiB nominaux — dimensionnement de modèle dérivé du tableau de
+  quantification `llama.cpp` (source externe, pas mémorisé), pas de
+  taille de modèle affirmée sans ce calcul.
+  RTD3 et VRAM : l'indice déjà observé (`kwin_wayland` 13 MiB
+  n'empêche pas la suspension) confirme que RTD3 réagit à un contexte
+  CUDA ouvert, pas à une simple allocation — un serveur d'inférence
+  qui tourne bloque RTD3 comme n'importe quelle application CUDA,
+  sans coût supplémentaire propre à l'inférence. `NVreg_PreserveVideoMemoryAllocations`
+  reste sans rapport avec RTD3 (déjà établi dans `docs/dgpu-power.md`)
+  — pertinent seulement à une vraie suspension système ; complément
+  établi ici : cette machine utilise `s2idle`, pas S3 classique,
+  mécanisme S0ix dédié supporté par la plateforme et le GPU mais
+  désactivé (`EnableS0ixPowerManagement: 0`) ; unités systemd
+  `nvidia-suspend`/`nvidia-resume`/`nvidia-hibernate` déjà activées,
+  donc le câblage qu'exigerait `NVreg_PreserveVideoMemoryAllocations=1`
+  est déjà en place si cette voie était retenue plus tard.
+  Enveloppe VRAM mesurée par sonde isolée (méthode
+  `docs/dgpu-power.md`) : 16376 MiB total, 47 MiB utilisés
+  (`kwin_wayland` 13 MiB), 15926 MiB libres rapportés — retenue comme
+  enveloppe de dimensionnement (§1), pas le nominal.
+  Péremption CDI : vérification existante (`verify-cdi-spec`) rejouée
+  en lecture seule, à jour (610.43.03 des deux côtés, 50 chemins
+  présents) ; rien ne la déclenche aujourd'hui (aucune minuterie ni
+  service ne l'invoque, vérifié) — deux leviers nommés pour un
+  livrable futur (`ExecStartPre=` sur le service d'inférence, ou
+  minuterie systemd dédiée), non câblés ici.
+  Recherche dans les onze dépôts : `ollama`, `llama-cpp`, `whisper-cpp`
+  et `python3-torch` tous empaquetés par Fedora, **tous liés en dur à
+  ROCm/HIP (AMD), aucun lien CUDA** — établi par lecture des
+  dépendances déclarées de chacun, schéma cohérent sur les quatre
+  paquets, pas un hasard isolé. Conséquence : aucune voie native depuis
+  les onze dépôts n'atteint la RTX 4090 ; écartée, pas seulement non
+  recommandée. Registres de conteneurs externes identifiés par
+  inspection de métadonnées (`skopeo inspect`, aucune couche
+  téléchargée, vérifié par `podman images` inchangé) :
+  `ollama/ollama` (CUDA par défaut, tag `:rocm` séparé), `ggml-org/llama.cpp`
+  (tags `-cuda` amont), `vllm/vllm-openai` (tags `cuXXX`) — nouvelle
+  surface d'approvisionnement de même nature que D7/D10, nommée, pas
+  résolue.
+  Recommandation unique : Ollama conteneurisé, image CUDA officielle,
+  via le mécanisme CDI déjà prouvé (`docs/gpu-containers.md`) — seule
+  voie qui atteint la RTX 4090 parmi celles disponibles, s'appuie sur
+  du travail déjà validé (CDI rootless, non-réveil au lancement de
+  conteneur), reconstructible par empreinte de tag (D1), câblage de
+  `verify-cdi-spec` en `ExecStartPre=` nommé comme chantier restant.
+  Aucun modèle choisi (consigne explicite) — cinq questions
+  discriminantes formulées à la place.
+  Incident reconnu et corrigé dans la série : `sudo btrfs filesystem
+  usage /` invoqué par réflexe sans nécessité — la version sans
+  privilège donne les mêmes chiffres retenus ; une seule élévation,
+  reconnue, non répétée. Aucun autre paquet installé, aucun modèle ni
+  image téléchargé, aucun conteneur lancé, aucun dépôt ajouté, aucun
+  paramètre de pilote modifié.
