@@ -40,10 +40,17 @@ jour de ce document.
 
 ## Dépôts
 
-Dix dépôts activés : `claude-code`, `fedora`, `fedora-cisco-openh264`,
-`rpmfusion-free`, `rpmfusion-free-tainted`, `rpmfusion-free-updates`,
-`rpmfusion-nonfree`, `rpmfusion-nonfree-updates`, `terra`, `updates`.
-(`dnf repo list --enabled`)
+**[ÉTAIT, jusqu'au 2026-08-05] Dix dépôts activés.** Depuis l'ajout du
+COPR `@ai-ml/nvidia-container-toolkit` (D7, 2026-08-05) : **onze**.
+Inventaire complet avec ancrage de confiance et statut de vérification
+de chacun : [`docs/repositories.md`](repositories.md), qui fait
+désormais foi pour cette vue d'ensemble — pas dupliqué ici. Liste des
+noms, pour référence rapide seulement : `claude-code`,
+`copr:copr.fedorainfracloud.org:group_ai-ml:nvidia-container-toolkit`,
+`fedora`, `fedora-cisco-openh264`, `rpmfusion-free`,
+`rpmfusion-free-tainted`, `rpmfusion-free-updates`, `rpmfusion-nonfree`,
+`rpmfusion-nonfree-updates`, `terra`, `updates`. (`dnf repo list
+--enabled`)
 
 - `terra` : priorité 99, coût 1000, gpgcheck et repo_gpgcheck actifs, clé
   `file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra44`. (`dnf repoinfo terra` — voir
@@ -833,6 +840,60 @@ fichier dédié dans `/etc/sudoers.d/` (actuellement vide) y survivrait
 plus proprement. Non résolu ici : ce livrable n'a pas mandat pour
 modifier `sudoers` dans un sens comme dans l'autre.
 
+**D10 (2026-08-06) — dépôt `terra` (Fyra Labs) : porteur, désactivation
+exclue ; ancrage de confiance formulé explicitement.**
+
+`terra` fournit six paquets réellement installés sur ce poste —
+`asusctl`, `asusctl-rog-gui`, `cardwire`, `supergfxctl`,
+`terra-gpg-keys`, `terra-release` — dont `asusctl`, sur lequel reposent
+D2bis et D2ter. Désactivation exclue, aucun paquet remplacé.
+
+**Ancrage de confiance réel, formulé plutôt que sous-entendu, comme pour
+D7** : TLS vers les serveurs de Fyra Labs au moment de l'ajout du dépôt
+(transaction 5, `dnf install --nogpgcheck --repofrompath`, conforme à
+la procédure d'installation publiée par l'éditeur — vérifié par lecture
+du `README.md` du dépôt source, § `docs/repositories.md` § 1), plus
+l'acceptation de la clé dans la base rpm le 2026-08-04 (transaction 6,
+`dnf install asusctl`, interactive). Empreinte faisant foi :
+`AE09157A4DE88B497EA1D5D300CDAB43DE226D6F`.
+
+**Corroboration indépendante : recherchée activement sur neuf canaux
+distincts du serveur de dépôt, introuvable.** Détail complet, canal par
+canal, y compris les échecs, dans `docs/repositories.md` § 1 — pas
+dupliqué ici.
+
+**Différence avec D7 à noter** : pour une clé de projet COPR, la
+corroboration n'existe structurellement pas (générée et republiée par
+la même infrastructure). Pour Terra, elle **pourrait** exister — Fyra
+Labs est une organisation tierce identifiable, avec un site, un
+`security.txt`, une organisation GitHub — mais l'examen actif de ces
+canaux ne montre pas que cette empreinte y soit publiée. L'écart est
+donc d'une autre nature : une lacune de publication chez l'éditeur, pas
+une propriété du modèle.
+
+**Fait à consigner pour éviter une fausse alerte future** :
+`fyralabs.com/pgp.asc` publie une clé d'empreinte
+`00AEBB9B28D1D0E97D0713B390C30D0FE8C19CC3` — **différente**, c'est la
+clé de contact sécurité de l'organisation, pas la clé de signature du
+dépôt. Deux usages distincts d'une même adresse `security@fyralabs.com`.
+
+**Décision de l'opérateur** : le risque est déjà pris — cette clé
+gouverne l'installation des six paquets depuis le 2026-08-04, sans
+incident depuis. Rendre le chemin non privilégié (jamais résolu)
+cohérent avec le chemin privilégié (résolu depuis le 2026-08-04)
+n'étend aucune confiance nouvelle ; refuser ce correctif n'aurait retiré
+aucune exposition et aurait conservé une friction sans contrepartie,
+l'invite n'étant plus, en pratique, qu'une étape systématiquement
+contournée par `--assumeno`. Correctif appliqué : copie du fichier de
+clé déjà accepté côté système vers le trousseau (« pubring »)
+utilisateur de `libdnf5` — mécanisme et preuve complets dans
+`docs/repositories.md` § 2-3. Aucun import nouveau, aucune dégradation
+de `gpgcheck` ni de `repo_gpgcheck`.
+
+**Point ouvert, basse priorité** : une demande à `security@fyralabs.com`
+pourrait obtenir la publication de l'empreinte de la clé de signature du
+dépôt par un canal indépendant. Action humaine, non entreprise ici.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -877,11 +938,13 @@ modifier `sudoers` dans un sens comme dans l'autre.
   l'installation du paquet porteur. Trousseaux et caches de confiance dnf5
   sont donc distincts entre exécution privilégiée et non privilégiée sur ce
   poste. Empreinte complète capturée lors de l'incident :
-  `AE09157A4DE88B497EA1D5D300CDAB43DE226D6F`. `@VERIF : empreinte complète
-  de la clé Terra à comparer à celle publiée par Fyra Labs avant tout
-  (ré)import ; l'ID court 0xDE226D6F ne prouve rien à lui seul.` Aucune
-  action dans ce livrable : rien n'est importé, aucun dépôt n'est modifié
-  ou désactivé.
+  `AE09157A4DE88B497EA1D5D300CDAB43DE226D6F`. **[MARQUEUR FERMÉ le
+  2026-08-06]** ÉTAIT marqué : empreinte à comparer à celle publiée par
+  Fyra Labs avant tout (ré)import, l'ID court seul ne prouvant rien.
+  Recherche menée sur neuf canaux distincts du serveur de dépôt
+  (`docs/repositories.md` § 1) : aucun ne publie cette empreinte —
+  absence établie, pas laissée en suspens. Aucune action dans ce
+  livrable : rien n'est importé, aucun dépôt n'est modifié ou désactivé.
   **[REQUALIFIÉ le 2026-08-05]** **ÉTAIT** : « Terra n'est requis par
   aucun composant de la chaîne actuelle » — **faux**, établi par
   inventaire réel (`dnf repoquery --installed --qf '%{name}
@@ -897,7 +960,12 @@ modifier `sudoers` dans un sens comme dans l'autre.
   pas de nouvelle information sur la clé elle-même.
   Aucune action entreprise ici (ni désactivation, ni recherche
   d'équivalents, ni import de clé) — traitement réservé à un livrable
-  dédié.
+  dédié. **[TRAITÉ le 2026-08-06]** Voir D10 (§ Décisions) et
+  `docs/repositories.md` : dépôt toujours activé, désactivation
+  toujours exclue, aucun paquet remplacé, correctif de la récurrence
+  d'invite appliqué (portée limitée au cache utilisateur, aucune
+  dégradation de vérification), recherche d'équivalents Fedora/COPR
+  menée et consignée sans action.
 - **`rpmfusion-free-tainted`** activé délibérément (transaction 18), lié à la
   chaîne multimédia. Établi, pas un point ouvert au sens strict — conservé
   ici pour traçabilité car demandé explicitement.
@@ -1688,3 +1756,46 @@ modifier `sudoers` dans un sens comme dans l'autre.
   règle KWin créée, aucun autostart créé, aucun mode d'affichage
   changé, aucune action privilégiée, aucun fichier écrit hors de ce
   dépôt.
+- **2026-08-06 (série suivante) — clôture du dossier Terra, inventaire
+  des dépôts (`docs/repositories.md`, nouveau, D10).** Écart signalé
+  d'emblée : le contexte annonçait douze dépôts activés, ce poste en
+  porte onze (vérifié, `google-chrome` et le COPR `phracek/PyCharm`
+  existent comme fichiers `.repo` mais sont désactivés) — cause non
+  creusée, sans conséquence sur l'objet du livrable.
+  Empreinte locale de la clé Terra confirmée par trousseau temporaire
+  isolé (base rpm et fichier système concordent :
+  `AE09157A4DE88B497EA1D5D300CDAB43DE226D6F`). Corroboration
+  indépendante recherchée sur neuf canaux distincts du serveur de
+  dépôt — introuvable ; un dixième canal réellement indépendant
+  (`fyralabs.com/pgp.asc`) existe mais porte une clé différente (contact
+  sécurité organisationnel, pas signature de dépôt). Absence établie
+  comme fait, pas laissée en suspens.
+  Cause de la récurrence de l'invite établie avec certitude, pas
+  supposée : `libdnf5` maintient un trousseau (« pubring ») de
+  confiance pour `repo_gpgcheck` propre à chaque répertoire de cache,
+  distinct de la base rpm partagée qui gouverne `gpgcheck` — confirmé
+  empiriquement (cache système peuplé depuis le 2026-08-04, cache
+  utilisateur jamais peuplé) et officiellement documenté (`man
+  dnf5.conf`, cité).
+  Décision explicite de l'opérateur obtenue avant toute action de
+  confiance (le risque était déjà pris, pas nouveau) : correctif
+  appliqué — copie du fichier de clé déjà accepté côté système vers le
+  trousseau utilisateur, aucun import nouveau, aucune dégradation de
+  `gpgcheck` ni de `repo_gpgcheck`. Vérification de cohérence préalable :
+  les six paquets Terra installés portent tous la même signature
+  (`Key ID 00cdab43de226d6f`) — aucun fait nouveau. Preuve de
+  disparition de la friction : la commande exacte qui déclenchait
+  systématiquement l'invite depuis le 2026-08-04, rejouée sans garde,
+  propre. `terra.repo` inchangé (`sha256sum` identique avant/après).
+  Onze dépôts inventoriés dans `docs/repositories.md` : provenance,
+  ancrage de confiance, paquets fournis, statut `gpgcheck`/`repo_gpgcheck`
+  de chacun — Terra est le seul avec `repo_gpgcheck=1` sur ce poste.
+  Équivalents Fedora/COPR pour les quatre paquets fonctionnels de Terra
+  recherchés et consignés (aucun officiel ; quelques COPR communautaires
+  non vérifiés pour `asusctl`/`supergfxctl`, aucun pour `cardwire`) —
+  aucune action entreprise sur cette base, comme demandé.
+  Aucun rôle Ansible créé (artefact de cache, pas de configuration
+  stable — argumenté). Aucune écriture privilégiée ; trois lectures
+  privilégiées énumérées. `terra` toujours activé, six paquets
+  toujours présents, aucun nouveau dépôt, aucune modification de
+  `sudoers` ni de `/etc/cdi/`, aucun redémarrage.
