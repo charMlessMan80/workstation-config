@@ -1,0 +1,28 @@
+# Déployé par roles/local_ai/ — D16 (docs/machine-facts.md § Décisions).
+# Écrasement propre, JAMAIS une modification de
+# {{ local_ai_nvidia_provider_conf }} (fichier fourni par le paquet
+# {{ local_ai_nvidia_provider_package }}) — nom de fichier
+# volontairement différent, voir defaults/main.yml pour le motif exact
+# (`man modprobe.d` : deux fichiers de même nom s'excluent entre
+# répertoires de précédence, deux fichiers de noms différents
+# s'additionnent).
+#
+# Motif (D16) : un modèle chargé en VRAM survit à une suspension
+# système. Contrepartie assumée par l'opérateur : plusieurs gigaoctets
+# recopiés vers le disque à chaque suspension — fermeture et réveil du
+# système sensiblement plus lents. Sans effet sur la veille runtime
+# D3 (RTD3) — mécanisme distinct, déjà neutralisé par le modèle résident
+# (D15) tant que le service tourne ; ce paramètre ne joue que pour la
+# suspension système (s2idle sur ce poste, docs/local-ai.md § 2.1).
+#
+# Prend effet au prochain chargement du module nvidia.ko — pas à chaud
+# (le module est en usage actif par la session graphique en cours,
+# `lsmod` montre un compteur d'usage non nul ; le décharger sans
+# redémarrer équivaudrait à interrompre la session, interdit sans
+# accord explicite). Vérification de la valeur effective après
+# rechargement : `cat /proc/driver/nvidia/params | grep PreserveVideoMemoryAllocations`
+# doit rapporter `1`, pas la valeur par défaut du pilote observée avant
+# ce changement (`2` — brute, sourcée le 2026-08-07 ; sa signification
+# exacte n'est pas documentée dans les sources consultées, voir le
+# marqueur de vérification dans docs/local-ai.md § 2.1bis).
+options nvidia NVreg_PreserveVideoMemoryAllocations=1

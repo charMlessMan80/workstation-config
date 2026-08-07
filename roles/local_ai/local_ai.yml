@@ -1,0 +1,12 @@
+---
+# Playbook d'exécution/test du rôle local_ai, ciblant localhost — même
+# patron que roles/gpu_cdi/gpu_cdi.yml et les rôles précédents. Écrit
+# dans /etc/modprobe.d/ (élévation requise, D9 NOPASSWD) et dans $HOME
+# de l'utilisateur courant (~/.config/containers/systemd/) — pas
+# d'élévation pour cette seconde partie.
+- name: Local AI — infrastructure d'inférence Ollama conteneurisée par CDI, sans modèle (D14-D17)
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - role: "{{ playbook_dir }}"

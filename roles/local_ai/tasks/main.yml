@@ -1,0 +1,284 @@
+---
+# Rôle local_ai — met en place l'infrastructure d'inférence locale
+# (D14-D17, docs/machine-facts.md § Décisions) : paramètre pilote
+# (D16), service Ollama conteneurisé par Quadlet Podman avec accès GPU
+# CDI (D14), volume de modèles persistant. **Ne télécharge aucun
+# modèle** — seule l'image du serveur (infrastructure) est tirée, la
+# distinction est délibérée et documentée (docs/local-ai.md).
+#
+# Ne modifie jamais /usr/lib/modprobe.d/nvidia-power-management.conf
+# (fichier fourni par un paquet), jamais sudoers/gpu_mux_mode/
+# dgpu_disable/kwinrulesrc. Ne change jamais SELinux (pas de
+# setenforce, pas de mode permissif). N'ajoute aucun dépôt. Ne
+# redémarre jamais et ne déconnecte jamais la session — si le
+# paramètre pilote (D16) exige un redémarrage pour prendre effet, ce
+# rôle le documente et s'arrête, il ne le déclenche pas.
+
+# --- Gardes préalables (§ 2.1 de la demande), échec bruyant avant toute écriture
+# --------------------------------------------------------------------------
+
+# Garde 1/3 — spécification CDI présente et non périmée. Réutilise
+# verify-cdi-spec (roles/gpu_cdi), ne le réimplémente pas.
+# gpu_cdi_verify_spec_path est substituable par -e pour la démonstration
+# d'échec forcé (§ 3 de la demande), sans jamais toucher au fichier réel.
+- name: "Garde 1/3 — spécification CDI présente et non périmée (réutilise roles/gpu_cdi, tag verify-cdi-spec)"
+  ansible.builtin.command:
+    argv:
+      - "{{ local_ai_ansible_playbook_bin }}"
+      - "{{ local_ai_gpu_cdi_playbook }}"
+      - --tags
+      - verify-cdi-spec
+      - -e
+      - "gpu_cdi_verify_spec_path={{ gpu_cdi_verify_spec_path }}"
+  register: local_ai_guard_cdi
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si la garde CDI a échoué"
+  ansible.builtin.assert:
+    that:
+      - local_ai_guard_cdi.rc == 0
+    fail_msg: >-
+      Spécification CDI absente, périmée, ou chemin invalide
+      ({{ gpu_cdi_verify_spec_path }}) — sortie de verify-cdi-spec :
+      {{ local_ai_guard_cdi.stdout_lines | default([]) | join(' / ') }}
+      {{ local_ai_guard_cdi.stderr | default('') }}. Ce rôle s'arrête :
+      déployer le service sur cette base démarrerait avec un GPU
+      silencieusement invisible (motif exact dans
+      roles/gpu_cdi/tasks/check_spec.yml).
+    success_msg: "Spécification CDI vérifiée à jour ({{ gpu_cdi_verify_spec_path }})."
+
+# Garde 2/3 — Podman rootless. Valeur attendue substituable par -e
+# (local_ai_podman_rootless_expected=false) pour l'échec forcé, sans
+# jamais changer la configuration Podman réelle.
+- name: "Garde 2/3 — relever l'état rootless de Podman"
+  ansible.builtin.command:
+    cmd: podman info --format '{{ "{{.Host.Security.Rootless}}" }}'
+  register: local_ai_guard_podman
+  changed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si Podman n'est pas rootless (ou si l'attendu a été substitué pour la démonstration)"
+  ansible.builtin.assert:
+    that:
+      - (local_ai_guard_podman.stdout | trim) == (local_ai_podman_rootless_expected | string)
+    fail_msg: >-
+      Podman rootless attendu = '{{ local_ai_podman_rootless_expected }}',
+      relevé = '{{ local_ai_guard_podman.stdout | trim }}'. Ce rôle
+      s'arrête : le mécanisme CDI et les permissions de ce rôle sont
+      conçus pour Podman rootless (docs/gpu-containers.md).
+    success_msg: "Podman rootless confirmé : {{ local_ai_guard_podman.stdout | trim }}."
+
+# Garde 3/3 — nvidia_uvm chargé. Nom de module substituable par -e
+# (local_ai_required_kernel_module=nom_absent_garanti) pour l'échec
+# forcé, sans jamais décharger de module réel.
+- name: "Garde 3/3 — relever les modules noyau chargés"
+  ansible.builtin.command:
+    cmd: cat /proc/modules
+  register: local_ai_guard_modules
+  changed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si le module noyau requis n'est pas chargé : {{ local_ai_required_kernel_module }}"
+  ansible.builtin.assert:
+    that:
+      - local_ai_required_kernel_module in local_ai_guard_modules.stdout
+    fail_msg: >-
+      Module noyau requis absent : '{{ local_ai_required_kernel_module }}'
+      ne figure pas dans /proc/modules. Ce rôle s'arrête : sans ce
+      module, le GPU ne serait pas accessible aux fonctionnalités CUDA
+      avancées (UVM) qu'un serveur d'inférence utilise.
+    success_msg: "Module '{{ local_ai_required_kernel_module }}' chargé."
+
+# --- D16 : paramètre pilote, écrasement propre --------------------------
+
+- name: "Relever la valeur actuellement chargée de NVreg_PreserveVideoMemoryAllocations (avant toute écriture)"
+  ansible.builtin.command:
+    cmd: grep -i PreserveVideoMemoryAllocations /proc/driver/nvidia/params
+  register: local_ai_preserve_before
+  changed_when: false
+  check_mode: false
+
+# noqa "rpm -V" n'a pas d'équivalent en module : aucun module Ansible
+# ne vérifie un fichier précis contre la base rpm (package_facts liste
+# les paquets, pas l'intégrité fichier par fichier) — commande la plus
+# directe et déjà l'outil natif du système (CLAUDE.md § déterminer ce
+# que l'outil gère déjà).
+- name: "Vérifier l'intégrité du fichier fournisseur avant toute écriture (rpm -V, jamais modifié par ce rôle)"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "rpm -Vf {{ local_ai_nvidia_provider_conf }}"
+  register: local_ai_provider_verify_before
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Déployer l'écrasement propre du paramètre pilote (jamais le fichier fourni par le paquet) : {{ local_ai_modprobe_file }}"
+  ansible.builtin.template:
+    src: local-ai-nvidia-power-management.conf.j2
+    dest: "{{ local_ai_modprobe_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: local_ai_modprobe_write
+  when: not ansible_check_mode
+
+- name: "Vérifier l'intégrité du fichier fournisseur après écriture (doit être identique à avant)"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "rpm -Vf {{ local_ai_nvidia_provider_conf }}"
+  register: local_ai_provider_verify_after
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si le fichier fournisseur a été modifié (avant/après ce rôle)"
+  ansible.builtin.assert:
+    that:
+      - local_ai_provider_verify_after.stdout == local_ai_provider_verify_before.stdout
+      - local_ai_provider_verify_after.rc == local_ai_provider_verify_before.rc
+    fail_msg: >-
+      {{ local_ai_nvidia_provider_conf }} a changé d'état entre avant
+      et après ce rôle (rpm -V : '{{ local_ai_provider_verify_before.stdout }}'
+      -> '{{ local_ai_provider_verify_after.stdout }}') — ce rôle n'a
+      pourtant jamais dû l'écrire. Ne pas continuer sans comprendre
+      pourquoi.
+    success_msg: >-
+      Fichier fournisseur {{ local_ai_nvidia_provider_conf }} intact
+      (rpm -V identique avant/après : rc={{ local_ai_provider_verify_after.rc }}).
+  when: not ansible_check_mode
+
+# --- Volume et service Ollama, par Quadlet Podman (D14) -----------------
+# Podman 5.8.4 fournit nativement le générateur Quadlet utilisateur —
+# fichiers déclaratifs, pas d'unité .service écrite à la main.
+
+- name: "S'assurer que le répertoire Quadlet utilisateur existe : {{ local_ai_quadlet_dir }}"
+  ansible.builtin.file:
+    path: "{{ local_ai_quadlet_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer le volume Podman nommé pour les modèles, unité Quadlet : {{ local_ai_volume_name }}"
+  ansible.builtin.template:
+    src: ollama-models.volume.j2
+    dest: "{{ local_ai_quadlet_dir }}/{{ local_ai_volume_name }}.volume"
+    mode: "0644"
+  register: local_ai_volume_write
+  when: not ansible_check_mode
+
+- name: "Déployer l'unité Quadlet du service (extension .container) : {{ local_ai_service_name }}"
+  ansible.builtin.template:
+    src: ollama.container.j2
+    dest: "{{ local_ai_quadlet_dir }}/{{ local_ai_service_name }}.container"
+    mode: "0644"
+  register: local_ai_container_write
+  when: not ansible_check_mode
+
+# --- Activation : daemon-reload (fait matérialiser les unités générées
+# par Quadlet à partir des fichiers ci-dessus), puis démarrage ---------
+
+- name: "Activer et démarrer le service Ollama (utilisateur), avec rechargement du démon si nécessaire"
+  ansible.builtin.systemd:
+    name: "{{ local_ai_service_name }}.service"
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  register: local_ai_service_state
+  when: not ansible_check_mode
+
+# --- Vérifications post-démarrage ---------------------------------------
+
+- name: "Attendre que l'API locale réponde (image potentiellement tirée au premier démarrage), tentatives max : {{ local_ai_api_wait_retries }}"
+  ansible.builtin.uri:
+    url: "http://{{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}/api/tags"
+    return_content: true
+  register: local_ai_api_check
+  retries: "{{ local_ai_api_wait_retries }}"
+  delay: "{{ local_ai_api_wait_delay }}"
+  until: local_ai_api_check.status == 200
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si la liste des modèles n'est pas vide (aucun modèle ne doit avoir été chargé par ce rôle)"
+  ansible.builtin.assert:
+    that:
+      - (local_ai_api_check.json.models | default(['non-vide'])) == []
+    fail_msg: >-
+      La liste des modèles Ollama n'est pas vide :
+      {{ local_ai_api_check.json.models | default('absente du JSON') }} —
+      ce rôle ne doit jamais avoir chargé de modèle.
+    success_msg: "Liste des modèles vide, confirmé — aucun modèle chargé."
+  when: not ansible_check_mode
+
+- name: "Vérifier que l'API n'écoute QUE sur l'adresse locale attendue (pas 0.0.0.0/*, pas d'interface externe)"
+  ansible.builtin.command:
+    cmd: "ss -H -tln sport = :{{ local_ai_ollama_port }}"
+  register: local_ai_listen_check
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si l'API écoute ailleurs que sur l'adresse locale attendue : {{ local_ai_ollama_bind_address }}"
+  ansible.builtin.assert:
+    that:
+      - local_ai_ollama_bind_address ~ ':' ~ local_ai_ollama_port in local_ai_listen_check.stdout
+      - "'0.0.0.0:' ~ local_ai_ollama_port not in local_ai_listen_check.stdout"
+      - "'*:' ~ local_ai_ollama_port not in local_ai_listen_check.stdout"
+    fail_msg: >-
+      L'API Ollama n'écoute pas exclusivement sur
+      {{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }} —
+      relevé réel : {{ local_ai_listen_check.stdout }}
+    success_msg: "API confirmée en écoute locale uniquement : {{ local_ai_listen_check.stdout | trim }}"
+  when: not ansible_check_mode
+
+- name: "Preuve que le conteneur voit le GPU — commande exécutée DANS le conteneur, pas depuis l'hôte"
+  ansible.builtin.command:
+    cmd: "podman exec {{ local_ai_service_name }} sh -c 'ls -la /dev/nvidia* 2>&1; nvidia-smi -L 2>&1 || true'"
+  register: local_ai_gpu_in_container
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si aucun nœud /dev/nvidia* n'est visible depuis l'intérieur du conteneur"
+  ansible.builtin.assert:
+    that:
+      - "'/dev/nvidia' in local_ai_gpu_in_container.stdout"
+    fail_msg: >-
+      Aucun périphérique /dev/nvidia* visible depuis l'intérieur du
+      conteneur — sortie : {{ local_ai_gpu_in_container.stdout }}
+    success_msg: "GPU visible depuis l'intérieur du conteneur : {{ local_ai_gpu_in_container.stdout_lines | default([]) | join(' / ') }}"
+  when: not ansible_check_mode
+
+# --- Rapport -----------------------------------------------------------
+
+- name: "Rapporter l'état (mode simulation --check)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée. Les trois gardes préalables
+      seraient revérifiées, l'écrasement modprobe.d et les unités
+      Quadlet seraient déployés, le service serait démarré — aucun
+      modèle ne serait chargé.
+  when: ansible_check_mode
+
+- name: "Rapporter l'état (exécution réelle)"
+  ansible.builtin.debug:
+    msg:
+      - >-
+          Gardes préalables (CDI, Podman rootless,
+          {{ local_ai_required_kernel_module }}) vérifiées.
+      - >-
+          NVreg_PreserveVideoMemoryAllocations :
+          {{ local_ai_preserve_before.stdout | trim }} avant ce rôle —
+          prend effet au prochain chargement du module (redémarrage),
+          pas à chaud.
+      - "Fichier fournisseur {{ local_ai_nvidia_provider_conf }} intact (rpm -V vérifié avant/après)."
+      - >-
+          Service {{ local_ai_service_name }}.service (utilisateur)
+          démarré, API locale répond sur
+          {{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}
+          uniquement.
+      - "Aucun modèle chargé (liste vide, confirmé) — GPU visible depuis l'intérieur du conteneur, confirmé."
+      - "Image épinglée : {{ local_ai_ollama_image }}"
+  when: not ansible_check_mode

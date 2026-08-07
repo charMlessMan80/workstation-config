@@ -1,0 +1,29 @@
+---
+galaxy_info:
+  role_name: local_ai
+  author: Mickael Mahieu
+  description: >-
+    Met en place l'infrastructure d'inférence locale (D14-D17,
+    docs/machine-facts.md § Décisions) : Ollama conteneurisé, image
+    CUDA officielle épinglée par empreinte, accès GPU par CDI natif
+    déjà prouvé (docs/gpu-containers.md), servi par Quadlet Podman
+    (unité systemd utilisateur générée nativement, jamais écrite à la
+    main). Paramètre pilote NVreg_PreserveVideoMemoryAllocations=1
+    déployé par écrasement propre dans /etc/modprobe.d/, jamais le
+    fichier fourni par le paquet xorg-x11-drv-nvidia-power. Trois
+    gardes préalables (spécification CDI non périmée, Podman rootless,
+    nvidia_uvm chargé), échec bruyant, réutilisent roles/gpu_cdi
+    (tag verify-cdi-spec) sans le réimplémenter. Le service lui-même
+    revérifie la spécification CDI à chaque démarrage
+    (ExecStartPre=), indépendamment de ce rôle. Ne télécharge aucun
+    modèle — seule l'image du serveur (infrastructure) est tirée.
+    Ne modifie jamais sudoers, gpu_mux_mode, dgpu_disable,
+    kwinrulesrc, SELinux. Ne redémarre jamais, ne déconnecte jamais
+    la session.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

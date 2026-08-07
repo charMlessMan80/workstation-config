@@ -1,0 +1,119 @@
+---
+# Décisions de l'opérateur (docs/machine-facts.md § Décisions — numéros
+# vérifiés libres avant attribution, IA-1) :
+#   D14 — service d'inférence : Ollama conteneurisé, image CUDA
+#         officielle, accès GPU par CDI (seule voie qui atteigne la
+#         RTX 4090, IA-0 § 3.1 — aucune voie native ne le peut).
+#   D15 — modèle de complétion résident en permanence (keep_alive
+#         infini) — contrepartie assumée : RTD3 ne s'engage plus tant
+#         que le service tourne (docs/local-ai.md § 2.1/2.2).
+#   D16 — NVreg_PreserveVideoMemoryAllocations=1 — contrepartie
+#         assumée : suspension/réveil système plus lents.
+#   D17 — dimensionnement initial 13 B / Q4_K_M, à mesurer avant toute
+#         montée — aucun modèle choisi ni téléchargé par ce rôle.
+
+# --- D14 : image Ollama, épinglée par empreinte, pas par étiquette ---
+# ---------------------------------------------------------------------
+# "latest" et "0.32.6" pointent, au moment de l'écriture de ce rôle
+# (2026-08-07), vers la même empreinte (`skopeo inspect`, vérifié) —
+# épinglée ici par empreinte pour que ce rôle ne suive jamais
+# silencieusement une étiquette mobile (D1/traçabilité, § 5 de la
+# demande). Empreinte de l'INDEX multi-architecture (manifest list,
+# `skopeo inspect --raw` confirme `image.index.v1+json`), pas celle
+# d'un manifeste par architecture — Podman résout lui-même la
+# plateforme locale (amd64) à partir de cet index, comportement OCI
+# standard, pas une particularité de ce rôle.
+local_ai_ollama_image_ref: docker.io/ollama/ollama
+local_ai_ollama_image_digest: sha256:b88c73ace3e115f8ec53dc8761ae1c0aabfa675406e3681786b98757ce050f42
+local_ai_ollama_image: "{{ local_ai_ollama_image_ref }}@{{ local_ai_ollama_image_digest }}"
+
+# API exposée en local uniquement — jamais sur une interface externe.
+# 127.0.0.1 explicite (pas 0.0.0.0 implicite d'un mappage de port sans
+# adresse) : Quadlet PublishPort= documente ce comportement par défaut
+# comme lié à toutes les IPv4 de l'hôte si l'IP est omise — jamais omise
+# ici, précisément pour ne pas en dépendre.
+local_ai_ollama_bind_address: 127.0.0.1
+local_ai_ollama_port: 11434
+
+# D15 — keep_alive infini pour le modèle résident (complétion). Valeur
+# du pilote Ollama documentée en amont : toute valeur négative maintient
+# le chargement indéfiniment (docs/local-ai.md § 3.2, IA-0).
+local_ai_ollama_keep_alive: "-1"
+
+# --- D16 : paramètre pilote, écrasement propre, jamais le fichier fournisseur
+# -----------------------------------------------------------------------
+# Jamais /usr/lib/modprobe.d/nvidia-power-management.conf (fichier
+# fourni par le paquet xorg-x11-drv-nvidia-power, `rpm -qf` vérifié) —
+# un nom de fichier DIFFÉRENT dans /etc/modprobe.d/ : `man modprobe.d`
+# est explicite, deux fichiers de MÊME NOM dans des répertoires de
+# précédence différents s'excluent (seul le premier chargé compte),
+# alors que des fichiers de noms différents s'additionnent ("all
+# options are added together"). Un nom différent, pas un écrasement par
+# homonymie, pour ne jamais rendre invisible une future mise à jour du
+# fichier fournisseur (actuellement sans effet : sa ligne
+# NVreg_PreserveVideoMemoryAllocations est commentée, vérifié IA-0/ici).
+local_ai_modprobe_dir: /etc/modprobe.d
+local_ai_modprobe_file: "{{ local_ai_modprobe_dir }}/local-ai-nvidia-power-management.conf"
+local_ai_nvidia_provider_conf: /usr/lib/modprobe.d/nvidia-power-management.conf
+local_ai_nvidia_provider_package: xorg-x11-drv-nvidia-power
+
+# --- D14 : mécanisme de service — Quadlet Podman, pas une unité écrite à la main
+# ---------------------------------------------------------------------------
+# Podman 5.8.4 fournit nativement un générateur Quadlet utilisateur
+# (`/usr/lib/systemd/user-generators/podman-user-generator`, vérifié
+# présent) : des fichiers déclaratifs `.container`/`.volume` dans
+# ~/.config/containers/systemd/ sont transformés en unités systemd
+# utilisateur réelles au `daemon-reload` — CLAUDE.md § déterminer ce
+# que l'outil gère déjà, appliqué : pas d'unité `.service` écrite à la
+# main appelant `podman run`.
+local_ai_quadlet_dir: "{{ ansible_facts.env.HOME }}/.config/containers/systemd"
+local_ai_service_name: ollama
+local_ai_volume_name: ollama-models
+
+# --- Modèles : répertoire simple, pas de sous-volume btrfs dédié -----
+# Aucun outil de snapshot (snapper/timeshift/btrfs-assistant) n'est
+# installé sur ce poste (vérifié, `rpm -qa`) — un sous-volume dédié
+# n'apporterait ni exclusion de snapshot, ni quota séparé, faute de
+# régime de snapshot à en exclure. Abstention justifiée (demande § 1) :
+# les poids vivent dans un volume Podman nommé ordinaire (géré par
+# Quadlet, § local_ai_volume_name), sur le btrfs Data,single déjà en
+# place (D1) — sous l'arborescence de stockage rootless standard de
+# Podman, pas un chemin inventé par ce rôle.
+
+# --- Gardes préalables (§ 2.1 de la demande), toutes échec bruyant ---
+# Réutilise verify-cdi-spec (roles/gpu_cdi), ne le réimplémente pas —
+# chemin résolu relativement à ce rôle (D1 : reconstructible quel que
+# soit l'emplacement de clonage du dépôt), pas en dur.
+local_ai_gpu_cdi_playbook: "{{ (playbook_dir + '/../gpu_cdi/gpu_cdi.yml') | realpath }}"
+
+# Chemin résolu (pas supposé /usr/bin) — la garde de service (§ 2.4)
+# doit invoquer le même binaire que celui utilisé pour dérouler ce
+# rôle, pas une hypothèse sur le PATH d'une unité systemd exécutée bien
+# plus tard, dans un contexte différent.
+local_ai_ansible_playbook_bin: "{{ lookup('pipe', 'command -v ansible-playbook') }}"
+
+# Paramétrable pour la démonstration d'échec forcé (§ 3 de la demande) :
+# -e gpu_cdi_verify_spec_path=<chemin invalide>. Même nom de variable
+# que roles/gpu_cdi/defaults/main.yml, même valeur par défaut — pas une
+# redéfinition divergente : reprise délibérée du nom du rôle réutilisé
+# (gpu_cdi), pas du préfixe local_ai_, pour que la variable qui pilote
+# gpu_cdi.yml --tags verify-cdi-spec porte le même nom des deux côtés
+# de l'appel. `ansible-lint` (var-naming[no-role-prefix]) le signale —
+# dérogation justifiée ici, pas un oubli de préfixe.
+gpu_cdi_verify_spec_path: /etc/cdi/nvidia.yaml  # noqa: var-naming[no-role-prefix]
+
+# Paramétrable pour la deuxième démonstration d'échec forcé : un nom de
+# module garanti absent casse la garde sans jamais toucher au système
+# réel (même patron que la garde D12 de roles/editor/, EDI-1).
+local_ai_required_kernel_module: nvidia_uvm
+
+# Valeur attendue de `podman info --format {{.Host.Security.Rootless}}`
+# — forceable à `false` pour la démonstration d'échec sans jamais
+# changer la configuration Podman réelle.
+local_ai_podman_rootless_expected: "true"
+
+# Attente de l'API après démarrage — généreuse par défaut : le premier
+# démarrage tire l'image (plusieurs gigaoctets possibles pour une image
+# CUDA) avant que le serveur n'écoute.
+local_ai_api_wait_retries: 60
+local_ai_api_wait_delay: 10

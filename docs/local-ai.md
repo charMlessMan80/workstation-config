@@ -205,13 +205,74 @@ craindre pour un système qui partirait de zéro. **Ce qui exigerait une
 mesure réelle, pas documentable ici** : `@VERIF : effet réel d'une
 suspension système (S0ix/s2idle) avec un modèle de plusieurs
 gigaoctets chargé en VRAM et NVreg_PreserveVideoMemoryAllocations
-laissé à sa valeur actuelle (absent/0) — la carte se suspendrait-elle
-avec le contenu perdu (comportement décrit ci-dessus, risque de
-corruption/plantage au réveil) ou le serveur d'inférence bloquerait-il
-la suspension système lui-même (comportement distinct de RTD3, non
-documenté pour S0ix dans les pages consultées) ? Non mesurable sans
-charger un modèle réel et déclencher une vraie suspension système —
-hors périmètre lecture seule de ce livrable.`
+laissé à sa valeur d'alors — **[CORRIGÉ le 2026-08-07, § 2.1bis]**
+« absent/0 » supposé ici sans lecture directe de la valeur brute
+effective ; la lecture directe montre `2`, pas `0`, signification non
+documentée — voir § 2.1bis. Ce qui reste vrai indépendamment de cette
+correction : la carte se suspendrait-elle avec le contenu perdu
+(comportement décrit ci-dessus, risque de corruption/plantage au
+réveil) ou le serveur d'inférence bloquerait-il la suspension système
+lui-même (comportement distinct de RTD3, non documenté pour S0ix dans
+les pages consultées) ? Non mesurable sans charger un modèle réel et
+déclencher une vraie suspension système — hors périmètre lecture seule
+de ce livrable.` **[RÉSOLU en pratique le 2026-08-07, D16]** — voir
+§ 2.1bis et § 7 : l'opérateur a tranché en amont de toute mesure
+(contrepartie assumée), ce livrable déploie `=1` sans attendre cette
+mesure.
+
+### 2.1bis — Correction (IA-1, 2026-08-07) : la valeur brute par défaut n'est pas 0
+
+**Défaut d'IA-0 reconnu, pas seulement corrigé en silence** (CLAUDE.md
+§ un fait mesuré porte sa date, une mesure ancienne ne sert pas de
+ligne de base sans revérification) : IA-0 raisonnait sur la
+conséquence documentée de l'absence du paramètre (perte de contenu
+VRAM) sans jamais lire la valeur entière brute réellement chargée par
+le pilote pour `NVreg_PreserveVideoMemoryAllocations` spécifiquement —
+seul `NVreg_DynamicPowerManagement` (`3`) et
+`NVreg_EnableS0ixPowerManagement` (`0`) avaient été lus directement.
+Corrigé ici, lecture directe, avant toute écriture de ce livrable :
+```
+$ cat /proc/driver/nvidia/params | grep -i PreserveVideoMemory
+PreserveVideoMemoryAllocations: 2
+```
+**Ni `0` ni `1`.** Recherche exhaustive de la signification de cette
+valeur `2` — `/usr/share/doc/xorg-x11-drv-nvidia/html/powermanagement.html`
+(déjà consulté en IA-0) et `/usr/share/doc/xorg-x11-drv-nvidia/README.txt`
+(source amont plus complète, non consultée en IA-0) : les deux ne
+documentent que la valeur `=1` (« changes the video memory save/restore
+strategy to save and restore all video memory allocations ») — **aucune
+des deux sources ne documente ce que vaut `0`, `2`, ou toute autre
+valeur non nulle différente de `1`.** `@VERIF : signification exacte de
+la valeur brute par défaut 2 de NVreg_PreserveVideoMemoryAllocations —
+non documentée dans les sources consultées (page HTML, README.txt
+complet du pilote 610.43.03). Hypothèse plausible mais non confirmée :
+un mode « automatique », par analogie avec NVreg_DynamicPowerManagement
+(dont le défaut documenté, 3, signifie explicitement « fin si
+supporté, sinon grossier ») — non vérifiée, présentée ici comme
+hypothèse, pas comme fait.`
+
+**Conséquence concrète, celle-ci établie sans ambiguïté** : régler
+`NVreg_PreserveVideoMemoryAllocations=1` (D16, § 7) change réellement
+la valeur chargée (de `2` à `1`), ce n'est **pas** une explicitation
+sans effet d'un défaut déjà équivalent (contrairement à l'option 2
+écartée dans `docs/dgpu-power.md` pour `NVreg_DynamicPowerManagement`,
+où `0x02` explicite et le défaut `0x03` produisaient le même
+comportement documenté sur ce matériel). Ici, `=1` déclenche
+spécifiquement le comportement documenté sans ambiguïté (sauvegarde et
+restauration de toutes les allocations vidéo) — un comportement dont
+rien ne garantit qu'il soit déjà celui de la valeur `2` non documentée.
+
+**Complément trouvé dans le README.txt complet, absent d'IA-0** : le
+mécanisme systemd (`/proc/driver/nvidia/suspend`) qu'exige
+`NVreg_PreserveVideoMemoryAllocations=1` est également requis, dit le
+texte amont, « **or advanced CUDA features (such as UVM)** » — pas
+seulement pour ce paramètre. Nuance apportée à la lecture d'IA-0 (qui
+présentait les unités `nvidia-suspend`/`nvidia-resume` déjà activées
+comme si elles anticipaient spécifiquement ce paramètre) : leur
+activation s'explique tout aussi bien, sinon mieux, par l'usage déjà
+actif d'UVM sur ce poste (CDI, `docs/gpu-containers.md`) — sans
+changer la conclusion pratique (le câblage nécessaire est déjà là),
+seulement sa cause la plus probable.
 
 ### 2.2 — Latence de réveil, reliée à chaque usage
 
@@ -637,7 +698,210 @@ choix restants :
    arithmétiquement, non vérifié), ou un seul modèle actif à la fois
    suffit-il, quitte à payer un rechargement au changement d'usage ?**
 
-## Validation
+## 7. IA-1 — infrastructure déployée (2026-08-07)
+
+**Quatre décisions de l'opérateur**, numéros vérifiés libres avant
+attribution (`grep -n '^\*\*D[0-9]' docs/machine-facts.md` — D13 le
+plus élevé au moment de la vérification) :
+
+- **D14** — service d'inférence : Ollama conteneurisé, image CUDA
+  officielle, accès GPU par CDI (seule voie qui atteigne la RTX 4090,
+  § 3.1 — troisième surface d'approvisionnement de ce dépôt, après les
+  extensions d'éditeur et les registres de conteneurs, D11/D12).
+- **D15** — modèle de complétion résident en permanence (`keep_alive`
+  infini) — contrepartie assumée : RTD3 ne s'engage plus tant que le
+  service tient un contexte CUDA ouvert.
+- **D16** — `NVreg_PreserveVideoMemoryAllocations=1` — contrepartie
+  assumée : suspension/réveil système plus lents.
+- **D17** — dimensionnement initial 13 B / `Q4_K_M`, à mesurer avant
+  toute montée — **aucun modèle choisi ni téléchargé par ce livrable**.
+
+### 7.1 — Résolution avant écriture
+
+**Comment `NVreg_PreserveVideoMemoryAllocations` prend effet, et
+comment vérifier qu'il est actif** — établi avant d'écrire quoi que ce
+soit : c'est un paramètre de **module noyau**, chargé au moment où
+`nvidia.ko` est inséré — pas un fichier `sysfs` réinscriptible à chaud
+(vérifié : `/sys/module/nvidia/parameters/PreserveVideoMemoryAllocations`
+n'existe pas). Sur ce poste, le module est **en usage actif** par la
+session graphique en cours :
+```
+$ lsmod | grep -E '^nvidia'
+nvidia_uvm       ...   0
+nvidia_drm       ...   3
+nvidia_modeset   ...   3 nvidia_drm
+nvidia           ...   148 nvidia_uvm,nvidia_modeset
+```
+Compteur d'usage `148`, pas `0` — le décharger (`rmmod`) sans arrêter
+la session graphique échouerait ou l'interromprait ; **en pratique,
+seul un redémarrage applique proprement une nouvelle valeur ici**
+(§ 4 de la demande, traité au § 7.5). **Vérification de la valeur
+effective** : `/proc/driver/nvidia/params` l'expose bien (déjà utilisé
+en IA-0/§ 2.1bis) — méthode retenue par le rôle (§ 7.3) pour relever
+l'état avant écriture, et par la commande de vérification préparée
+pour après un redémarrage (§ 7.5).
+
+**Mécanisme de service — Quadlet, pas une unité écrite à la main** :
+Podman 5.8.4 fournit nativement un générateur systemd utilisateur —
+vérifié présent avant de choisir :
+```
+$ rpm -q podman
+podman-5.8.4-1.fc44.x86_64
+$ ls /usr/lib/systemd/user-generators/podman-user-generator
+/usr/lib/systemd/user-generators/podman-user-generator
+```
+Des fichiers déclaratifs `.container`/`.volume` déposés dans
+`~/.config/containers/systemd/` sont transformés en unités systemd
+utilisateur réelles à `daemon-reload` (`man podman-systemd.unit`,
+consulté en entier) — retenu, une unité `.service` écrite à la main
+appelant `podman run` n'a jamais été envisagée au-delà de cette
+vérification (CLAUDE.md § déterminer ce que l'outil gère déjà).
+
+**Où vivent les modèles — pas de sous-volume btrfs dédié** : aucun
+outil de snapshot n'est installé sur ce poste, vérifié avant d'écrire
+quoi que ce soit :
+```
+$ rpm -qa | grep -iE 'snapper|timeshift|btrfs-assistant'
+(vide)
+```
+Sans régime de snapshot à en exclure, un sous-volume dédié n'apporte
+ni exclusion de snapshot ni quota séparé — **abstention justifiée**,
+pas un réflexe : les poids vivent dans un volume Podman **nommé**
+ordinaire (unité Quadlet `.volume`), sous l'arborescence de stockage
+rootless standard de Podman (`~/.local/share/containers/storage/volumes/`),
+déjà sur le btrfs `Data,single` en place (D1).
+
+### 7.2 — Épinglage de l'image par empreinte
+
+```
+$ skopeo inspect docker://docker.io/ollama/ollama:0.32.6
+Digest: sha256:b88c73ace3e115f8ec53dc8761ae1c0aabfa675406e3681786b98757ce050f42
+```
+`0.32.6` est, au moment de cette lecture, la version stable numérique
+la plus récente (222 étiquettes numériques pures recensées,
+`0.32.6` en tête) et pointe vers la **même empreinte** que `:latest` —
+vérifié, pas supposé. **Nuance établie en creusant plus loin, absente
+d'une lecture superficielle** : cette empreinte est celle de l'**index
+multi-architecture** (`skopeo inspect --raw` : `mediaType:
+application/vnd.oci.image.index.v1+json`, pas un manifeste
+mono-architecture) — Podman résout lui-même la plateforme locale
+(amd64) à partir de cet index au tirage, comportement OCI standard.
+Épinglage retenu dans `roles/local_ai/defaults/main.yml` :
+`docker.io/ollama/ollama@sha256:b88c73...` — jamais une étiquette
+mobile.
+
+### 7.3 — Rôle exécuté, résultat
+
+Trois gardes préalables (§ 2 de la demande), toutes échec bruyant,
+réutilisant `verify-cdi-spec` sans le réimplémenter — exécution réelle,
+première fois :
+```
+$ ansible-playbook roles/local_ai/local_ai.yml
+Garde 1/3 : "Spécification CDI vérifiée à jour (/etc/cdi/nvidia.yaml)."
+Garde 2/3 : "Podman rootless confirmé : true."
+Garde 3/3 : "Module 'nvidia_uvm' chargé."
+[...]
+PLAY RECAP : ok=23  changed=5  failed=0
+```
+**Réussi dès la première exécution réelle** — écrasement modprobe.d
+déployé, fichier fournisseur vérifié intact avant/après (`rpm -Vf`
+identique), volume et unité Quadlet déployés, service démarré, API
+vérifiée locale uniquement, liste des modèles vide confirmée, GPU
+visible depuis l'intérieur du conteneur confirmé (détail § 7.4).
+Deuxième exécution : `changed=0`, idempotence confirmée.
+
+**Découverte non anticipée, signalée, pas exploitée ni corrigée ici**
+(CLAUDE.md § une découverte qui contredit une attente se signale) —
+le journal du conteneur (`podman logs ollama`), lu après démarrage :
+```
+OLLAMA_REMOTES:[ollama.com] ... OLLAMA_NO_CLOUD:false
+msg="Ollama cloud disabled: false"
+msg="model recommendations cache sleep scheduled" wait=4h31m...
+```
+**L'image officielle contacte `ollama.com` de son propre chef**, peu
+après le démarrage, pour une liste de « recommandations de modèles »
+(682 octets, `cache/model-recommendations.json` dans le volume — pas
+un modèle, mais un appel réseau sortant non demandé) — et expose une
+fonctionnalité « cloud » **activée par défaut**
+(`OLLAMA_NO_CLOUD:false`), y compris des entrées « `:cloud` » dans
+cette même liste (ex. `glm-5.2:cloud`) qui, si jamais exécutées,
+routeraient vers l'infrastructure d'Ollama plutôt que d'inférer
+localement. **Rien dans ce livrable n'a demandé ni configuré cela** —
+comportement par défaut de l'image, découvert en testant, pas en
+lisant sa documentation au préalable. Non corrigé ici (hors périmètre
+de ce livrable, quatre décisions précises seulement) — nommé
+explicitement pour qu'un livrable ultérieur tranche
+(`OLLAMA_NO_CLOUD=1`, ou un pare-feu sortant, ou l'acceptation
+délibérée du comportement par défaut).
+
+### 7.4 — Preuve que le conteneur voit le GPU (depuis l'intérieur, pas l'hôte)
+
+```
+$ podman exec ollama sh -c 'ls -la /dev/nvidia*; nvidia-smi -L'
+crw-rw-rw-. ... /dev/nvidia-modeset
+crw-rw-rw-. ... /dev/nvidia-uvm
+crw-rw-rw-. ... /dev/nvidia-uvm-tools
+crw-rw-rw-. ... /dev/nvidia0
+crw-rw-rw-. ... /dev/nvidiactl
+GPU 0: NVIDIA GeForce RTX 4090 Laptop GPU (UUID: GPU-bd9088d2-0875-7077-8475-ac1bc4519249)
+```
+**Corroboré indépendamment par le propre journal interne d'Ollama**
+(pas une commande que ce livrable a provoquée — Ollama l'émet de
+lui-même à l'initialisation) :
+```
+msg="inference compute" id=0 library=CUDA compute=8.9
+  name=CUDA0 description="NVIDIA GeForce RTX 4090 Laptop GPU"
+  driver=13.3 pci_id=0000:01:00.0 type=discrete
+  total="15.6 GiB" available="15.3 GiB"
+```
+`compute=8.9` (Ada Lovelace), `driver=13.3` (CUDA UMD, cohérent avec
+le fait déjà établi) — le CDI natif accorde au conteneur un accès
+CUDA fonctionnel à la RTX 4090, confirmé par deux sources
+indépendantes internes au conteneur, aucune depuis l'hôte.
+
+### 7.5 — Redémarrage
+
+**Non déclenché**, conformément à la consigne. Le paramètre D16 est
+déployé (`/etc/modprobe.d/local-ai-nvidia-power-management.conf`) mais
+**pas encore actif** — valeur actuellement chargée toujours `2`
+(§ 2.1bis), pas `1`. **Commande de vérification post-redémarrage,
+préparée, à exécuter par l'opérateur quand il en décidera** :
+```
+$ cat /proc/driver/nvidia/params | grep -i PreserveVideoMemoryAllocations
+# attendu après redémarrage : PreserveVideoMemoryAllocations: 1
+```
+Le service Ollama, activé (`enabled: true`), redémarrerait
+automatiquement à la prochaine ouverture de session (`WantedBy=
+default.target`) — pas testé ici, comme l'autostart de `kitty` en
+BUR-1, seule la commande de vérification est préparée.
+
+### 7.6 — Consommation au repos, service démarré sans modèle (référence pour IA-2)
+
+Méthode d'isolement de `docs/dgpu-power.md` appliquée : deux relevés
+`sysfs` purs, espacés, **aucun `nvidia-smi` entre les deux**, service
+Ollama confirmé `active` (sans modèle) tout du long :
+```
+T0 2026-08-07T10:59:43+02:00  runtime_status=suspended
+                               runtime_suspended_time=120797976
+                               runtime_active_time=1549856
+[280 s, aucune sonde, service actif sans modèle]
+T1 2026-08-07T11:04:23+02:00  runtime_status=suspended   (inchangé)
+                               runtime_suspended_time=121078216  (Δ=+280240 ms ≈ Δt réel)
+                               runtime_active_time=1549856       (Δ=0 ms)
+```
+**Établi, pas supposé** : un service Ollama démarré, sans aucun modèle
+chargé, **n'ouvre pas de contexte CUDA persistant** — RTD3 s'engage
+exactement comme si le service ne tournait pas, sur toute la fenêtre
+de 280 s observée. Cohérent avec le journal du conteneur (§ 7.3) : la
+découverte GPU se fait une fois, brièvement, à l'initialisation, sans
+rester active. **Référence pour IA-2** : tant qu'aucun modèle n'est
+chargé, ce service a un coût énergétique nul au-delà de son
+empreinte mémoire système habituelle (pas de VRAM, pas de veille RTD3
+bloquée) — la contrepartie assumée par D15 (RTD3 neutralisée) ne
+commence qu'au premier chargement effectif d'un modèle, pas au
+démarrage du service lui-même.
+
+## Validation — IA-0 (résolution en lecture seule, 2026-08-06)
 
 **Commandes exécutées, non modifiantes sauf l'incident déjà signalé** :
 
@@ -685,6 +949,113 @@ des couches — vérifié par `podman images` inchangé) ; aucun conteneur
 lancé (seule la vérification `verify-cdi-spec`, qui n'en lance aucun,
 a été rejouée) ; aucun dépôt ajouté ; aucun paramètre de pilote
 modifié ; aucun fichier écrit hors de ce dépôt.
+
+## Validation — IA-1 (infrastructure déployée, 2026-08-07)
+
+**Actions privilégiées, exhaustives** :
+
+| # | Commande | Cible | Motif |
+|---|---|---|---|
+| 1 | `ansible.builtin.template` (`become: true`) | `/etc/modprobe.d/local-ai-nvidia-power-management.conf` | D16, écrasement propre — seule tâche `become: true` du rôle |
+| 2 | `sudo -n ausearch -m avc -ts recent` (hors rôle, validation manuelle) | lecture `/var/log/audit/` | corroborer l'absence de refus AVC, même méthode que `docs/gpu-containers.md` § 8.6 — silencieuse sous D9 (NOPASSWD), disclosed ici |
+
+Toutes les autres actions du rôle (les trois gardes, lecture
+`/proc/driver/nvidia/params`, `rpm -Vf` (×2), déploiement Quadlet,
+`systemctl --user`, `podman exec`, requêtes `curl`/`uri`) s'exécutent
+sans `sudo`. `journalctl -k -g 'avc:'` (méthode alternative, sans
+privilège) confirme indépendamment l'absence de refus AVC — voir le
+relevé complet ci-dessous.
+
+**Validation Ansible** :
+```
+$ ansible-playbook --syntax-check roles/local_ai/local_ai.yml   # succès
+$ ansible-playbook roles/local_ai/local_ai.yml                  # succès, changed=5 (première écriture réelle)
+$ ansible-playbook roles/local_ai/local_ai.yml                  # succès, changed=0 (idempotence confirmée)
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/local_ai/
+Passed: 0 failure(s), 0 warning(s) — profil production, deux `noqa` justifiés
+(rpm -Vf sans équivalent module ; réutilisation délibérée du nom de
+variable gpu_cdi_verify_spec_path, pas un oubli de préfixe)
+```
+
+**Les deux démonstrations d'échec forcé** (§ 7.3), avant toute action,
+toutes deux `changed=0` :
+```
+$ ansible-playbook roles/local_ai/local_ai.yml \
+    -e gpu_cdi_verify_spec_path=/tmp/chemin-cdi-invalide-inexistant.yaml
+fatal: [...] => "Spécification CDI absente, périmée, ou chemin invalide
+(/tmp/chemin-cdi-invalide-inexistant.yaml) [...] Ce rôle s'arrête :
+déployer le service sur cette base démarrerait avec un GPU
+silencieusement invisible [...]"
+
+$ ansible-playbook roles/local_ai/local_ai.yml \
+    -e local_ai_required_kernel_module=module_absent_garanti_xyz
+fatal: [...] => "Module noyau requis absent : 'module_absent_garanti_xyz'
+ne figure pas dans /proc/modules. Ce rôle s'arrête [...]"
+```
+Service restauré à l'état nominal après chaque essai (rejoué sans
+dérogation, `changed=0`) — aucun essai n'a laissé le système dans un
+état de test.
+
+**Empreinte de l'image épinglée** : `sha256:b88c73ace3e115f8ec53dc8761ae1c0aabfa675406e3681786b98757ce050f42`
+— établie par `skopeo inspect docker://docker.io/ollama/ollama:0.32.6` (§ 7.2).
+
+**Preuve que l'API n'écoute pas sur une interface externe** :
+```
+$ ss -H -tln sport = :11434
+LISTEN 0 128 127.0.0.1:11434 0.0.0.0:*
+```
+Aucune occurrence de `0.0.0.0:11434` ni `*:11434` — assertion du rôle
+sur ce point précis, réussie à chaque exécution (§ 7.3).
+
+**SELinux** :
+```
+$ getenforce   # avant toute action de ce livrable, et après : Enforcing (inchangé)
+$ journalctl -k -g 'avc:' --no-pager -n 20   # -- No entries --  (sans privilège)
+$ sudo -n ausearch -m avc -ts recent          # <no matches>      (avec privilège, corroboration)
+```
+Aucun refus AVC, par les deux méthodes, avant et après le déploiement
+du service et son exécution réelle.
+
+**Consommation et veille runtime, service démarré sans modèle** :
+§ 7.6 — `runtime_active_time` inchangé (0 ms de delta) sur une fenêtre
+de 280 s, service confirmé `active` tout du long. RTD3 s'engage
+normalement ; référence chiffrée pour IA-2.
+
+**Aucun modèle téléchargé** : `curl http://127.0.0.1:11434/api/tags`
+→ `{"models":[]}`, confirmé à chaque exécution du rôle (assertion
+dédiée) ; volume `systemd-ollama-models` inspecté directement — 12 Kio
+au total (clés d'identité Ollama générées au premier démarrage +
+cache de recommandations, § 7.3 — pas un modèle).
+
+**`/usr/lib/modprobe.d/` intact** :
+```
+$ sha256sum /usr/lib/modprobe.d/nvidia-power-management.conf
+de19aadaad8cdacd4caa5331a87b49cc9a79e36f81badec4932ad26343ea0257
+```
+Identique avant et après ce livrable (même valeur qu'IA-0/EDI-1) — et
+vérifié en continu par le rôle lui-même (`rpm -Vf`, avant/après
+écriture, assertion dédiée, § 7.3).
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : à la
+clôture d'IA-1, cinq marqueurs actionnables dans ce document — les
+quatre déjà comptés en IA-0 (§ 2.1 suspension S0ix avec modèle chargé,
+§ 1 chargement simultané de deux modèles, § 3.1 comportement runtime
+ROCm sans périphérique, § 5 comportement `ollama pull` en cas de
+coupure) **plus un nouveau** (§ 2.1bis, signification de la valeur
+brute par défaut `2` de `NVreg_PreserveVideoMemoryAllocations`).
+Aucun marqueur fermé dans cette série — celui sur `absent/0` au § 2.1
+est corrigé (la prémisse était fausse), pas vérifié ; le nouveau
+marqueur du § 2.1bis en découle directement.
+
+**Confirmations finales** : aucun modèle téléchargé, sous aucune
+forme (seule l'image du serveur — infrastructure — a été tirée,
+distinction explicite § 7 en tête) ; aucun conteneur lancé au-delà du
+service Ollama lui-même, objet de ce livrable ; aucun dépôt ajouté ;
+`/usr/lib/modprobe.d/nvidia-power-management.conf` intact (somme de
+contrôle identique) ; `sudoers`, `gpu_mux_mode`, `dgpu_disable`,
+`kwinrulesrc` non touchés ; SELinux jamais modifié (`Enforcing`
+inchangé, aucun `setenforce`) ; aucun redémarrage, aucune déconnexion
+de session.
 
 ## Voir aussi
 

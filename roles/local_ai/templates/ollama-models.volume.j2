@@ -1,0 +1,8 @@
+# Déployé par roles/local_ai/ — volume Podman nommé pour les poids de
+# modèle Ollama. Répertoire simple (arborescence de stockage rootless
+# standard de Podman), pas un sous-volume btrfs dédié — aucun outil de
+# snapshot (snapper/timeshift/btrfs-assistant) n'est installé sur ce
+# poste, un sous-volume n'apporterait donc ni exclusion de snapshot ni
+# quota séparé (docs/local-ai.md § 1). Vit sur le btrfs Data,single
+# déjà en place (D1) — jamais versionné dans ce dépôt (D4, taille).
+[Volume]

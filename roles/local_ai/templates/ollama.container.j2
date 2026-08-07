@@ -1,0 +1,70 @@
+# Déployé par roles/local_ai/ — Quadlet Podman (D14,
+# docs/machine-facts.md § Décisions). Unité systemd utilisateur générée
+# automatiquement au prochain `systemctl --user daemon-reload` par le
+# générateur natif de Podman 5.8.4
+# (/usr/lib/systemd/user-generators/podman-user-generator, vérifié
+# présent) — jamais une unité .service écrite à la main appelant
+# `podman run` (CLAUDE.md § déterminer ce que l'outil gère déjà).
+
+[Unit]
+Description=Ollama — serveur d'inférence local (D14), roles/local_ai/
+After=network-online.target
+
+[Container]
+# Épinglée par empreinte, pas par étiquette mobile (D1/traçabilité,
+# § 5 de la demande) — voir defaults/main.yml pour la commande qui a
+# établi cette empreinte.
+Image={{ local_ai_ollama_image }}
+ContainerName={{ local_ai_service_name }}
+
+# Volume Podman nommé (ollama-models.volume, unité Quadlet séparée) —
+# /root/.ollama est l'emplacement documenté par l'image officielle
+# (confirmé, `hub.docker.com/r/ollama/ollama`, exemple `docker run`
+# officiel : `-v ollama:/root/.ollama`).
+Volume={{ local_ai_volume_name }}.volume:/root/.ollama
+
+# API exposée en local uniquement — adresse hôte explicite (jamais
+# 0.0.0.0/omise). L'image définit déjà OLLAMA_HOST=0.0.0.0:11434 EN
+# INTERNE (vérifié : `skopeo inspect --config`, ENV déjà présent dans
+# l'image officielle) — nécessaire pour que le transfert de port
+# Podman puisse joindre le processus depuis l'espace de noms réseau du
+# conteneur ; la restriction réelle à l'accès externe se fait ici, côté
+# HÔTE, pas en changeant ce que le processus écoute à l'intérieur.
+PublishPort={{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}:11434
+
+# D15 — modèle de complétion résident en permanence.
+Environment=OLLAMA_KEEP_ALIVE={{ local_ai_ollama_keep_alive }}
+
+# Accès GPU par CDI natif, déjà prouvé de bout en bout
+# (docs/gpu-containers.md) — pas de dépendance à `--gpus` (spécifique à
+# Docker/nvidia-container-runtime, jamais utilisé sur ce poste).
+# `NVIDIA_VISIBLE_DEVICES=all`/`NVIDIA_DRIVER_CAPABILITIES=compute,utility`
+# sont déjà définis par l'image elle-même (vérifié, `skopeo inspect
+# --config`) — convention standard nvidia-container-toolkit, cohérente
+# avec le périphérique CDI demandé ci-dessous, rien à redéfinir.
+PodmanArgs=--device nvidia.com/gpu=all
+
+[Service]
+# Garde de service (§ 2.4 d'IA-0, point 4 de cette demande) : réutilise
+# verify-cdi-spec, ne le réimplémente pas. Chemin de la spécification
+# CDI réelle en dur ici (pas paramétrable à ce niveau — c'est la garde
+# du RÔLE, plus bas dans tasks/main.yml, qui accepte un chemin substitué
+# pour la démonstration d'échec forcé ; celle-ci protège chaque
+# démarrage RÉEL du service, y compris longtemps après que ce rôle a
+# tourné — par exemple après une mise à jour de pilote suivie d'un
+# redémarrage). Un ExecStartPre qui échoue empêche ExecStart de
+# démarrer (comportement systemd documenté, standard) : le service
+# refuse de démarrer avec une spécification périmée plutôt que de
+# démarrer avec un GPU silencieusement invisible.
+ExecStartPre={{ local_ai_ansible_playbook_bin }} {{ local_ai_gpu_cdi_playbook }} --tags verify-cdi-spec
+
+# Délai de démarrage étendu (motif documenté dans podman-systemd.unit(5)
+# lui-même, exemple repris ici) : le premier démarrage tire l'image si
+# elle n'est pas déjà en cache local — épinglée par empreinte (pas une
+# étiquette), donc le contenu tiré est de toute façon figé quelle que
+# soit la politique de tirage effective ; seule la durée du premier
+# tirage (image CUDA, plusieurs gigaoctets possibles) motive ce délai.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

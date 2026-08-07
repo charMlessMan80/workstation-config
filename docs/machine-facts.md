@@ -1009,6 +1009,68 @@ colorée d'`ansible-lint --version` insère des codes ANSI *au milieu*
 de la chaîne à comparer, faisant échouer une comparaison naïve —
 corrigé par `NO_COLOR=1`.
 
+**D14 (2026-08-07) — service d'inférence local : Ollama conteneurisé,
+image CUDA officielle, accès GPU par CDI natif.** Numéros vérifiés
+libres avant attribution (`grep -n '^\*\*D[0-9]' docs/machine-facts.md`,
+D13 le plus élevé au moment de la vérification — pas de collision
+cette fois, contrairement à D11/D12 en EDI-1). Motif : seule voie
+atteignant la RTX 4090 (`docs/local-ai.md` § 3.1, IA-0 — `ollama`,
+`llama-cpp`, `whisper-cpp`, `python3-torch` empaquetés par Fedora tous
+liés en dur à ROCm/HIP, aucun lien CUDA). Ollama gère manifestes et
+empreintes de modèles, contrairement à un GGUF récupéré à la main sans
+mécanisme d'intégrité uniforme — troisième surface d'approvisionnement
+de ce dépôt (après les extensions d'éditeur, D12, et les registres de
+conteneurs, IA-0), la seule des trois à offrir un ancrage vérifiable
+intégré. Déployé par `roles/local_ai/` : Quadlet Podman (mécanisme
+natif de Podman 5.8.4, pas une unité systemd écrite à la main), image
+épinglée par empreinte (`sha256:b88c73ace3e115f8ec53dc8761ae1c0aabfa675406e3681786b98757ce050f42`,
+pas une étiquette mobile), accès GPU par CDI déjà prouvé
+(`docs/gpu-containers.md`), trois gardes préalables réutilisant
+`verify-cdi-spec` sans le réimplémenter, service revérifiant lui-même
+la spécification CDI à chaque démarrage (`ExecStartPre=`). Réussi dès
+la première exécution réelle — détail complet et découverte non
+anticipée (Ollama contacte `ollama.com` de son propre chef, `OLLAMA_NO_CLOUD:false`
+par défaut, non corrigé ici, nommé pour un livrable ultérieur) :
+`docs/local-ai.md` § 7.
+
+**D15 (2026-08-07) — modèle de complétion résident en permanence
+(`keep_alive` infini).** Motif : latence minimale, usage principal
+(complétion de code). Contrepartie assumée par l'opérateur : un
+contexte CUDA ouvert en permanence empêche RTD3 de s'engager — les
+~8 W récupérés par la bascule MUX (D2ter) sont repayés tant que le
+service tourne **avec un modèle chargé**. Mesuré dans ce livrable,
+service démarré **sans** modèle : RTD3 s'engage toujours normalement
+dans ce cas précis (`docs/local-ai.md` § 7.6 — 0 ms de temps actif sur
+280 s observées) — la contrepartie ne commence qu'au premier
+chargement effectif d'un modèle, pas au démarrage du service.
+
+**D16 (2026-08-07) — `NVreg_PreserveVideoMemoryAllocations=1`.**
+Motif : un modèle chargé survit à une suspension système. Contrepartie
+assumée : plusieurs gigaoctets recopiés vers le disque à chaque
+suspension, fermeture et réveil plus lents. Sans effet sur RTD3
+(neutralisée par D15 tant que le service tourne avec un modèle) — ne
+joue que pour la suspension système (s2idle sur ce poste). Déployé par
+écrasement propre (`/etc/modprobe.d/local-ai-nvidia-power-management.conf`),
+jamais le fichier fourni par le paquet `xorg-x11-drv-nvidia-power`
+(intact, somme de contrôle identique avant/après, vérifiée par le rôle
+lui-même à chaque exécution). **Correction apportée à IA-0 dans ce
+même livrable** : la valeur brute par défaut réellement chargée est
+`2`, pas `0` comme IA-0 le supposait implicitement sans l'avoir lue
+directement — signification de `2` non documentée dans les sources
+consultées, `docs/local-ai.md` § 2.1bis. **Prend effet au prochain
+chargement du module `nvidia.ko`** — pas à chaud (module en usage
+actif, compteur `148`) ; en pratique, un redémarrage. **Non déclenché
+dans ce livrable**, conformément à la consigne — commande de
+vérification post-redémarrage préparée (`docs/local-ai.md` § 7.5).
+
+**D17 (2026-08-07) — dimensionnement initial : modèle agent/chat de
+13 B en `Q4_K_M`, à mesurer avant toute montée.** Motif :
+`Q4_K_M` est le point d'étalonnage documenté par le projet amont
+(`llama.cpp`, déjà cité en IA-0) ; aucune perte de qualité n'est
+chiffrée pour les quantifications plus agressives, donc pas de
+descente sans mesure. **Aucun modèle choisi ni téléchargé dans ce
+livrable ni dans IA-1** — réservé à IA-2.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -2121,3 +2183,65 @@ corrigé par `NO_COLOR=1`.
   reconnue, non répétée. Aucun autre paquet installé, aucun modèle ni
   image téléchargé, aucun conteneur lancé, aucun dépôt ajouté, aucun
   paramètre de pilote modifié.
+- **2026-08-07 — infrastructure d'inférence Ollama, `roles/local_ai/`
+  (D14-D17, numéros vérifiés libres avant attribution, aucune
+  collision cette fois).** Correction apportée à IA-0 en préalable :
+  la valeur brute par défaut de `NVreg_PreserveVideoMemoryAllocations`
+  est `2`, pas `0` supposé implicitement — lue directement avant toute
+  écriture, signification de `2` non documentée dans les sources
+  consultées (page HTML et README.txt complet du pilote), marquée
+  `@VERIF`. Paramètre pris en compte au prochain chargement du module
+  (usage actif, compteur 148) — en pratique un redémarrage, non
+  déclenché, commande de vérification préparée.
+  Résolution avant écriture : Quadlet Podman retenu (générateur natif
+  de Podman 5.8.4, vérifié présent) plutôt qu'une unité écrite à la
+  main ; aucun sous-volume btrfs dédié pour les modèles (aucun outil
+  de snapshot installé, abstention justifiée) — volume Podman nommé
+  ordinaire sur le stockage rootless standard, déjà sur le btrfs D1.
+  Trois gardes préalables (CDI non périmée, Podman rootless,
+  `nvidia_uvm` chargé), échec bruyant, réutilisent `verify-cdi-spec`
+  sans le réimplémenter. Paramètre pilote déployé par écrasement propre
+  (`/etc/modprobe.d/local-ai-nvidia-power-management.conf`), fichier
+  fourni par `xorg-x11-drv-nvidia-power` vérifié intact avant/après
+  (`rpm -Vf`, somme de contrôle identique). Image Ollama épinglée par
+  empreinte de l'index multi-architecture
+  (`sha256:b88c73ace3e115f8ec53dc8761ae1c0aabfa675406e3681786b98757ce050f42`,
+  `docker.io/ollama/ollama:0.32.6` au moment de la lecture), jamais une
+  étiquette mobile. Service revérifiant lui-même la spécification CDI
+  à chaque démarrage (`ExecStartPre=`), réponse directe au point 2.4
+  d'IA-0.
+  Rôle réussi dès la première exécution réelle : API locale confirmée
+  en écoute sur `127.0.0.1:11434` uniquement (`ss`, aucune interface
+  externe), liste des modèles vide confirmée, GPU visible depuis
+  l'intérieur du conteneur confirmé par deux sources indépendantes
+  (nœuds `/dev/nvidia*` + `nvidia-smi -L` via `podman exec`, et le
+  journal interne d'Ollama lui-même : `compute=8.9`, `driver=13.3`,
+  RTX 4090 détectée). Idempotence confirmée (`changed=0` en deuxième
+  exécution). Deux démonstrations d'échec forcé réussies (spécification
+  CDI invalide substituée par `-e`, module noyau requis substitué par
+  `-e`), toutes deux `changed=0`, état nominal restauré après chacune.
+  SELinux `Enforcing` inchangé avant/après, aucun refus AVC (vérifié
+  par deux méthodes indépendantes, l'une sans privilège via
+  `journalctl -k`, l'autre privilégiée via `ausearch` en corroboration,
+  disclosed).
+  Consommation au repos mesurée avec le service démarré mais **sans
+  modèle chargé** (méthode d'isolement `docs/dgpu-power.md`) : RTD3
+  s'engage normalement, `runtime_active_time` inchangé sur 280 s —
+  référence chiffrée pour IA-2, la contrepartie de D15 (RTD3
+  neutralisée) ne commence qu'au premier modèle réellement chargé.
+  Découverte non anticipée, signalée, non corrigée (hors périmètre de
+  ce livrable) : l'image officielle Ollama contacte `ollama.com` de
+  son propre chef pour une liste de recommandations de modèles, et
+  expose une fonctionnalité « cloud » activée par défaut
+  (`OLLAMA_NO_CLOUD:false`) — nommé pour un livrable ultérieur.
+  Une seule action privilégiée du rôle (écrasement modprobe.d,
+  `become: true`) — énumérée, plus une lecture privilégiée hors rôle
+  (`ausearch`) pour la validation SELinux. `ansible-lint --profile
+  production roles/local_ai/` : 0 défaut, deux `noqa` justifiés.
+  `--syntax-check`/`--check` (implicite via gardes)/exécution réelle/
+  deuxième exécution tous rejoués. Aucun modèle téléchargé sous aucune
+  forme (seule l'image du serveur, infrastructure, a été tirée,
+  distinction explicite) ; `/usr/lib/modprobe.d/` intact (somme de
+  contrôle identique) ; aucun dépôt ajouté ; `sudoers`/`gpu_mux_mode`/
+  `dgpu_disable`/`kwinrulesrc` non touchés ; aucune modification
+  SELinux ; aucune déconnexion ; aucun redémarrage.
