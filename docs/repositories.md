@@ -391,6 +391,62 @@ son `Cargo.lock` amont (`--locked` l'impose) ; aucun paquet `cargo`
 installé globalement au-delà de la chaîne de compilation elle-même
 (`rust`/`cargo`, `fedora`/`updates`).
 
+## 8. Registre de modèles Ollama — cinquième surface, IA-3/D21
+
+Nommé « au même niveau d'exigence que Terra, le COPR et `crates.io` »,
+comme demandé (D21, `docs/machine-facts.md` § Décisions) — déjà
+identifié mais jamais utilisé en IA-2 (§ 6 ci-dessus, « troisième
+surface, nommée mais non utilisée »). Utilisé pour la première fois
+par ce livrable, via le conteneur de récupération éphémère
+(`docs/local-ai.md` § 9) — jamais le conteneur de service.
+
+**Ancrage de confiance réel** : TLS vers `registry.ollama.ai` +
+**empreintes de contenu par manifeste et par blob**, format registre de
+distribution OCI/Docker standard (`schemaVersion: 2`,
+`mediaType: application/vnd.docker.distribution.manifest.v2+json`) —
+même famille de modèle de confiance que les registres de conteneurs
+(§ 6), pas une clé de signataire.
+
+**Mécanisme d'intégrité, vérifié par l'outil lui-même, pas supposé** :
+```
+$ podman exec ollama-recovery ollama pull mistral-nemo:12b-instruct-2407-q4_K_M
+pulling dd3af152229f: 100% ▕████████████████▏ 7.5 GB
+pulling 438402ddac75: 100% ▕████████████████▏  683 B
+pulling 43070e2d4e53: 100% ▕████████████████▏  11 KB
+[...]
+verifying sha256 digest
+writing manifest
+success
+```
+Chaque composant du modèle (poids, gabarit, licence, paramètres) est
+un blob adressé par son propre condensé SHA-256 — vérifié directement,
+pas déduit du nom de fichier :
+```
+$ sha256sum models/blobs/sha256-60e05f21...
+60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463  [...]
+```
+Le nom du fichier **est** son empreinte de contenu ; `ollama pull`
+annonce explicitement une étape « verifying sha256 digest » sur ce
+qu'il vient de recevoir.
+
+**Écart résiduel assumé, découvert par un test réel, pas supposé** :
+un blob local corrompu **après** téléchargement, dont le nom de
+fichier reste inchangé, **n'est pas détecté ni réparé** par un
+`ollama pull` ultérieur — l'outil vérifie le contenu **reçu sur le
+réseau**, pas le contenu **déjà présent localement sous le nom
+attendu**. Démontré : un octet modifié dans le blob de licence d'un
+modèle déjà tiré, puis `ollama pull` rejoué sur ce même modèle — la
+commande annonce `100%`/`success`, mais le blob corrompu reste
+corrompu (empreinte inchangée, incorrecte) après coup. Seule la
+**suppression** du fichier avant un nouveau `pull` force un
+retéléchargement réel et corrige l'empreinte. **Conséquence pratique**
+nommée pour un livrable futur qui s'en soucierait : ce registre protège
+contre une corruption **pendant le transfert**, pas contre une
+corruption **après écriture** sur le disque local (bit rot,
+modification accidentelle) — aucun mécanisme de vérification
+périodique de l'intégrité déjà présente sur ce poste (contrairement à
+`rpm -Vf` pour les fichiers d'un paquet, § ailleurs dans ce dépôt).
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — D10, D7 (COPR), D5
@@ -399,8 +455,8 @@ installé globalement au-delà de la chaîne de compilation elle-même
   confiance du COPR `@ai-ml`, même discipline de sourcing appliquée ici
   à Terra.
 - [`docs/local-ai.md`](local-ai.md) — D14, empreinte épinglée de
-  `docker.io/ollama/ollama`, confinement réseau du registre de modèles
-  (IA-2).
+  `docker.io/ollama/ollama`, confinement réseau (IA-2), conteneur de
+  récupération éphémère et mesures d'enveloppe réelle (D21, IA-3).
 - [`docs/completion.md`](completion.md) — D19, `crates.io` et
   l'empreinte de commit `lsp-ai` en usage réel (CMP-1).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing, garde `--assumeno`

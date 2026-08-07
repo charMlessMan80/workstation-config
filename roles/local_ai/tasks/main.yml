@@ -219,15 +219,33 @@
   until: local_ai_api_check.status == 200
   when: not ansible_check_mode
 
-- name: "Échouer bruyamment si la liste des modèles n'est pas vide (aucun modèle ne doit avoir été chargé par ce rôle)"
+# [CORRIGÉ, IA-3] ÉTAIT : « la liste des modèles sur disque
+# (/api/tags) doit être vide » — vrai avant D21, plus depuis que ce
+# rôle récupère délibérément deux modèles (tâches taguées
+# `pull-models` ci-dessous). Le fait réellement garanti par ce rôle,
+# intact, n'a jamais été « aucun modèle sur disque » mais « aucun
+# modèle chargé en VRAM par ce rôle » — /api/ps (modèles activement
+# chargés), pas /api/tags (modèles présents sur disque), porte cette
+# garantie-là. Corrigé, pas effacé : c'est le même principe que la
+# règle CLAUDE.md sur les gardes qui perdent leur démonstration —
+# celle-ci a changé de sens, pas seulement d'implémentation.
+- name: "Relever les modèles actuellement chargés en VRAM (/api/ps, distinct de /api/tags)"
+  ansible.builtin.uri:
+    url: "http://{{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}/api/ps"
+    return_content: true
+  register: local_ai_ps_check
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si un modèle est chargé en VRAM (ce rôle ne charge jamais de modèle lui-même)"
   ansible.builtin.assert:
     that:
-      - (local_ai_api_check.json.models | default(['non-vide'])) == []
+      - (local_ai_ps_check.json.models | default(['non-vide'])) == []
     fail_msg: >-
-      La liste des modèles Ollama n'est pas vide :
-      {{ local_ai_api_check.json.models | default('absente du JSON') }} —
-      ce rôle ne doit jamais avoir chargé de modèle.
-    success_msg: "Liste des modèles vide, confirmé — aucun modèle chargé."
+      Un ou plusieurs modèles sont chargés en VRAM :
+      {{ local_ai_ps_check.json.models | default('absent du JSON') }} —
+      ce rôle ne charge jamais de modèle lui-même (le chargement est à
+      la demande, D20).
+    success_msg: "Aucun modèle chargé en VRAM, confirmé (/api/ps vide)."
   when: not ansible_check_mode
 
 - name: "Vérifier que l'API n'écoute QUE sur l'adresse locale attendue (pas 0.0.0.0/*, pas d'interface externe)"
@@ -300,17 +318,38 @@
     success_msg: "Réseau dédié confirmé interne : Internal={{ local_ai_guard_network.stdout | trim }}."
   when: not ansible_check_mode
 
-- name: "Garde 5/5 — relever ce qu'Ollama a lui-même annoncé sur la fonctionnalité cloud (effet constaté, pas la variable posée)"
-  # `podman logs` relaie le flux stderr du conteneur sur SON PROPRE
-  # stderr, pas stdout (vérifié : le journal d'Ollama, qui écrit sur
-  # son propre stderr, n'apparaissait que dans .stderr du module
-  # command, jamais dans .stdout — découvert en écrivant cette garde,
-  # premier passage `.stdout` seul la faisait échouer à tort) — les
-  # deux flux sont donc examinés ci-dessous.
+# [CORRIGÉ, IA-3] `podman logs` relaie le flux stderr du conteneur sur
+# SON PROPRE stderr, pas stdout (vérifié : le journal d'Ollama, qui
+# écrit sur son propre stderr, n'apparaissait que dans .stderr du
+# module command, jamais dans .stdout) — `2>&1` fusionne les deux dans
+# la commande elle-même, plus simple et plus robuste que d'examiner
+# deux flux séparés. ÉTAIT : deux flux séparés (voir git blame) —
+# découvert en écrivant cette garde en IA-2 ; la fusion ci-dessous
+# règle aussi le défaut suivant.
+# Découvert en écrivant IA-3 : après un usage réel du service (modèles
+# chargés, générations réelles), le journal contient le vidage brut du
+# vocabulaire GGUF par llama.cpp au chargement — des séquences d'octets
+# valides pour un tokeniseur par octets (BPE style GPT-2) mais pas
+# toujours valides comme UTF-8 une fois tronquées par l'affichage du
+# journal. Sans rapport avec le contenu qu'on cherche (« cloud
+# disabled »), mais suffisant pour faire échouer un module Ansible
+# strict sur l'UTF-8. `iconv -f utf-8 -t utf-8 -c` élimine les octets
+# invalides sans toucher au reste — vérifié : la ligne recherchée
+# survit intacte.
+# noqa: command-instead-of-module — aucun module Ansible ne filtre l'UTF-8 d'un flux
+- name: "Garde 5/5 — relever ce qu'Ollama a annoncé sur le cloud (effet constaté)"  # noqa: command-instead-of-module
   ansible.builtin.command:
-    cmd: "podman logs {{ local_ai_service_name }}"
+    argv:
+      - sh
+      - -c
+      - "podman logs {{ local_ai_service_name }} 2>&1 | iconv -f utf-8 -t utf-8 -c"
   register: local_ai_guard_cloud_log
   changed_when: false
+  # iconv -c renvoie un code non nul dès qu'il a dû omettre au moins un
+  # octet invalide (comportement documenté, pas un échec de la lecture
+  # elle-même) — le contenu récupéré est ce qui compte, vérifié par
+  # l'assertion séparée juste après, pas le code de sortie d'iconv ici.
+  failed_when: false
   check_mode: false
   when: not ansible_check_mode
 
@@ -319,12 +358,11 @@
     that:
       - >-
         ('msg="Ollama cloud disabled: ' ~ local_ai_cloud_disabled_expected ~ '"')
-        in (local_ai_guard_cloud_log.stdout ~ local_ai_guard_cloud_log.stderr)
+        in local_ai_guard_cloud_log.stdout
     fail_msg: >-
       Le journal du service n'annonce pas 'Ollama cloud disabled:
       {{ local_ai_cloud_disabled_expected }}' — dernières lignes
-      pertinentes : {{ (local_ai_guard_cloud_log.stdout_lines
-        + local_ai_guard_cloud_log.stderr_lines)
+      pertinentes : {{ local_ai_guard_cloud_log.stdout_lines
         | select('search', 'cloud disabled') | list }}. Ce rôle
       s'arrête : la fonctionnalité cloud documentée
       (docs/local-ai.md § 7.3/§ 8) doit rester désactivée, constaté
@@ -334,6 +372,166 @@
       Ollama a lui-même annoncé le cloud désactivé
       (attendu={{ local_ai_cloud_disabled_expected }}), confirmé dans
       son propre journal.
+  when: not ansible_check_mode
+
+# --- D21 : récupération des modèles par conteneur éphémère distinct ------
+# Jamais exécuté par défaut — tag `never` en plus de `pull-models` :
+# `ansible-playbook ... --tags pull-models,untagged` explicite requis.
+# Voir defaults/main.yml pour le motif complet (voie retenue face à
+# `podman network connect` temporaire) et docs/local-ai.md § 9.
+# ---------------------------------------------------------------------
+
+- name: "Récupération D21 — relever l'état réseau du conteneur de service AVANT tout démarrage du conteneur de récupération"
+  ansible.builtin.command:
+    cmd: "podman inspect {{ local_ai_service_name }} --format '{{ '{{json .NetworkSettings.Networks}}' }}'"
+  register: local_ai_service_net_before
+  changed_when: false
+  check_mode: false
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — espace disque AVANT (btrfs, sans privilège)"
+  ansible.builtin.command:
+    cmd: btrfs filesystem usage /
+  register: local_ai_disk_before
+  changed_when: false
+  check_mode: false
+  tags: ['pull-models', 'never']
+
+# Aucun --network : le réseau rootless par défaut de Podman (pasta,
+# avec sortie) s'applique, entièrement disjoint du réseau interne
+# dédié du service — jamais le même espace de noms réseau, jamais le
+# même objet réseau nommé. Même volume que le service
+# (systemd-{{ local_ai_volume_name }}), aucun accès GPU (inutile pour
+# tirer des poids). --rm : conteneur réellement éphémère, pas laissé
+# en place après ce bloc.
+# noqa: command-instead-of-module — aucun module Ansible ne pilote Podman à ce niveau
+- name: "Récupération D21 — démarrer le conteneur de récupération éphémère (réseau par défaut, PAS le réseau du service)"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: >-
+      podman run -d --rm --name {{ local_ai_recovery_container_name }}
+      -v systemd-{{ local_ai_volume_name }}:/root/.ollama
+      {{ local_ai_ollama_image }} serve
+  register: local_ai_recovery_start
+  changed_when: true
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — attendre que le démon interne du conteneur de récupération réponde"
+  ansible.builtin.command:
+    cmd: "podman exec {{ local_ai_recovery_container_name }} ollama list"
+  register: local_ai_recovery_ready
+  retries: "{{ local_ai_api_wait_retries }}"
+  delay: "{{ local_ai_api_wait_delay }}"
+  until: local_ai_recovery_ready.rc == 0
+  changed_when: false
+  failed_when: false
+  tags: ['pull-models', 'never']
+
+- name: "Échouer bruyamment si le conteneur de récupération n'a jamais répondu"
+  ansible.builtin.assert:
+    that:
+      - local_ai_recovery_ready.rc == 0
+    fail_msg: >-
+      Le conteneur de récupération n'a jamais répondu à
+      `ollama list` après {{ local_ai_api_wait_retries }} tentatives —
+      sortie : {{ local_ai_recovery_ready.stderr | default('') }}
+    success_msg: "Conteneur de récupération prêt."
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — relever l'état réseau du conteneur de service PENDANT que le conteneur de récupération tourne"
+  ansible.builtin.command:
+    cmd: "podman inspect {{ local_ai_service_name }} --format '{{ '{{json .NetworkSettings.Networks}}' }}'"
+  register: local_ai_service_net_during
+  changed_when: false
+  check_mode: false
+  tags: ['pull-models', 'never']
+
+# Seuls les deux modèles nommés par D21 — jamais un troisième, jamais
+# une variable substituable ici (contrairement aux gardes, cette liste
+# n'est pas un point de démonstration d'échec forcé).
+- name: "Récupération D21 — tirer chaque modèle nommé (D21), dans le conteneur de récupération uniquement"
+  ansible.builtin.command:
+    cmd: "podman exec {{ local_ai_recovery_container_name }} ollama pull {{ local_ai_pull_model }}"
+  register: local_ai_pull_result
+  changed_when: "'success' in local_ai_pull_result.stdout | lower or 'writing manifest' in local_ai_pull_result.stdout | lower"
+  loop: "{{ local_ai_models_to_pull }}"
+  loop_control:
+    loop_var: local_ai_pull_model
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — relever le manifeste de chaque modèle tiré (empreinte, chemin)"
+  ansible.builtin.command:
+    cmd: >-
+      podman exec {{ local_ai_recovery_container_name }} sh -c
+      "sha256sum /root/.ollama/models/manifests/registry.ollama.ai/library/{{ local_ai_pull_model.split(':')[0] }}/{{ local_ai_pull_model.split(':')[1] }}
+      && cat /root/.ollama/models/manifests/registry.ollama.ai/library/{{ local_ai_pull_model.split(':')[0] }}/{{ local_ai_pull_model.split(':')[1] }}"
+  register: local_ai_manifest_check
+  changed_when: false
+  loop: "{{ local_ai_models_to_pull }}"
+  loop_control:
+    loop_var: local_ai_pull_model
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — relever la liste et la taille des modèles depuis le conteneur de récupération"
+  ansible.builtin.command:
+    cmd: "podman exec {{ local_ai_recovery_container_name }} ollama list"
+  register: local_ai_recovery_list
+  changed_when: false
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — arrêter le conteneur de récupération (--rm : suppression automatique)"
+  ansible.builtin.command:
+    cmd: "podman stop {{ local_ai_recovery_container_name }}"
+  changed_when: true
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — espace disque APRÈS (btrfs, sans privilège)"
+  ansible.builtin.command:
+    cmd: btrfs filesystem usage /
+  register: local_ai_disk_after
+  changed_when: false
+  check_mode: false
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — relever l'état réseau du conteneur de service APRÈS l'arrêt du conteneur de récupération"
+  ansible.builtin.command:
+    cmd: "podman inspect {{ local_ai_service_name }} --format '{{ '{{json .NetworkSettings.Networks}}' }}'"
+  register: local_ai_service_net_after
+  changed_when: false
+  check_mode: false
+  tags: ['pull-models', 'never']
+
+- name: "Échouer bruyamment si le réseau du conteneur de service a changé à un quelconque moment (avant/pendant/après)"
+  ansible.builtin.assert:
+    that:
+      - local_ai_service_net_before.stdout == local_ai_service_net_during.stdout
+      - local_ai_service_net_during.stdout == local_ai_service_net_after.stdout
+    fail_msg: >-
+      Le réseau du conteneur de service a changé pendant la
+      récupération — avant : {{ local_ai_service_net_before.stdout }},
+      pendant : {{ local_ai_service_net_during.stdout }}, après :
+      {{ local_ai_service_net_after.stdout }}. Le conteneur de service
+      ne doit JAMAIS être attaché à un réseau externe, à aucun moment.
+    success_msg: >-
+      Réseau du conteneur de service inchangé avant/pendant/après la
+      récupération : {{ local_ai_service_net_before.stdout }}.
+  tags: ['pull-models', 'never']
+
+- name: "Récupération D21 — rapport"
+  ansible.builtin.debug:
+    msg:
+      - "Modèles tirés : {{ local_ai_models_to_pull | join(', ') }}"
+      - "Réseau du service, avant/pendant/après (identiques) : {{ local_ai_service_net_before.stdout }}"
+      - "Liste depuis le conteneur de récupération : {{ local_ai_recovery_list.stdout_lines | default([]) | join(' / ') }}"
+  tags: ['pull-models', 'never']
+
+# Relevé frais, après le bloc pull-models (potentiellement sauté) —
+# la lecture faite plus haut, avant ce bloc, serait périmée si des
+# modèles viennent d'être tirés dans cette même exécution.
+- name: "Relever à nouveau les modèles présents sur disque, pour le rapport (frais, pas périmé par un tirage dans cette même exécution)"
+  ansible.builtin.uri:
+    url: "http://{{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}/api/tags"
+    return_content: true
+  register: local_ai_tags_final
   when: not ansible_check_mode
 
 # --- Rapport -----------------------------------------------------------
@@ -365,7 +563,13 @@
           démarré, API locale répond sur
           {{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}
           uniquement.
-      - "Aucun modèle chargé (liste vide, confirmé) — GPU visible depuis l'intérieur du conteneur, confirmé."
+      - >-
+          Aucun modèle chargé en VRAM par ce rôle (/api/ps vide,
+          confirmé — distinct des modèles présents sur disque depuis
+          D21) — GPU visible depuis l'intérieur du conteneur, confirmé.
+      - >-
+          Modèles présents sur disque (D21, informatif, pas une garde) :
+          {{ local_ai_tags_final.json.models | default([]) | map(attribute='name') | list | join(', ') | default('aucun', true) }}
       - "Image épinglée : {{ local_ai_ollama_image }}"
       - >-
           Réseau dédié interne confirmé (Internal={{ local_ai_guard_network.stdout | default('?') | trim }}) —

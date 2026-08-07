@@ -10,7 +10,19 @@
 #   D16 — NVreg_PreserveVideoMemoryAllocations=1 — contrepartie
 #         assumée : suspension/réveil système plus lents.
 #   D17 — dimensionnement initial 13 B / Q4_K_M, à mesurer avant toute
-#         montée — aucun modèle choisi ni téléchargé par ce rôle.
+#         montée — [DÉTAILLÉ par D21] modèles réellement choisis.
+#   D21 — chat/agent : mistral-nemo:12b-instruct-2407-q4_K_M
+#         (Apache-2.0, contexte visé 32 K — motif de licence : dépôt
+#         public destiné à être cloné en entreprise, la Llama 2
+#         Community License de codellama:13b y porterait des
+#         restrictions). Complétion : qwen2.5-coder:7b-instruct-q4_K_M
+#         (Apache-2.0, FIM confirmé). Écarté : qwen2.5-coder:3b, seule
+#         taille restreinte (Qwen Research License) d'une famille par
+#         ailleurs Apache-2.0 — écarté sur le seul motif de licence,
+#         sans lecture de ses termes complets (le motif suffit).
+#         Récupérés par un conteneur de récupération distinct,
+#         éphémère, jamais attaché au réseau du service
+#         (docs/local-ai.md § 9).
 
 # --- D14 : image Ollama, épinglée par empreinte, pas par étiquette ---
 # ---------------------------------------------------------------------
@@ -94,6 +106,31 @@ local_ai_nvidia_provider_package: xorg-x11-drv-nvidia-power
 local_ai_quadlet_dir: "{{ ansible_facts.env.HOME }}/.config/containers/systemd"
 local_ai_service_name: ollama
 local_ai_volume_name: ollama-models
+
+# --- D21 : récupération des modèles par conteneur éphémère distinct ----
+# ---------------------------------------------------------------------
+# Motif (demande § 1, IA-3) : `podman network connect` temporaire sur
+# le conteneur de service (docs/local-ai.md § 8.5, proposé en IA-2)
+# affaiblirait la propriété que le confinement réseau établit — le
+# service cesserait d'être vérifiablement isolé pendant l'opération,
+# la garantie redeviendrait une question de discipline plutôt qu'un
+# fait structurel. Retenu à la place : un second conteneur, jamais
+# démarré par défaut (tag `pull-models`, jamais dans les tâches
+# normales de ce rôle), qui partage le MÊME volume de modèles que le
+# service mais SANS le réseau interne dédié — aucun `Network=` n'est
+# passé à `podman run`, donc le réseau rootless par défaut de Podman
+# (pasta, avec sortie) s'applique, entièrement disjoint de
+# `systemd-{{ local_ai_network_unit_name }}`. Le conteneur de service
+# ne reçoit ainsi jamais d'accès externe, à aucun moment — vérifiable
+# par inspection avant/pendant/après, pas par affirmation
+# (docs/local-ai.md § 9.1).
+local_ai_recovery_container_name: ollama-recovery
+
+# Les deux seuls modèles de ce livrable (D21) — aucun autre nom ne doit
+# apparaître dans les tâches taguées `pull-models`.
+local_ai_models_to_pull:
+  - mistral-nemo:12b-instruct-2407-q4_K_M
+  - qwen2.5-coder:7b-instruct-q4_K_M
 
 # --- Modèles : répertoire simple, pas de sous-volume btrfs dédié -----
 # Aucun outil de snapshot (snapper/timeshift/btrfs-assistant) n'est

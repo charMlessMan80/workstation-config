@@ -1168,6 +1168,64 @@ après usage mesuré — pas une fermeture définitive de la résidence,
 une séquence : à la demande d'abord, résident ensuite si l'usage le
 justifie.
 
+**D21 (2026-08-07, IA-3) — modèles retenus : chat/agent =
+`mistral-nemo:12b-instruct-2407-q4_K_M`, complétion =
+`qwen2.5-coder:7b-instruct-q4_K_M`, tous deux Apache-2.0.** Motif du
+choix de licence pour le chat/agent (`mistral-nemo` plutôt que
+`codellama:13b`, Llama 2 Community License) : ce dépôt est public
+**et destiné à être cloné pour un usage en entreprise** — une licence
+qui porte des conditions d'usage jusque dans ce contexte est écartée,
+Apache-2.0 non. Contexte visé pour le chat : 32 K. `qwen2.5-coder:3b`
+écarté (seule taille restreinte — Qwen Research License — d'une
+famille par ailleurs Apache-2.0), sur le seul motif de licence, sans
+lecture de ses termes complets (marqueur requalifié,
+`docs/local-ai.md` § 1).
+
+**Coexistence mesurée, pas supposée — ne tient pas.** Chat seul à
+32 K : 12 294 Mio VRAM mesurés (contre ≈12,5 Gio estimés en IA-2 —
+écart expliqué : confusion Gio/GB sur les poids dans l'estimation
+d'origine, la formule de cache KV, elle, était juste à moins de 1 %
+près, `docs/local-ai.md` § 9.3). Complétion seule à son contexte réel
+(2000, celui que `roles/completion/` configure) : 4 690 Mio. **Les
+deux ensemble : Ollama décharge systématiquement l'un pour charger
+l'autre**, testé dans les deux sens — ~17 Gio pour une enveloppe
+mesurée de ~15,9 Gio, exactement ce que l'arithmétique de la demande
+anticipait. Trois leviers chiffrés, aucun recommandé
+(`OLLAMA_KV_CACHE_TYPE=q8_0` : -2,29 Gio, qualité non chiffrée ;
+contexte réduit à 16 K : -2,38 Gio ; bascule séquentielle : 3,4-4,1 s
+par changement de modèle) — décision laissée à l'opérateur.
+
+Récupération par **conteneur de récupération éphémère**, distinct du
+conteneur de service — jamais le même réseau (le service reste sur le
+réseau interne dédié D18, la récupération utilise le réseau par
+défaut de Podman, disjoint) — préféré à `podman network connect`
+temporaire (proposé en IA-2 § 8.5) parce que ce dernier aurait rendu
+l'isolation du service momentanément une question de discipline
+plutôt qu'un fait structurel vérifiable. Isolation du conteneur de
+service prouvée par inspection à quatre moments (avant/pendant/après
+récupération, après arrêt) — identique aux quatre relevés, deux fois.
+
+**Intégrité du registre de modèles, testée par corruption délibérée,
+pas supposée** : `ollama pull` vérifie le contenu reçu sur le réseau
+(« verifying sha256 digest »), mais ne détecte ni ne répare un blob
+**déjà présent localement** corrompu après coup sous son nom attendu —
+écart nommé, `docs/repositories.md` § 8.
+
+RTD3 confirmé bloqué en continu par un contexte CUDA ouvert (modèle
+chargé, lecture passive sur 60 s : `runtime_suspended_time` figé,
+`runtime_active_time` progresse au rythme du temps réel) — consommation
+mesurée au repos, modèle chargé : 3,49 W (P8), très en dessous des
+pointes transitoires de sonde (33-55 W).
+
+Test bout-en-bout `lsp-ai`/Helix (CMP-1) : la poignée de main LSP et
+l'envoi automatique de requêtes de complétion à la frappe fonctionnent
+toujours ; la complétion échoue pour une cause précisément identifiée
+et distincte des deux anticipées (ni `lsp-ai`, ni RTD3/rechargement) —
+le nom de modèle placeholder de CMP-1 (`aucun-modele-charge-D20`) ne
+correspond à aucun modèle réel, erreur Ollama immédiate et claire.
+Correction hors du périmètre de ce livrable (`roles/completion/` non
+touché) — signalée, pas corrigée.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -2513,3 +2571,46 @@ justifie.
   précompilé récupéré ; `command -v node npm` toujours vide ; aucun
   nouveau dépôt `dnf` (`crates.io`/le dépôt git `lsp-ai` n'en sont
   pas) ; `getenforce` inchangé (`Enforcing`) ; aucun redémarrage.
+- **2026-08-07 — récupération des modèles, mesure de l'enveloppe
+  réelle, D21, `roles/local_ai/` (IA-3).** Deux modèles nommés (D21,
+  ci-dessus) récupérés par un conteneur de récupération éphémère,
+  jamais le réseau du service — isolation prouvée par inspection à
+  quatre moments distincts, identique deux fois. Intégrité testée par
+  corruption délibérée d'un blob déjà tiré : `ollama pull` vérifie le
+  contenu reçu sur le réseau mais ne détecte pas un blob local corrompu
+  sous son nom attendu (écart nommé, `docs/repositories.md` § 8).
+  Espace disque : Δ≈11 GiB (`btrfs filesystem usage /`, sans
+  privilège), cohérent avec les tailles de manifeste.
+  Coexistence mesurée, pas supposée : chat seul à 32 K = 12 294 Mio
+  VRAM (contre ≈12,5 Gio estimés en IA-2 — écart expliqué : confusion
+  Gio/GB sur les poids, la formule de cache KV était juste à <1 %) ;
+  complétion seule à son contexte réel (2000) = 4 690 Mio ; les deux
+  ensemble : Ollama décharge systématiquement l'un pour charger
+  l'autre, testé dans les deux sens — la coexistence ne tient pas,
+  confirmé. Temps de chargement froid/chaud, latence premier jeton
+  (0,176 s, modèle résident) et débit (65 jetons/s, chat) mesurés.
+  RTD3 confirmé bloqué en continu par un contexte CUDA ouvert (lecture
+  passive 60 s, aucune sonde) ; consommation au repos modèle chargé :
+  3,49 W (P8).
+  Trois leviers chiffrés, aucun recommandé : `OLLAMA_KV_CACHE_TYPE=q8_0`
+  (-2,29 Gio, qualité non chiffrée), contexte réduit à 16 K (-2,38 Gio),
+  bascule séquentielle (3,4-4,1 s par changement).
+  Test bout-en-bout `lsp-ai`/Helix : poignée de main LSP et requêtes de
+  complétion automatiques toujours fonctionnelles ; échec de la
+  complétion elle-même attribué avec certitude à un nom de modèle
+  placeholder de CMP-1 (`roles/completion/`, hors périmètre de ce
+  livrable) — ni `lsp-ai` ni RTD3/rechargement en cause.
+  Défaut trouvé et corrigé en écrivant ce livrable : la garde
+  d'annonce cloud (IA-2) échouait sur un journal de service contenant,
+  après usage réel, des séquences d'octets non-UTF8 valides (vidage de
+  vocabulaire GGUF par llama.cpp) — corrigé par un filtre `iconv`, les
+  deux démonstrations d'échec forcé de cette garde rejouées après
+  correction.
+  **Aucune action privilégiée dans ce livrable** au-delà de la garde
+  D16 pré-existante, inchangée, rejouée sans modification de contenu —
+  note honnête : cette tâche pré-existante ne suit pas encore la
+  règle 0.3 (CMP-1), signalé plutôt que laissé paraître conforme.
+  Aucun autre modèle que les deux nommés ; jamais le conteneur de
+  service connecté à un réseau externe ; `getenforce` inchangé
+  (`Enforcing`), aucun refus AVC ; aucun `node`/`npm` ; aucun nouveau
+  dépôt système ; aucun redémarrage.

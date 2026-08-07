@@ -88,10 +88,13 @@ chat/agent de 13 B (≈7,4 GiB) chargé à la demande totalisent ≈11,4 GiB,
 sous l'enveloppe mesurée de ≈15,9 GiB, marge de cache KV et de base du
 bureau (≈0,45 GiB, § 2.3) incluse. **Plausible arithmétiquement,
 non vérifié en pratique** — aucun modèle n'a été chargé dans cette
-série. `@VERIF : chargement simultané réel de deux modèles (un petit
-tenu en permanence, un plus grand à la demande) — non mesuré, nécessite
-de charger des modèles réels, hors périmètre lecture seule de ce
-livrable.`
+série. **[RÉSOLU le 2026-08-07, IA-3, § 9.3] ÉTAIT** un marqueur de
+vérification ouvert (chargement simultané non mesuré) — **mesuré
+réellement** avec les deux modèles finalement retenus (D21) :
+la coexistence **ne tient pas**, Ollama décharge le premier modèle
+pour charger le second dès que les deux sont sollicités l'un après
+l'autre — résultat mesuré, pas déduit de l'arithmétique. Détail
+complet, § 9.3.
 
 **Où le modèle local apporte quelque chose de réel, face à Claude Code
 déjà disponible** : disponibilité hors-ligne, coût marginal nul par
@@ -605,11 +608,15 @@ le dépôt versionne la **recette**, jamais l'artefact volumineux.
   mécanisme que celui déjà observé via `skopeo inspect`, § 3.2, propre
   à l'écosystème OCI dont Ollama réutilise le modèle ; comportement
   spécifique d'`ollama pull` non vérifié directement ici, aucun `pull`
-  exécuté). Une reprise après coupure ou un fichier corrompu serait, en
-  principe, détecté par la vérification d'empreinte du protocole —
-  `@VERIF : comportement exact d'ollama pull en cas de blob corrompu ou
-  coupure réseau — non testé, aucun modèle téléchargé dans ce
-  livrable.`
+  exécuté). **[RÉSOLU le 2026-08-07, IA-3, § 9.1] ÉTAIT** un marqueur de
+  vérification ouvert (comportement non testé) — **testé réellement**,
+  par corruption délibérée d'un blob déjà tiré (un octet modifié, puis
+  restauré) : `ollama pull` vérifie bien le contenu **reçu sur le
+  réseau** (« verifying sha256 digest », observé dans sa propre
+  sortie), mais **ne détecte ni ne répare** un blob **déjà présent
+  localement** sous son nom attendu même s'il a été corrompu après
+  coup — seule la suppression du fichier avant un nouveau `pull` force
+  une vérification réelle. Écart nommé, `docs/repositories.md` § 8.
 - **GGUF téléchargé manuellement** (Hugging Face typiquement) : pas de
   mécanisme d'intégrité uniforme au niveau du format lui-même — dépend
   de ce que la source publie à côté (empreinte SHA256 dans la page du
@@ -1452,7 +1459,7 @@ coup.
 | Modèle | Taille `Q4_K_M` | Contexte | Licence | Note |
 |---|---|---|---|---|
 | `qwen2.5-coder:1.5b-instruct-q4_K_M` | 986 Mio | 32 K | Apache-2.0 | Le plus léger, marge VRAM maximale |
-| `qwen2.5-coder:3b-instruct-q4_K_M` | 1,9 Gio | 32 K | **Qwen Research License** (non-commerciale) | **Seule taille de la famille sous licence restreinte** — à écarter d'un dépôt public sans lecture de ses termes exacts, `@VERIF : texte complet et portée précise de la Qwen Research License` |
+| `qwen2.5-coder:3b-instruct-q4_K_M` | 1,9 Gio | 32 K | **Qwen Research License** (non-commerciale) | **[REQUALIFIÉ le 2026-08-07, D21] Écarté** — seule taille restreinte d'une famille par ailleurs Apache-2.0, motif du dépôt public suffisant pour exclure sans lire les termes complets (D21, `docs/machine-facts.md` § Décisions). Fermé par requalification de la décision, pas par vérification effective (CLAUDE.md § un marqueur ne se retire qu'après vérification effective) : la portée exacte de cette licence reste, dans l'absolu, aussi peu déterminée qu'avant ; elle cesse seulement d'être actionnable pour ce choix précis. |
 | `qwen2.5-coder:7b-instruct-q4_K_M` | 4,7 Gio | 128 K (32 K pour 0.5-3 B) | Apache-2.0 | Le plus proche de la cible « ~4 Gio » de la demande |
 
 **Rôle chat/agent — 13 B, `Q4_K_M`** (sources :
@@ -1495,11 +1502,12 @@ marge est large (≈0,85 Gio de cache cumulé pour les deux rôles) ; à
 contexte élevé pour le rôle chat/agent (32 K, plausible pour une tâche
 « contexte long » — IA-0 § 1), le cache seul du modèle chat/agent
 (≈5 Gio) dépasse la marge que l'arithmétique de poids seuls avait
-laissée. `@VERIF : chargement simultané réel de deux modèles à
-contexte représentatif — non mesuré, nécessite de charger des modèles
-réels, hors périmètre lecture seule de ce livrable (marqueur déjà
-ouvert en IA-0 § 1, reformulé ici avec un chiffre de cache, pas
-fermé).`
+laissée. **[RÉSOLU le 2026-08-07, IA-3, § 9.3] ÉTAIT** un marqueur de
+vérification ouvert (chargement simultané à contexte représentatif non
+mesuré) — **mesuré réellement** avec les deux modèles retenus (D21,
+mistral-nemo:12b à 32 K + qwen2.5-coder:7b) : la coexistence ne tient
+pas, confirmant exactement ce que ce calcul anticipait. Détail complet
+§ 9.3, chiffres réels contre estimation ici.
 
 **Questions qui départagent — aucun modèle choisi :**
 
@@ -1610,6 +1618,290 @@ la garde `rpm -Vf` déjà intégrée au rôle, rejouée à chaque exécution) ;
 SELinux jamais modifié (`Enforcing` inchangé, aucun `setenforce`) ;
 aucun redémarrage de la machine, aucune déconnexion de session.
 
+## 9. IA-3 — récupération des modèles, mesure de l'enveloppe réelle (2026-08-07)
+
+**D21** (`docs/machine-facts.md` § Décisions) : chat/agent =
+`mistral-nemo:12b-instruct-2407-q4_K_M` (Apache-2.0, contexte visé
+32 K) ; complétion = `qwen2.5-coder:7b-instruct-q4_K_M` (Apache-2.0,
+FIM confirmé) ; `qwen2.5-coder:3b` écarté (marqueur requalifié § 1,
+plus haut dans ce document). **Ce livrable mesure, il ne force pas la
+coexistence** — conformément à la demande, l'arithmétique annonçait un
+dépassement (~17,4 Gio pour ~15,9 Gio mesurés) et la mesure le
+confirme (§ 9.3).
+
+### 9.1 — Récupération par conteneur de récupération éphémère
+
+**Voie retenue, argumentée face à l'alternative** : `podman network
+connect` temporaire sur le conteneur de service (proposé § 8.5)
+affaiblit la propriété que le confinement réseau établit — pendant la
+connexion temporaire, l'isolation cesse d'être un fait structurel
+vérifiable et redevient une question de discipline opérationnelle
+(« ne pas oublier de déconnecter »). Retenu à la place : un **second**
+conteneur, jamais démarré par défaut (`roles/local_ai/`, tag
+`pull-models` + `never` — `ansible-playbook ... --tags
+pull-models,untagged` requis explicitement), qui partage le volume de
+modèles avec le service mais **jamais son réseau** — aucun `Network=`
+passé à `podman run`, donc le réseau rootless par défaut de Podman
+(pasta, avec sortie) s'applique, entièrement disjoint de
+`systemd-ollama`. Le conteneur de service ne reçoit ainsi jamais
+d'accès externe, à aucun moment.
+
+**Preuve, par inspection, pas par affirmation** — état réseau du
+conteneur de service relevé à quatre moments distincts (avant tout
+démarrage du conteneur de récupération, pendant qu'il tourne, après la
+récupération des deux modèles, après son arrêt), tâche Ansible dédiée,
+échec bruyant si l'un des quatre diffère :
+```
+$ podman inspect ollama --format '{{json .NetworkSettings.Networks}}'
+{"systemd-ollama":{"Gateway":"10.89.0.1","IPAddress":"10.89.0.4",...}}
+```
+**Identique aux quatre relevés**, dans les deux exécutions réelles de
+ce livrable — le conteneur de service n'a jamais été attaché au réseau
+par défaut, jamais eu de route de sortie, à aucun moment de la
+récupération.
+
+### 9.2 — Récupération et intégrité
+
+**Manifestes, empreintes par blob** (format registre de distribution
+OCI/Docker standard, lu directement, pas déduit) :
+
+| Modèle | Empreinte du blob de poids | Taille (octets, manifeste) | Config |
+|---|---|---|---|
+| `mistral-nemo:12b-instruct-2407-q4_K_M` | `sha256:dd3af152229f92a3d61f3f115217c9c72f4b94d8be6778156dab23f894703c28` | 7 477 204 672 (6,964 GiB — le pilleur d'IA-2 disait « 7,5 Gio », en réalité 7,5 **GB décimaux**, une confusion Gio/GB, § 9.3) | `sha256:4439d5cfc094433a522f8d00558da759ff0aec62909c5b0ba6f14d99f9068fe9` |
+| `qwen2.5-coder:7b-instruct-q4_K_M` | `sha256:60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463` | 4 683 074 048 (4,362 GiB) | `sha256:d9bb33f2786931fea42f50936a2424818aa2f14500638af2f01861eb2c8fb446` |
+
+**Emplacement** : `~/.local/share/containers/storage/volumes/systemd-ollama-models/_data/models/{manifests,blobs}/` — volume Podman nommé, sur le btrfs `Data,single` (D1), jamais versionné (D4 : taille seule suffit).
+
+**Mécanisme d'intégrité, vérifié par un test réel, pas supposé** —
+détail complet et écart résiduel assumé : `docs/repositories.md` § 8.
+Résumé : `ollama pull` annonce et effectue une vérification SHA-256 du
+contenu **reçu sur le réseau** (« verifying sha256 digest ») ; un blob
+**déjà présent localement**, corrompu après coup sans changer de nom,
+**n'est ni détecté ni réparé** par un nouveau `pull` — démontré par
+corruption délibérée d'un octet, restauration nécessitant la
+suppression du fichier avant nouveau `pull`. Les dix blobs des deux
+modèles, revérifiés un par un après ce test (`sha256sum` de chaque
+fichier comparé à son propre nom) : tous corrects.
+
+**Espace disque, avant/après** (`btrfs filesystem usage /`, sans
+privilège) :
+```
+Avant : Device allocated: 16.02GiB   (/home : 13G utilisés, df -h)
+Après : Device allocated: 27.02GiB   (/home : 24G utilisés, df -h)
+```
+**Δ ≈ 11 GiB**, cohérent avec 6,964 + 4,362 = 11,33 GiB de poids
+(le reste : manifestes, métadonnées, clés d'identité déjà présentes).
+
+**D1, rappel** : ces poids ne sont pas versionnés dans ce dépôt — leur
+reconstructibilité repose entièrement sur le registre Ollama (nommé,
+`docs/repositories.md` § 8) et sur les deux identifiants consignés ici
+(nom de modèle + empreinte de blob), pas sur une copie locale
+sauvegardée par ce dépôt.
+
+### 9.3 — Mesures VRAM, temps, latence, débit, RTD3
+
+**Méthode d'isolement** (`docs/dgpu-power.md`) appliquée à chaque
+relevé : une sonde `nvidia-smi` unique et délibérée par mesure, effet
+de sonde nommé (elle réveille le GPU — sans conséquence sur le chiffre
+de VRAM lui-même, qui reflète l'état déjà en place). Chargement/
+déchargement des modèles par l'API `/api/generate` (`keep_alive`
+explicite), pas par `ollama run` (mode interactif, moins contrôlable).
+
+**1. Chat seul, 32 K** — sonde après chargement :
+```
+memory.used : 12349 MiB total (llama-server : 12294 MiB, kwin_wayland : 13 MiB, reste : réserve pilote)
+```
+**Écart à l'estimation d'IA-2 (12,5 Gio), expliqué dans les deux
+sens** : mesuré 12294 MiB = **12,01 GiB**, environ 0,5 GiB **en
+dessous** de l'estimation. Décomposé : poids réels 7 130,8 MiB
+(6,96 GiB, § 9.2) + cache KV déduit 5 163,2 MiB (5,04 GiB). Or la
+formule de cache KV d'IA-2 prédisait **5,00 GiB** — un écart de moins
+de 1 %, la formule était juste. L'écart total vient entièrement d'une
+confusion Gio/GB sur les **poids** : IA-2 citait « 7,5 Gio » en
+reprenant l'affichage `ollama` (« 7.5 GB », décimal) sans convertir —
+7,5 GB décimaux = 6,98 GiB, pas 7,5 GiB. Corrigé ici par mesure
+directe.
+
+**2. Complétion seule, contexte 2000** (celui que `roles/completion/`
+configure réellement pour `lsp-ai`, pas un contexte arbitraire) :
+```
+memory.used : 4745 MiB total (llama-server : 4690 MiB)
+```
+Poids réels 4 362 MiB (4,26 GiB) + cache KV déduit ≈328 MiB — plus
+que la formule ne le prédirait pour 2000 jetons seuls (~107 MiB),
+écart non creusé davantage ici (buffers de calcul / overhead
+d'allocation par défaut probablement inclus, formule KV pure ne les
+couvre pas — nommé, pas expliqué en détail).
+
+**3. Les deux ensemble** : **la coexistence ne tient pas — mesuré, pas
+supposé.** Charger le modèle chat pendant que la complétion est
+chargée **décharge la complétion** (`/api/ps` ne montre plus qu'un
+seul modèle après coup, un seul processus `llama-server` visible dans
+`nvidia-smi --query-compute-apps`) ; l'inverse est également vrai
+(charger la complétion décharge le chat). Testé dans les deux sens,
+confirmé les deux fois. **C'est le résultat de la mesure, pas un échec
+de la mesure** — exactement ce que l'arithmétique de la demande
+anticipait (~17,4 Gio pour ~15,9 Gio mesurés).
+
+**4. Temps de chargement, à froid puis à chaud** :
+
+| Modèle | Froid (`load_duration`) | Chaud (déchargé puis rechargé, `load_duration`) |
+|---|---|---|
+| Chat (mistral-nemo, 32 K) | 16,19 s | 2,85 s |
+| Complétion (qwen2.5-coder, 2000) | 7,60 s | — (non remesuré séparément, voir bascule § 9.4) |
+
+**5. Latence du premier jeton et débit, modèle déjà chargé** (chat,
+prompt de 18 jetons, 141 jetons générés) :
+```
+latence avant premier jeton (load+prompt_eval, déjà résident) : 0,176 s
+débit en régime établi : 141 jetons / 2,167 s = 65,05 jetons/s
+```
+
+**6. Veille runtime (RTD3), modèle chargé, lecture passive uniquement**
+(aucune sonde `nvidia-smi` pendant la fenêtre — même méthode que
+`docs/local-ai.md` § 7.6) :
+```
+T0  runtime_status=active  runtime_suspended_time=36016112  runtime_active_time=1144417
+[60 s, aucune sonde, complétion chargée, contexte CUDA ouvert]
+T1  runtime_status=active  runtime_suspended_time=36016112 (inchangé)  runtime_active_time=1204421 (Δ=+60004 ms ≈ Δt réel)
+```
+**Confirmé, pas seulement plausible** : le contexte CUDA ouvert d'un
+modèle chargé bloque RTD3 en continu — `runtime_suspended_time` figé,
+`runtime_active_time` progresse exactement au rythme du temps écoulé.
+Ferme le marqueur ouvert en IA-0 § 2.1 sur ce point précis (l'effet
+d'une suspension **système**, distinct, reste ouvert — non testé ici,
+aucune suspension déclenchée).
+
+**Consommation, modèle chargé mais au repos (60 s+ sans requête),
+sonde unique** :
+```
+power.draw : 3,49 W   pstate : P8   utilization.gpu : 0 %
+```
+**Bien en dessous** des ~33-55 W relevés pendant une sonde ou un
+chargement actif (état transitoire, pas la consommation stable) — un
+modèle chargé et inactif se stabilise en état d'alimentation bas
+(P8), malgré RTD3 bloqué. Nuance à distinguer du chiffre « ~8 W » de
+D15/D20 (économie de la bascule MUX, un mécanisme différent) — pas
+directement comparable, nommé pour ne pas laisser croire à une
+équivalence.
+
+### 9.4 — Trois leviers, chiffrés, aucun recommandé
+
+| Levier | Configuration de référence (f16, 32 K) | Avec le levier | VRAM économisée |
+|---|---|---|---|
+| `OLLAMA_KV_CACHE_TYPE=q8_0` | 12294 MiB | 9946 MiB (mesuré, conteneur de mesure distinct, jamais le service réel) | **2348 MiB (2,29 GiB)** — perte de qualité **non chiffrée**, nommée comme telle, pas évaluée ici |
+| Contexte réduit à 16 K | 12294 MiB (32 K) | 9854 MiB (mesuré) | **2440 MiB (2,38 GiB)** |
+| Chargement séquentiel (bascule) | — | complétion→chat : 4,11 s ; chat→complétion : 3,42 s (`load_duration`, les deux `déjà en cache disque OS`) | coût par bascule, pas de VRAM à demeure, les deux modèles cohabitent sur disque (§ 9.2) sans jamais cohabiter en VRAM |
+
+**Aucun des trois n'est recommandé ici** — chiffrés pour que
+l'opérateur tranche : le premier réduit la VRAM sans réduire le
+contexte mais au prix d'une qualité non mesurée ; le second réduit la
+VRAM en réduisant directement l'usage possible (32 K → 16 K de fenêtre
+de contexte réelle pour le chat) ; le troisième n'économise aucune
+VRAM à demeure mais paie quelques secondes par changement d'usage, sans
+jamais dépasser l'enveloppe.
+
+### 9.5 — Bout-en-bout : `lsp-ai`/Helix, cause distinguée avant conclusion
+
+CMP-1 est en place (`~/.local/bin/lsp-ai`, `~/.config/helix/languages.toml`)
+— testé réellement, `hx -vv` piloté sans capture visuelle (même méthode
+que `docs/completion.md` § 7.4), fichier YAML ouvert, complétion
+déclenchée automatiquement à la frappe.
+
+**La poignée de main LSP fonctionne** (confirmé de nouveau) et Helix
+envoie bien des requêtes `textDocument/completion` automatiques
+pendant la frappe (`triggerKind:1`, observé deux fois). **La
+complétion échoue**, mais pour une **troisième cause**, distincte des
+deux anticipées par la demande (politique `lsp-ai` défaillante, ou
+réveil RTD3 + rechargement) :
+```
+lsp-ai err <- "ERROR lsp_ai::transformer_worker: generating response:
+  making Ollama completions request: \"model 'aucun-modele-charge-D20' not found\""
+```
+**Ni `lsp-ai` ni RTD3/la politique de rechargement n'est en cause** —
+`roles/completion/` (CMP-1) pointe délibérément un nom de modèle
+placeholder, non résolvable par construction (motif exact,
+`docs/completion.md` § doc de `templates/languages.toml.j2` : « pour
+que la complétion échoue de façon visible plutôt que de sembler
+fonctionner par coïncidence »). Ollama répond une erreur claire et
+immédiate (pas de latence de 20 s, pas de timeout) — le mécanisme
+entier, jusqu'à l'appel réseau vers Ollama, fonctionne. **Corriger le
+nom de modèle dans `roles/completion/` est hors du périmètre strict de
+ce livrable** (`roles/local_ai/`, `docs/`, le volume de modèles
+uniquement) — signalé ici pour un livrable qui aurait ce mandat, pas
+corrigé.
+
+## Validation — IA-3 (2026-08-07)
+
+**Actions privilégiées : aucune, dans ce livrable.** Ni la récupération
+des modèles (conteneur rootless, volume utilisateur), ni les mesures
+(API HTTP locale, `nvidia-smi`, lectures `/sys`/`/proc`), ni le test
+d'intégrité (lecture/écriture dans un volume utilisateur) n'ont
+demandé de `sudo`. Seule action `become: true` du rôle,
+**pré-existante, inchangée** : le gabarit modprobe.d (D16), rejoué à
+chaque exécution de cette série sans modification de contenu (`rpm -Vf`
+identique avant/après, comme toujours). **Note honnête sur la règle
+0.3** (CLAUDE.md, ajoutée en CMP-1) : cette tâche pré-existante
+n'implémente pas la tentative sans privilège préalable que la règle
+demande désormais — pas corrigée dans ce livrable (hors périmètre
+annoncé), signalée plutôt que laissée paraître conforme par silence.
+
+**Défaut trouvé et corrigé en écrivant ce livrable** : la Garde 5/5
+(annonce cloud) lit `podman logs` — après un usage réel du service
+(générations réelles pour les mesures), ce journal contient le vidage
+brut du vocabulaire GGUF par `llama.cpp`, des séquences d'octets
+valides pour un tokeniseur par octets mais pas toujours valides comme
+UTF-8 une fois tronquées par le journal, faisant échouer le module
+`command` (« Refusing to deserialize an invalid UTF8 string »).
+Corrigé par `iconv -f utf-8 -t utf-8 -c`, contenu utile préservé,
+vérifié. Les deux démonstrations d'échec forcé de cette garde
+rejouées après correction (CLAUDE.md § une garde modifiée perd la
+démonstration qui la validait).
+
+**Validation Ansible** :
+```
+$ ansible-playbook --syntax-check roles/local_ai/local_ai.yml   # succès
+$ ansible-playbook --check roles/local_ai/local_ai.yml          # succès, changed=0
+$ ansible-playbook roles/local_ai/local_ai.yml                  # succès, changed=0 (état déjà nominal)
+$ ansible-playbook roles/local_ai/local_ai.yml                  # succès, changed=0 (deuxième exécution consécutive)
+$ ansible-playbook roles/local_ai/local_ai.yml --tags pull-models,untagged  # changed=2 (conteneur éphémère, attendu — recréé à chaque fois)
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/local_ai/
+Passed: 0 failure(s), 0 warning(s) — profil production
+```
+
+**Isolation réseau du conteneur de service, prouvée par inspection** —
+§ 9.1 : identique aux quatre relevés (avant/pendant/après récupération,
+après arrêt du conteneur de récupération), sur les deux exécutions
+réelles de la récupération dans ce livrable.
+
+**SELinux** :
+```
+$ getenforce                                # Enforcing, avant et après ce livrable
+$ journalctl -k -g 'avc:' --no-pager -n 5   # -- No entries --
+```
+
+**Intégrité, testée pas supposée** — § 9.2 : `ollama pull` vérifie le
+contenu reçu sur le réseau (« verifying sha256 digest »), mais ne
+détecte pas un blob déjà présent corrompu après coup ; les dix blobs
+des deux modèles, revérifiés un par un après ce test, sont tous
+corrects.
+
+**Confirmations finales** : les deux modèles nommés par D21, et
+seulement ceux-là, sont présents (`ollama list`) ; aucun autre modèle ;
+`/usr/lib/modprobe.d/nvidia-power-management.conf` intact ; aucun
+nouveau dépôt système ; `sudoers`/`gpu_mux_mode`/`dgpu_disable`/
+`kwinrulesrc` non touchés ; SELinux jamais modifié ; aucun redémarrage ;
+`command -v node npm` toujours vide.
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : quatre
+marqueurs actionnables à la clôture d'IA-3 (huit à la clôture d'IA-2,
+un déjà fermé par requalification D21 § 1, trois fermés par mesure
+réelle ce livrable — § 9.3, § 9.2) — comportement d'une suspension
+**système** avec modèle chargé (toujours non testé, distinct de RTD3),
+comportement runtime ROCm sans périphérique, sémantique des variables
+Ollama non documentées, sémantique de la valeur `2` de
+`NVreg_PreserveVideoMemoryAllocations`.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanismes RTD3, méthode
@@ -1623,5 +1915,8 @@ aucun redémarrage de la machine, aucune déconnexion de session.
   nomination des surfaces d'approvisionnement appliquée aux registres
   de conteneurs.
 - [`docs/repositories.md`](repositories.md) — ancrages de confiance
-  D7/D10, registre de conteneurs Ollama nommé § 6 (IA-2).
+  D7/D10, registre de conteneurs Ollama nommé § 6 (IA-2), registre de
+  modèles Ollama et écart d'intégrité découvert § 8 (IA-3).
+- [`docs/completion.md`](completion.md) — `lsp-ai`/Helix (CMP-1),
+  cause de l'échec de complétion distinguée § 9.5 (IA-3).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici.
