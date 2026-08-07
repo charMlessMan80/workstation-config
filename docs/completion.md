@@ -16,6 +16,19 @@ et elle a été renumérotée **D12** parce que D11 était déjà pris
 utilise **D12** partout, pas D11 — la décision visée est la même,
 seul le numéro diffère.
 
+**[CMP-1, 2026-08-07] Décisions de l'opérateur prises sur la base de ce
+qui précède — D19, D20.** Texte complet, motifs et risques assumés :
+`docs/machine-facts.md` § Décisions (numéros vérifiés libres avant
+attribution). Résumé : **D19** — complétion locale par `lsp-ai`,
+**compilé depuis les sources** (jamais le binaire précompilé, dont
+l'absence de somme de contrôle publiée en faisait un ancrage de
+confiance plus faible que npm) ; **D20** — modèle de complétion **à la
+demande, pas résident**, requalifiant la résidence permanente décidée
+en IA-1/IA-2 (`docs/machine-facts.md` § D15, marquée `[REQUALIFIÉE]`).
+L'exécution de D19 (`roles/completion/`), avec ses obstacles réels et
+ses corrections, est documentée § 7 ci-dessous — ajoutée après la
+résolution en lecture seule qui suit, pas à sa place.
+
 ## Résumé, pour ne pas enterrer la conclusion
 
 **Un mécanisme fonctionne avec Helix et, structurellement, avec Kate —
@@ -320,7 +333,12 @@ vérifié par lecture de code jusqu'au bout de la chaîne (capacité
 déclarée → dispatch de requête → construction de la réponse), pas une
 affirmation de documentation.
 
-## Questions qui départagent
+## Questions qui départagent — répondues (CMP-1, D19/D20)
+
+Les quatre questions ci-dessous ont reçu une réponse de l'opérateur
+(`docs/machine-facts.md` § D19/D20) — conservées telles quelles pour
+la trace, pas effacées.
+
 
 1. **L'ancrage de confiance d'un binaire GitHub sans somme de contrôle
    publiée est-il acceptable pour ce poste**, au même titre que Terra
@@ -338,7 +356,7 @@ affirmation de documentation.
    (marqueur § 2.1) doit-elle précéder toute décision**, ou la preuve
    structurelle (protocole standard, § 1.2) suffit-elle à l'opérateur ?
 
-## Validation — résolution en lecture seule (2026-08-07)
+## Validation — CMP-0, résolution en lecture seule (2026-08-07)
 
 **Commandes exécutées, toutes non modifiantes, chacune justifiée :**
 
@@ -378,18 +396,318 @@ marqueurs actionnables dans ce document — compatibilité réelle de
 `lsp-ai` avec le greffon LSP de Kate (§ 2.1), détail exact du
 mécanisme de prédiction d'édition natif de Zed avec Ollama (§ 3).
 
+## 7. Exécution — `lsp-ai` compilé et intégré à Helix (CMP-1, 2026-08-07)
+
+**Aucun modèle chargé ni choisi dans ce livrable** (D17/D20, toujours
+en vigueur). Périmètre : `roles/completion/` (nouveau),
+ce document, `docs/repositories.md` § 7, `docs/machine-facts.md`
+(en dernier), `CLAUDE.md` (règle 0.3 uniquement), écritures utilisateur
+sous `~/.config/helix/` et `~/.local/bin/`.
+
+### 7.1 — Résolution avant compilation
+
+**Chaîne Rust, lue avant d'être supposée** :
+```
+$ dnf repoquery --available --qf '%{name}-%{version}-%{release} | %{repoid}' rust cargo
+cargo-1.94.1-1.fc44 | fedora
+cargo-1.97.1-1.fc44 | updates
+rust-1.94.1-1.fc44 | fedora
+rust-1.97.1-1.fc44 | updates
+```
+`fedora`/`updates` uniquement — **aucune commande touchant `terra`**
+n'a été nécessaire pour cette recherche. `lsp-ai` ne déclare aucun
+`rust-version` (MSRV) explicite — lu directement dans
+`crates/lsp-ai/Cargo.toml` et le `Cargo.toml` racine (`edition = 2021`
+délégué au workspace, aucun champ `rust-version`) — la seule
+confirmation possible que la version disponible (1.97.1) suffit est la
+compilation réelle elle-même (§ 7.2-7.3), pas une comparaison de
+numéros.
+
+**Cargo.lock, présent, vérifié avant tout clonage réel** — le rôle
+s'arrête si absent (garde dédiée, `roles/completion/tasks/main.yml`).
+104 548 octets à l'empreinte retenue.
+
+**Empreinte retenue, pas une étiquette** — la plus récente étiquette
+(`v0.7.1`, 2024-09-24T14:49:55Z, établie en CMP-0 § 2.1) **n'est pas**
+le dernier état du dépôt : `main` a avancé depuis, jusqu'à
+`1e910a8cf0048406eb227bf2064743010a9ff3a9` (2025-01-07T22:17:34Z,
+API GitHub, `git/refs/heads/main` puis `commits/<sha>`) — retenue ici
+précisément parce qu'une étiquette peut être déplacée, pas un commit.
+`Cargo.lock` confirmé présent à ce commit exact (même source).
+
+### 7.2 — Obstacles réels rencontrés, signalés avant correction
+
+Deux catégories d'obstacles, aucune anticipée par la lecture seule de
+Cargo.toml — découverts en compilant réellement, pas en lisant les
+manifestes.
+
+**7.2.1 — `hf-hub`, dépendance git sans rev fixe, étiquettes amont
+retirées.** `cargo build --release --locked` échoue tel quel :
+```
+error: failed to select a version for the requirement `hf-hub = "^0.3.2"`
+candidate versions found which didn't match: 1.1.0
+location searched: Git repository https://github.com/huggingface/hf-hub
+```
+Lu directement : `crates/lsp-ai/Cargo.toml` déclare
+`hf-hub = { git = "...", version = "0.3.2" }` — pas de `rev`.
+`Cargo.lock` pointe pourtant un commit précis
+(`git+https://github.com/huggingface/hf-hub#6303587...`). Confirmé :
+le dépôt amont hf-hub a retiré ses étiquettes 0.3.x
+(`git ls-remote --tags https://github.com/huggingface/hf-hub` ne
+montre que `v0.4.0` et plus récent) — Cargo doit revalider la
+correspondance de version à chaque résolution, même verrouillée,
+échec **confirmé en ligne et hors ligne** (`--offline` produit la même
+erreur). **Signalé à l'opérateur avant toute correction** (le motif de
+D19 — l'intégrité portée par Cargo.lock — semblait s'effondrer sur ce
+point précis). Deux voies écartées après essai réel : un recouvrement
+de source Cargo (`[source]`/`replace-with`) — Cargo exige lui-même un
+lockfile déjà cohérent avec le remplacement actif avant de pouvoir
+s'en servir (chicken-and-egg, message d'erreur Cargo cité dans
+`roles/completion/tasks/main.yml`) ; un `rev=` direct dans
+`crates/lsp-ai/Cargo.toml` — change la forme de la dépendance,
+invalide l'entrée verrouillée existante, aurait entraîné une
+résolution beaucoup plus large (`cargo update --dry-run` montrait des
+dizaines de paquets sans rapport proposés à la mise à jour). **Retenu,
+vérifié avant d'être encodé dans le rôle** : `cargo update -p hf-hub
+--precise <le même commit que Cargo.lock épingle déjà>` — confirmé par
+`git diff` : l'entrée `hf-hub` elle-même **ne change pas** ; l'opération
+corrige un décalage sans rapport, préexistant dans le Cargo.lock amont
+lui-même (auto-version du paquet `lsp-ai` : `"0.7.0"` au lieu de
+`"0.7.1"` déclaré par son propre `Cargo.toml` à ce commit — jamais
+régénéré par le mainteneur après ce changement), et bascule le format
+de fichier de verrouillage de 3 à 4. **262 dépendances non touchées**
+(« pass `--verbose` to see 262 unchanged dependencies behind latest »).
+
+**7.2.2 — Modules Perl absents, requis par la configuration d'OpenSSL
+vendoré.** `reqwest` (dépendance par défaut, pas seulement du feature
+`llama_cpp`) tire `openssl-sys`, qui compile OpenSSL depuis les
+sources — son script `Configure`/`configdata.pm` exige plusieurs
+modules Perl. Établi par lecture exhaustive des `use`/`require` des
+fichiers réellement invoqués (pas une estimation) :
+```
+$ grep -rhoE '^\s*(use|require)\s+[A-Za-z0-9_:]+' Configure configdata.pm util/perl/OpenSSL | sort -u
+```
+Cinq modules manquants, trouvés successivement au fil des échecs
+(chacun bloquant le suivant, pas tous visibles en une fois) :
+`FindBin`, `IPC::Cmd`, `File::Compare`, `IO::Socket::INET6`,
+`Text::Template` — paquets `perl-FindBin`, `perl-IPC-Cmd`,
+`perl-File-Compare`, `perl-IO-Socket-INET6`, `perl-Text-Template`,
+tous `fedora`/`updates` (vérifié, `dnf repoquery --available --qf
+'%{repoid}'`), aucun `terra`. Encodés dans le rôle
+(`completion_build_extra_packages`), même exception que rust/cargo.
+
+**7.2.3 — GCC système (16.1.1) compile en C23 par défaut, incompatible
+avec le C vendoré K&R d'`oniguruma`.** Après les deux corrections
+ci-dessus, `onig_sys` (bibliothèque C vendorée, tirée par `onig`, tiré
+par `tokenizers` — dépendance directe de `lsp-ai`) échoue :
+```
+error: too many arguments to function 'func'; expected 0, have 3
+```
+Établi par lecture directe : `gcc -dM -E -x c /dev/null | grep
+__STDC_VERSION__` → `202311L` (C23) — en C23, un prototype à liste
+d'arguments vide (`int (*)(void)`, motif historique très répandu dans
+le C des années 1990) signifie littéralement « zéro argument »,
+contre « non spécifié » dans les normes C antérieures. Le code source
+vendoré d'`oniguruma` (fixé par la version épinglée de la crate
+`onig_sys`, pas modifiable sans casser l'épinglage) utilise ce motif
+partout. **Essayé et insuffisant seul** : suppression ciblée des
+avertissements-erreurs (`-Wno-error=incompatible-pointer-types`,
+`-Wno-error=implicit-function-declaration`) — repousse l'échec sans le
+résoudre, l'erreur de C23 sur les listes d'arguments n'est pas
+associée à un avertissement désactivable, c'est un changement de
+sémantique du langage. **Retenu, vérifié avant d'être encodé** :
+`CFLAGS=-std=gnu17` — restaure le dialecte C par défaut de GCC avant
+la bascule à C23, celui sous lequel ce code vendoré a toujours été
+écrit et testé en amont. Pas une désactivation de vérification : une
+norme de langage, appliquée uniquement à la compilation C déclenchée
+par ce rôle (variable d'environnement du seul processus `cargo
+build`), sans toucher au compilateur système ni à aucun autre paquet.
+
+### 7.3 — Rôle exécuté, résultat
+
+```
+$ ansible-playbook roles/completion/completion.yml   # première exécution réelle, depuis zéro
+[...] changed=6
+$ ansible-playbook roles/completion/completion.yml   # deuxième exécution
+[...] changed=0
+```
+**Idempotence non triviale à obtenir** : la correction du décalage de
+Cargo.lock (§ 7.2.1) modifie délibérément le clone par rapport au
+commit épinglé — `ansible.builtin.git` refuse de revérifier un commit
+déjà atteint dès que des modifications locales existent, même sans
+rien à faire (« Local modifications exist », constaté avec `force:
+true` avant d'être retiré). Corrigé : le clonage et la correction du
+lockfile ne s'exécutent que si le répertoire de travail n'existe pas
+encore — une fois fait, il reste tel quel, jamais reforcé.
+
+**Empreintes** :
+```
+$ cargo --version    # chaîne utilisée pour cette compilation
+cargo 1.97.1 (c980f4866 2026-06-30) (Fedora 1.97.1-1.fc44)
+$ sha256sum target/release/lsp-ai
+7bc6e76e296861d958ab369131de433457f6226b994487f9b418ae55ea8f9159
+$ ./target/release/lsp-ai --version
+lsp-ai 0.7.1
+```
+**Identique sur deux compilations propres indépendantes** (répertoire
+de travail supprimé puis reconstruit entièrement entre les deux) —
+même empreinte de binaire les deux fois, cohérent avec une compilation
+verrouillée et déterministe.
+
+### 7.4 — Preuve de la poignée de main LSP, par lecture du journal Helix
+
+**Méthode** : `hx -vv` (journal détaillé,
+`~/.cache/helix/helix.log`), piloté sans capture visuelle via une
+session `tmux` détachée — fichier ouvert, quelques secondes
+d'attente, fermeture propre (`:q!`), lecture du journal après coup.
+Journal vidé avant chaque essai pour n'observer que les lignes
+produites par cet essai précis.
+
+**Nominal** — extraits réels, horodatage `21:55:38` :
+```
+lsp-ai -> {"jsonrpc":"2.0","method":"initialize","params":{...
+  "clientInfo":{"name":"helix","version":"25.07.1 (a05c151b)"},
+  "initializationOptions":{"completion":{"model":"completion-model",...},
+  "models":{"completion-model":{"chat_endpoint":"http://127.0.0.1:11434/api/chat",
+  "generate_endpoint":"http://127.0.0.1:11434/api/generate",
+  "model":"aucun-modele-charge-D20","type":"ollama"}}},...}}
+lsp-ai <- {"jsonrpc":"2.0","id":0,"result":{"capabilities":{
+  "codeActionProvider":{"resolveProvider":true},
+  "completionProvider":{},"textDocumentSync":2}}}
+lsp-ai -> {"jsonrpc":"2.0","method":"initialized","params":{}}
+lsp-ai -> {"jsonrpc":"2.0","method":"workspace/didChangeConfiguration",...}
+lsp-ai -> {"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+  "textDocument":{"languageId":"yaml",...}}}
+[...]
+lsp-ai -> {"jsonrpc":"2.0","method":"shutdown","id":1}
+lsp-ai <- {"jsonrpc":"2.0","id":1,"result":null}
+lsp-ai -> {"jsonrpc":"2.0","method":"exit"}
+```
+**`completionProvider":{}` dans la réponse `initialize`** — le serveur
+annonce bien une capacité de complétion, exactement ce qui devait être
+prouvé, lu dans le journal, jamais capturé visuellement. Poignée de
+main complète : `initialize` → réponse avec capacités → `initialized`
+→ configuration envoyée → document ouvert → arrêt propre sur `:q!`.
+
+**Échec forcé — configuration Helix neutralisée** (`command` du
+serveur pointé vers un binaire inexistant, fichier restauré à
+l'identique immédiatement après, `diff` vérifié) :
+```
+Language server not found for `source.yaml` lsp-ai command
+'/home/mahieumi/.local/bin/lsp-ai-binaire-inexistant' not found:
+cannot find binary path
+```
+**Aucune ligne `initialize`, aucune capacité annoncée** — le journal
+est visiblement différent du cas nominal, pas identique : la
+démonstration prouve quelque chose, conformément à l'exigence de la
+demande.
+
+**Second échec forcé — une garde du point 2.1 casse avant toute
+action**, trois exemples, tous `changed=0`, aucun n'a modifié le
+système réel :
+```
+$ ansible-playbook roles/completion/completion.yml -e '{"completion_forbidden_binaries": ["sh"]}'
+fatal: [...] "Un binaire parmi sh est présent sur le PATH (/usr/bin/sh) [...]"
+$ ansible-playbook roles/completion/completion.yml -e '{"completion_rust_check_binaries": ["cargo_absent_garanti"]}'
+fatal: [...] "Chaîne Rust attendue introuvable ou non fonctionnelle (cargo_absent_garanti) [...]"
+$ ansible-playbook roles/completion/completion.yml -e completion_ollama_url_check=http://127.0.0.1:1/api/tags
+fatal: [...] "http://127.0.0.1:1/api/tags ne répond pas (statut : -1) [...]"
+```
+Plus une quatrième, sur la garde de relecture de configuration (§ 2.4
+de la demande), substituant uniquement la valeur *attendue* sans
+jamais modifier ce qui est réellement déployé :
+```
+$ ansible-playbook roles/completion/completion.yml -e completion_ollama_generate_url_expected=http://exemple.invalide/api/generate
+fatal: [...] "La configuration déployée [...] ne pointe pas explicitement 127.0.0.1:11434 [...]"
+```
+Confirmé après coup : le fichier réellement déployé pointe toujours
+`127.0.0.1:11434`, jamais modifié par cette démonstration.
+
+### 7.5 — Ce que ce livrable ne peut pas prouver, pas maquillé en succès
+
+Aucun modèle chargé (D17/D20) : `lsp-ai` répondrait `null` ou une
+liste vide à une complétion réellement demandée avec le modèle
+placeholder `aucun-modele-charge-D20` — non testé ici, et non
+testable sans violer D17/D20 ou télécharger un modèle. La poignée de
+main LSP et l'annonce de capacité (§ 7.4) sont ce que ce livrable
+établit ; la qualité ou même l'existence d'une complétion réelle
+reste à démontrer dans un livrable qui charge un modèle.
+
+## Validation — CMP-1 (2026-08-07)
+
+**Actions privilégiées, exhaustives** :
+
+| # | Commande | Cible | Motif | Précédée d'une tentative sans privilège ? |
+|---|---|---|---|---|
+| 1 | `ansible.builtin.dnf` (`become: true`, rôle) | `rust`, `cargo` | seule installation système accordée par la demande | Oui — `command -v cargo && command -v rustc` (§ rôle) |
+| 2 | `ansible.builtin.dnf` (`become: true`, rôle) | `perl-FindBin`, `perl-IPC-Cmd`, `perl-File-Compare`, `perl-IO-Socket-INET6`, `perl-Text-Template` | dépendances de compilation d'`openssl-sys` (§ 7.2.2) | Oui — `perl -MFindBin -MIPC::Cmd -MFile::Compare -MIO::Socket::INET6 -MText::Template -e 1` |
+| 3 | `sudo dnf install -y --disablerepo=terra perl-IPC-Cmd` (manuel, hors rôle, diagnostic) | paquet système | débloquer la compilation pour établir le rôle | **Non — règle 0.3 violée**, reconnu ci-dessous |
+| 4 | `sudo dnf install -y --disablerepo=terra perl-File-Compare perl-IO-Socket-INET6 perl-Text-Template` (manuel, hors rôle, diagnostic) | paquets système | idem | Oui — `perl -M<module> -e1` pour chacun, avant élévation |
+
+**Incident de méthode reconnu, pas répété** (règle 0.3, ajoutée dans
+*ce même livrable*, § 0.3) : l'action privilégiée n°3 a été exécutée
+par réflexe, sans tentative sans privilège préalable — alors que la
+règle venait d'être écrite quelques instants plus tôt dans cette même
+session. `perl -MIPC::Cmd -e1` aurait dû précéder, comme cela a
+correctement été fait juste après pour les trois modules suivants
+(action n°4). Signalé explicitement plutôt que laissé implicite dans
+le tableau — la règle 0.3 existe justement pour des cas comme
+celui-ci, elle ne s'applique pas si elle n'est vérifiée que quand
+c'est facile.
+
+**Validation Ansible** :
+```
+$ ansible-playbook --syntax-check roles/completion/completion.yml   # succès
+$ ansible-playbook --check roles/completion/completion.yml          # succès, changed=0
+$ ansible-playbook roles/completion/completion.yml                  # succès, changed=6 (première exécution, depuis zéro)
+$ ansible-playbook roles/completion/completion.yml                  # succès, changed=0 (deuxième exécution, idempotence confirmée)
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/completion/
+Passed: 0 failure(s), 0 warning(s) — profil production
+```
+
+**Quatre démonstrations d'échec forcé sur les gardes** (§ 7.4
+ci-dessus, toutes `changed=0`) **plus deux démonstrations sur la
+poignée de main LSP elle-même** (nominal avec capacité de complétion
+annoncée ; configuration neutralisée, aucune capacité, § 7.4) — six
+démonstrations au total, chacune contrastée avec son cas nominal.
+
+**SELinux** :
+```
+$ getenforce   # Enforcing, avant et après ce livrable
+```
+
+**Confirmations finales** : aucun modèle téléchargé ; **aucun binaire
+`lsp-ai` précompilé récupéré, sous aucune forme** (compilé depuis les
+sources à chaque fois, empreinte de binaire identique sur deux
+compilations propres indépendantes, § 7.3) ; `command -v node npm`
+toujours vide ; aucun nouveau dépôt (`crates.io` et le dépôt git
+`lsp-ai` ne sont pas des dépôts `dnf`) ; aucune commande `dnf` n'a
+touché `terra` ; `getenforce` inchangé ; aucun redémarrage.
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : les deux
+marqueurs déjà comptés en CMP-0 restent ouverts, inchangés par ce
+livrable — compatibilité réelle de `lsp-ai` avec le greffon LSP de
+Kate (§ 2.1, toujours non testée : « Kate seul dans ce livrable »,
+demande § 2.6, respecté), détail exact du mécanisme de prédiction
+d'édition natif de Zed avec Ollama (§ 3). Aucun nouveau marqueur
+ajouté par ce livrable — les obstacles de compilation (§ 7.2) ont
+tous été résolus et vérifiés, pas laissés ouverts.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,
   requalifiée par ce document sans être effacée.
 - [`docs/machine-facts.md`](machine-facts.md) — D12/D13 (npm fermé,
-  choix d'éditeur), D15 (modèle de complétion résident), requalifiée
-  en dernier par ce livrable.
+  choix d'éditeur), D15 (modèle de complétion résident, requalifiée
+  par D20), D19/D20 (ce livrable).
 - [`docs/editor.md`](editor.md) — résolution complète D12/D13, motifs
   d'exclusion de Zed/Cursor détaillés § 1.2/1.3/2.
-- [`docs/repositories.md`](repositories.md) § 6 — traitement de
-  l'ancrage de confiance d'une surface d'approvisionnement externe,
-  patron applicable à `lsp-ai` si cette voie est retenue.
+- [`docs/repositories.md`](repositories.md) § 6 (registre de
+  conteneurs Ollama) et § 7 (`crates.io`, ce livrable) — ancrages de
+  confiance des surfaces d'approvisionnement de ce dépôt.
+- [`roles/completion/`](../roles/completion/) — rôle exécuté par ce
+  livrable, README pour l'usage courant.
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici, en
   particulier la garde sur les découvertes qui contredisent un fait
-  déjà documenté.
+  déjà documenté, et la règle 0.3 (élévation précédée d'une tentative
+  sans privilège), ajoutée par ce livrable.

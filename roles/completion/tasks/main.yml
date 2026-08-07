@@ -1,0 +1,444 @@
+---
+# Rôle completion — compile lsp-ai depuis les sources (D19,
+# docs/machine-facts.md § Décisions) et le rattache à Helix pour les
+# langages listés (D19/D20, révise la décision D12/EDI-1 de n'inscrire
+# aucun serveur de langage dans Helix — motif exact dans
+# templates/languages.toml.j2). Complétion à la demande, pas résidente
+# (D20, requalifie D15) — ce rôle ne charge et ne choisit aucun modèle.
+#
+# Interdits, comme roles/editor/ et roles/local_ai/ : jamais node/npm
+# (D12, garde ci-dessous), jamais un binaire lsp-ai précompilé (D19 —
+# seule la compilation depuis crates.io est retenue), jamais
+# d'installation hors du domaine utilisateur à l'exception de la chaîne
+# de compilation elle-même (rust/cargo, fedora/updates uniquement,
+# jamais terra). Ne modifie jamais SELinux, sudoers, aucun dépôt. Ne
+# redémarre jamais et ne déconnecte jamais la session.
+
+# --- Garde 1/4 — node/npm absents du PATH (D12 reste en vigueur) -----------
+# Même patron que roles/editor/ (garde D12, substituable pour la
+# démonstration d'échec forcé sans jamais installer node/npm réellement).
+
+- name: "Garde 1/4 — vérifier qu'aucun des binaires interdits n'est sur le PATH : {{ completion_forbidden_binaries | join(', ') }}"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "{{ completion_forbidden_binaries | map('regex_replace', '^(.*)$', 'command -v \\1') | join(' || ') }}"
+  register: completion_forbidden_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si un binaire interdit par D12 est présent (npm n'est pas rouvert par ce rôle)"
+  ansible.builtin.assert:
+    that:
+      - completion_forbidden_check.rc != 0
+    fail_msg: >-
+      Un binaire parmi {{ completion_forbidden_binaries | join(', ') }}
+      est présent sur le PATH ({{ completion_forbidden_check.stdout | trim }}) —
+      D12 (docs/machine-facts.md § Décisions) interdit node/npm comme
+      surface d'approvisionnement, sous quelque forme que ce soit. Ce
+      rôle s'arrête plutôt que de continuer sur une prémisse violée.
+    success_msg: >-
+      Aucun des binaires interdits par D12 ({{ completion_forbidden_binaries | join(', ') }})
+      n'est présent sur le PATH — garde vérifiée.
+
+# --- Chaîne Rust : tentative sans privilège avant toute élévation ----------
+# CLAUDE.md § toute élévation de privilège doit être précédée d'une
+# tentative sans privilège — appliqué ici dès ce livrable : on relève
+# l'état réel (sans sudo) avant de décider s'il faut installer quoi que
+# ce soit, plutôt que d'appeler le module dnf (become: true)
+# inconditionnellement.
+
+- name: "Relever si rust/cargo sont déjà présents (tentative sans privilège, avant toute élévation)"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "command -v cargo && command -v rustc"
+  register: completion_toolchain_precheck
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Seule installation système de ce rôle, exception explicitement
+# accordée par la demande (« la chaîne de compilation qui vient des
+# dépôts ») — fedora/updates uniquement, jamais terra (vérifié avant
+# d'écrire ce rôle : `dnf repoquery --available --qf '%{repoid}' rust
+# cargo` ne montre que fedora/updates, docs/completion.md § 1).
+# N'agit que si la tentative sans privilège ci-dessus a montré une
+# absence — pas un appel inconditionnel au module privilégié.
+- name: "Installer la chaîne de compilation Rust si absente (fedora/updates uniquement — jamais terra)"
+  ansible.builtin.dnf:
+    name: "{{ completion_rust_packages }}"
+    state: present
+    disablerepo: terra
+  become: true
+  register: completion_rust_install
+  when:
+    - not ansible_check_mode
+    - completion_toolchain_precheck.rc != 0
+
+# --- Dépendance de compilation supplémentaire : perl-FindBin ---------------
+# Découverte en écrivant ce rôle (docs/completion.md § 1.1) : reqwest
+# (dépendance par défaut de lsp-ai) tire openssl-sys, qui compile
+# OpenSSL vendoré depuis les sources et exige ce module Perl. Même
+# discipline que la chaîne Rust : tentative sans privilège d'abord
+# (CLAUDE.md § toute élévation précédée d'une tentative sans privilège).
+
+- name: "Relever si les modules Perl requis sont déjà utilisables (tentative sans privilège, avant toute élévation)"
+  ansible.builtin.command:
+    argv:
+      - perl
+      - -MFindBin
+      - -MIPC::Cmd
+      - -MFile::Compare
+      - -MIO::Socket::INET6
+      - -MText::Template
+      - -e
+      - "1"
+  register: completion_findbin_precheck
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Installer les modules Perl requis par openssl-sys si absents (fedora/updates uniquement — jamais terra)"
+  ansible.builtin.dnf:
+    name: "{{ completion_build_extra_packages }}"
+    state: present
+    disablerepo: terra
+  become: true
+  register: completion_extra_install
+  when:
+    - not ansible_check_mode
+    - completion_findbin_precheck.rc != 0
+
+# --- Garde 2/4 — chaîne Rust présente et fonctionnelle ---------------------
+# Substituable pour la démonstration d'échec forcé (§ 3 de la demande)
+# sans jamais désinstaller quoi que ce soit réellement :
+# -e completion_rust_check_binaries=['cargo_absent_garanti']
+
+- name: "Garde 2/4 — relever la version de la chaîne Rust : {{ completion_rust_check_binaries | join(', ') }}"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "{{ completion_rust_check_binaries | map('regex_replace', '^(.*)$', '\\1 --version') | join(' && ') }}"
+  register: completion_rust_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+# Dépend de l'installation ci-dessus (sautée en --check) — même
+# discipline que les gardes post-écriture de roles/local_ai/ : non
+# évaluée en mode simulation, où l'action qu'elle vérifie n'a pas eu
+# lieu.
+- name: "Échouer bruyamment si la chaîne Rust n'est pas fonctionnelle (ou si l'attendu a été substitué pour la démonstration)"
+  ansible.builtin.assert:
+    that:
+      - completion_rust_check.rc == 0
+    fail_msg: >-
+      Chaîne Rust attendue introuvable ou non fonctionnelle
+      ({{ completion_rust_check_binaries | join(', ') }}) — sortie :
+      {{ completion_rust_check.stderr | default(completion_rust_check.stdout) }}.
+      Ce rôle s'arrête : compiler lsp-ai sans compilateur fonctionnel
+      échouerait de toute façon, plus loin et moins clairement.
+    success_msg: "Chaîne Rust fonctionnelle : {{ completion_rust_check.stdout_lines | default([]) | join(' / ') }}"
+  when: not ansible_check_mode
+
+# --- Garde 3/4 — service d'inférence local joignable, jamais une API distante
+# Substituable pour la démonstration d'échec forcé sans jamais changer
+# le service réel : -e completion_ollama_url_check=http://127.0.0.1:1/api/tags
+
+- name: "Garde 3/4 — le service d'inférence local répond : {{ completion_ollama_url_check }}"
+  ansible.builtin.uri:
+    url: "{{ completion_ollama_url_check }}"
+    return_content: true
+  register: completion_service_check
+  retries: "{{ completion_service_wait_retries }}"
+  delay: "{{ completion_service_wait_delay }}"
+  until: completion_service_check.status is defined and completion_service_check.status == 200
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si le service d'inférence local ne répond pas (lsp-ai n'aurait rien à consommer)"
+  ansible.builtin.assert:
+    that:
+      - completion_service_check.status is defined
+      - completion_service_check.status == 200
+    fail_msg: >-
+      {{ completion_ollama_url_check }} ne répond pas (statut :
+      {{ completion_service_check.status | default('aucune réponse') }}).
+      Ce rôle s'arrête : configurer lsp-ai sur un service injoignable
+      produirait une complétion silencieusement vide, indiscernable
+      d'un problème de configuration.
+    success_msg: "Service d'inférence local joignable : {{ completion_ollama_url_check }}"
+
+# --- Clonage à l'empreinte de commit épinglée, hors du dépôt ---------------
+
+- name: "S'assurer que le répertoire de travail existe, hors du dépôt : {{ completion_build_dir | dirname }}"
+  ansible.builtin.file:
+    path: "{{ completion_build_dir | dirname }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+# Le clonage n'a lieu que si le répertoire de travail n'existe pas
+# encore — pas un « force: true » rejoué à chaque exécution. Motif :
+# la tâche suivante corrige un décalage préexistant dans Cargo.lock
+# (détail ci-dessous) et laisse volontairement le clone modifié par
+# rapport au commit épinglé ; `ansible.builtin.git` refuse de revérifier
+# un commit déjà atteint dès que des modifications locales existent,
+# même sans rien à faire (« Local modifications exist », constaté en
+# écrivant ce rôle — vrai même quand HEAD correspond déjà exactement à
+# l'empreinte demandée). Cloner une seule fois puis laisser le
+# répertoire tel quel, plutôt que forcer un nouveau clone à chaque
+# exécution, est ce qui rend ce rôle réellement idempotent
+# (`changed=0` en deuxième exécution) — pas un raccourci.
+- name: "Relever si le clone existe déjà (détermine si un (re)clonage est nécessaire)"
+  ansible.builtin.stat:
+    path: "{{ completion_build_dir }}/.git"
+  register: completion_build_dir_check
+  when: not ansible_check_mode
+
+- name: "Cloner lsp-ai à l'empreinte de commit épinglée (D19) : {{ completion_lsp_ai_commit }}"
+  ansible.builtin.git:
+    repo: "{{ completion_lsp_ai_repo }}"
+    dest: "{{ completion_build_dir }}"
+    version: "{{ completion_lsp_ai_commit }}"
+  register: completion_clone
+  when:
+    - not ansible_check_mode
+    - not completion_build_dir_check.stat.exists
+
+# Si absent, la demande impose de s'arrêter : c'est le fichier de
+# verrouillage qui porte l'argument d'intégrité fondant D19 (empreintes
+# de chaque dépendance transitive) — sans lui, compiler reviendrait à
+# faire confiance à crates.io sans l'ancrage que cette décision suppose.
+- name: "Vérifier que le dépôt amont fournit un Cargo.lock à cette empreinte — arrêt sinon (D19 perdrait son motif)"
+  ansible.builtin.stat:
+    path: "{{ completion_build_dir }}/Cargo.lock"
+  register: completion_cargo_lock
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si Cargo.lock est absent"
+  ansible.builtin.assert:
+    that:
+      - completion_cargo_lock.stat.exists
+    fail_msg: >-
+      Cargo.lock absent de {{ completion_build_dir }} à l'empreinte
+      {{ completion_lsp_ai_commit }} — D19 (docs/machine-facts.md §
+      Décisions) est fondée sur l'intégrité par empreinte que ce
+      fichier porte. Ce rôle s'arrête : compiler sans lui contredirait
+      le motif même de la décision.
+    success_msg: "Cargo.lock présent ({{ completion_cargo_lock.stat.size }} octets)."
+  when: not ansible_check_mode
+
+# --- Correction d'un décalage préexistant dans Cargo.lock amont --------
+# Découverte en écrivant ce rôle (docs/completion.md § 1.1, signalée à
+# l'opérateur avant d'être appliquée) : `cargo build --release --locked`
+# échoue sur ce Cargo.lock tel que fourni par le commit épinglé —
+# `hf-hub` est une dépendance git déclarée par version seule ("0.3.2"),
+# sans rev fixe, et le dépôt amont hf-hub a retiré ses étiquettes 0.3.x
+# (`git ls-remote --tags` ne montre plus que v0.4.0+) : Cargo doit
+# revalider quelle étiquette satisfait "0.3.2" même avec le lockfile
+# présent, et n'en trouve plus aucune. Un recouvrement de source Cargo
+# (`[source]`/`replace-with`) a été essayé et écarté : le mécanisme de
+# remplacement de source exige lui-même un lockfile déjà cohérent avec
+# le remplacement actif, situation chicken-and-egg documentée par
+# Cargo lui-même (message d'erreur : « the source [...] requires a
+# lock file to be present first before it can be used against vendored
+# source code »). La correction qui fonctionne, vérifiée avant d'être
+# retenue : `cargo update -p hf-hub --precise <même commit que
+# Cargo.lock épingle déjà>` — n'introduit aucune nouvelle version
+# (confirmé : l'entrée hf-hub elle-même ne change pas, `git diff`
+# après coup), mais force Cargo à revalider et réécrire un Cargo.lock
+# pleinement cohérent (format de fichier de verrouillage 3 → 4) — ce
+# qui, en pratique, corrige aussi un décalage sans rapport déjà présent
+# dans le Cargo.lock amont lui-même (auto-version du paquet `lsp-ai` :
+# "0.7.0" au lieu de "0.7.1" déclaré par son propre Cargo.toml à ce
+# commit — Cargo.lock non régénéré par le mainteneur après ce
+# changement). Aucun autre paquet touché (« 262 unchanged dependencies
+# behind latest »).
+
+- name: "Corriger le décalage préexistant de Cargo.lock (cargo update -p hf-hub --precise, motif détaillé ci-dessus)"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "cargo update -p hf-hub --precise {{ completion_hf_hub_pinned_commit }}"
+    chdir: "{{ completion_build_dir }}"
+  register: completion_lockfile_fix
+  # Signal de changement réel observé en écrivant ce rôle : cargo
+  # n'annonce « Updating lsp-ai vX -> vY » que lorsque le lockfile est
+  # effectivement réécrit ; sinon, seule la ligne d'index crates.io
+  # (toujours présente, jamais un signal de changement) apparaît.
+  changed_when: "'Updating lsp-ai' in completion_lockfile_fix.stderr"
+  # Seulement juste après un clonage frais (même garde que le clonage
+  # ci-dessus) — une fois corrigé, Cargo.lock reste corrigé tel quel,
+  # rejouer cette commande à chaque exécution ne ferait que retoucher
+  # un fichier déjà correct sans raison.
+  when:
+    - not ansible_check_mode
+    - not completion_build_dir_check.stat.exists
+
+# --- Compilation, avec le fichier de verrouillage amont --------------------
+# --locked : force cargo à échouer plutôt qu'à réviser silencieusement
+# une version de dépendance hors de Cargo.lock — c'est cette option,
+# pas seulement la présence du fichier, qui rend l'argument d'intégrité
+# de D19 opérant (CLAUDE.md § une variable posée n'est pas un effet
+# constaté, même principe appliqué à un fichier de verrouillage inerte
+# sans l'option qui le fait respecter).
+# noqa: command-instead-of-module — aucun module Ansible n'invoque cargo
+# CFLAGS=-std=gnu17 : découverte en écrivant ce rôle
+# (docs/completion.md § 1.1) — le GCC système (16.1.1) compile en C23
+# par défaut (`__STDC_VERSION__ 202311L`, vérifié : `gcc -dM -E -x c
+# /dev/null`), qui traite comme erreurs bloquantes (au lieu
+# d'avertissements) des motifs C89/K&R historiques présents dans les
+# sources C vendorées de la bibliothèque `oniguruma` (via `onig_sys`,
+# tiré transitivement par `tokenizers`, dépendance directe de lsp-ai —
+# prototypes à liste d'arguments vide traités comme « zéro argument »
+# en C23, contre « non spécifié » avant). `-std=gnu17` restaure le
+# dialecte C par défaut de GCC avant cette bascule — pas une
+# désactivation de vérification, juste la norme de langage sous
+# laquelle ce code vendoré a toujours été écrit et testé en amont.
+# Aucune autre variante testée (`-Wno-error=...` seuls) n'a suffi :
+# reproduction complète dans docs/completion.md § 1.1.
+- name: "Compiler lsp-ai (cargo build --release --locked, fonctionnalités par défaut uniquement — pas llama_cpp/cuda/metal)"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: cargo build --release --locked
+    chdir: "{{ completion_build_dir }}"
+  environment:
+    CFLAGS: "-std=gnu17"
+  register: completion_build
+  changed_when: "'Compiling lsp-ai' in completion_build.stderr"
+  when: not ansible_check_mode
+
+- name: "Relever la version de la chaîne Rust utilisée pour cette compilation"
+  ansible.builtin.command:
+    cmd: cargo --version
+  register: completion_cargo_version
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Relever l'empreinte du binaire produit"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "sha256sum {{ completion_build_dir }}/target/release/{{ completion_bin_name }}"
+  register: completion_binary_sha256
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+# --- Installation dans le domaine utilisateur uniquement -------------------
+
+- name: "S'assurer que le répertoire de binaires utilisateur existe : {{ completion_bin_dir }}"
+  ansible.builtin.file:
+    path: "{{ completion_bin_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Installer le binaire compilé (domaine utilisateur uniquement, jamais /usr/local/) : {{ completion_bin_dir ~ '/' ~ completion_bin_name }}"
+  ansible.builtin.copy:
+    src: "{{ completion_build_dir }}/target/release/{{ completion_bin_name }}"
+    dest: "{{ completion_bin_dir }}/{{ completion_bin_name }}"
+    mode: "0755"
+    remote_src: true
+  register: completion_bin_install
+  when: not ansible_check_mode
+
+# --- Garde 4/4 — le binaire installé s'exécute et rapporte sa version ------
+
+- name: "Garde 4/4 — le binaire installé rapporte sa version"
+  ansible.builtin.command:
+    cmd: "{{ completion_bin_dir }}/{{ completion_bin_name }} --version"
+  register: completion_bin_version
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si le binaire installé ne rapporte pas sa version"
+  ansible.builtin.assert:
+    that:
+      - completion_bin_version.rc == 0
+      - completion_bin_version.stdout | trim | length > 0
+    fail_msg: >-
+      {{ completion_bin_dir }}/{{ completion_bin_name }} --version a
+      échoué (code {{ completion_bin_version.rc }}) — sortie :
+      {{ completion_bin_version.stderr | default('') }}
+      {{ completion_bin_version.stdout | default('') }}
+    success_msg: "Binaire installé, version rapportée : {{ completion_bin_version.stdout | trim }}"
+  when: not ansible_check_mode
+
+# --- Configuration Helix : révise D12/EDI-1, motif dans le template --------
+
+- name: "S'assurer que le répertoire de configuration Helix existe : {{ completion_helix_config_dir }}"
+  ansible.builtin.file:
+    path: "{{ completion_helix_config_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer languages.toml (D19/D20, révise D12/EDI-1 — motif dans le fichier lui-même)"
+  ansible.builtin.template:
+    src: languages.toml.j2
+    dest: "{{ completion_helix_config_dir }}/languages.toml"
+    mode: "0644"
+  register: completion_languages_write
+  when: not ansible_check_mode
+
+- name: "Relire la configuration déployée pour l'assertion suivante"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "cat {{ completion_helix_config_dir }}/languages.toml"
+  register: completion_languages_content
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si la configuration lsp-ai ne pointe pas explicitement l'API locale (jamais une API distante)"
+  ansible.builtin.assert:
+    that:
+      - completion_ollama_generate_url_expected in completion_languages_content.stdout
+      - completion_ollama_chat_url_expected in completion_languages_content.stdout
+      - "'ollama.com' not in completion_languages_content.stdout"
+    fail_msg: >-
+      La configuration déployée ({{ completion_helix_config_dir }}/languages.toml)
+      ne pointe pas explicitement {{ completion_ollama_host }}:{{ completion_ollama_port }},
+      ou mentionne un hôte distant — ce rôle s'arrête : la demande (§ 2.4)
+      exige l'API locale, jamais une API distante, vérifié par relecture
+      du fichier réellement écrit, pas seulement par la variable posée.
+    success_msg: >-
+      Configuration confirmée : lsp-ai pointe exclusivement
+      {{ completion_ollama_host }}:{{ completion_ollama_port }} (relu
+      dans le fichier déployé, aucune mention d'API distante).
+  when: not ansible_check_mode
+
+# --- Rapport -----------------------------------------------------------
+
+- name: "Rapporter l'état (mode simulation --check)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée. Les gardes seraient
+      revérifiées, la chaîne Rust serait installée si absente, lsp-ai
+      serait cloné à l'empreinte {{ completion_lsp_ai_commit }} et
+      compilé (cargo build --release --locked), le binaire installé
+      sous {{ completion_bin_dir }}, languages.toml déployé sous
+      {{ completion_helix_config_dir }} — aucun modèle chargé ni choisi.
+  when: ansible_check_mode
+
+- name: "Rapporter l'état (exécution réelle)"
+  ansible.builtin.debug:
+    msg:
+      - "Gardes vérifiées : node/npm absents (D12), chaîne Rust fonctionnelle, service d'inférence local joignable."
+      - "Empreinte de commit compilée (D19) : {{ completion_lsp_ai_commit }}"
+      - "Chaîne Rust utilisée : {{ completion_cargo_version.stdout | trim }}"
+      - "Empreinte du binaire produit : {{ completion_binary_sha256.stdout | default('non recalculée, idempotent') | trim }}"
+      - "Binaire installé : {{ completion_bin_dir }}/{{ completion_bin_name }}, version rapportée : {{ completion_bin_version.stdout | default('') | trim }}"
+      - "Configuration Helix déployée : {{ completion_helix_config_dir }}/languages.toml, langages : {{ completion_helix_languages | join(', ') }}"
+      - >-
+          Aucun modèle chargé ni choisi (D17/D20) — la complétion ne
+          produira aucun résultat utile tant qu'aucun modèle n'est
+          chargé, attendu et documenté (docs/completion.md § 3), pas
+          un échec de ce rôle.
+  when: not ansible_check_mode

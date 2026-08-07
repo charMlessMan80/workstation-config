@@ -1,0 +1,14 @@
+---
+# Playbook d'exécution/test du rôle completion, ciblant localhost —
+# même patron que roles/local_ai/local_ai.yml et roles/editor/. Écrit
+# dans le domaine utilisateur uniquement ($HOME/.cache/,
+# $HOME/.local/bin/, $HOME/.config/helix/) ; seule élévation :
+# installation de rust/cargo depuis fedora/updates (D9 NOPASSWD),
+# précédée d'une tentative sans privilège (CLAUDE.md § toute élévation
+# précédée d'une tentative sans privilège).
+- name: Completion — lsp-ai compilé depuis les sources, intégré à Helix (D19/D20)
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - role: "{{ playbook_dir }}"

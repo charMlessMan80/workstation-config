@@ -271,6 +271,20 @@ sans comprendre pourquoi elle a été posée.
   est désormais indiscernable d'une action non effectuée — avant D9,
   l'invite de mot de passe aurait trahi la différence ; ce n'est plus le
   cas.
+- **Toute élévation de privilège doit être précédée d'une tentative sans
+  privilège.** `sudo` ne se pose pas par réflexe avant d'avoir vérifié
+  que la commande l'exige réellement — essayer d'abord sans, constater
+  l'échec (ou son absence) avant d'élever. Motif : deux occurrences de
+  la même erreur, chacune constatée seulement après coup, jamais avant
+  — `sudo btrfs filesystem usage /` (IA-0, 2026-08-06) et
+  `sudo dnf install --assumeno nodejs22` (CMP-0, 2026-08-07), toutes
+  deux superflues, la version sans privilège produisant le même
+  résultat. Depuis D9 (`NOPASSWD`), `sudo` ne déclenche plus d'invite de
+  mot de passe qui aurait pu faire hésiter au moment de l'exécuter — la
+  friction qui aurait naturellement fait demander « ai-je vraiment
+  besoin de ça ? » a disparu côté système ; rien ne la remplace sauf
+  cette discipline, posée explicitement parce qu'elle ne l'est plus
+  ailleurs.
 
 ## Dépôt public (D4)
 

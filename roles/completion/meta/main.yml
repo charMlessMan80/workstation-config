@@ -1,0 +1,30 @@
+---
+galaxy_info:
+  role_name: completion
+  author: Mickael Mahieu
+  description: >-
+    Compile lsp-ai depuis les sources (D19, docs/machine-facts.md §
+    Décisions) — jamais le binaire précompilé (aucune somme de
+    contrôle publiée, ancrage de confiance plus faible que npm).
+    Épinglé par empreinte de commit crates.io/GitHub, jamais une
+    étiquette. Compilation dans un répertoire de travail hors du
+    dépôt, avec --locked (Cargo.lock amont, argument d'intégrité de
+    D19). Installation du binaire dans le domaine utilisateur
+    uniquement (~/.local/bin), jamais /usr/local/. Rattache lsp-ai à
+    Helix (languages.toml, D19/D20 — révise la décision D12/EDI-1 de
+    n'inscrire aucun serveur de langage), pointant exclusivement
+    l'API locale du service d'inférence (127.0.0.1), jamais une API
+    distante. Complétion à la demande, pas résidente (D20, requalifie
+    D15) — ne charge et ne choisit aucun modèle. N'installe jamais
+    node/npm (D12 reste en vigueur, garde dédiée). Seule installation
+    système : rust/cargo (fedora/updates uniquement, jamais terra),
+    exception explicitement accordée pour la chaîne de compilation.
+    Kate non configuré dans ce rôle (compatibilité jamais testée par
+    personne, point ouvert, docs/completion.md § 2.1).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

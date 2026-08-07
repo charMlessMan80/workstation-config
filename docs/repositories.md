@@ -358,6 +358,39 @@ utilisée par ce dépôt — aucun modèle téléchargé (`docs/local-ai.md`
 délibérément par défaut, un chemin distinct resterait à établir pour
 un livrable qui télécharge réellement un modèle.
 
+## 7. `crates.io` — quatrième surface d'approvisionnement, CMP-1
+
+Nommée « au même niveau d'exigence que Terra, le COPR et les
+registres de conteneurs », comme demandé (D19, `docs/machine-facts.md`
+§ Décisions) — quatrième surface distincte de ce dépôt après les
+extensions d'éditeur (D12/D13 les ferment plutôt que les ouvrir, mais
+la catégorie existe), les registres de conteneurs (§ 6) et le registre
+de modèles Ollama (§ 6, non utilisé). Ouverte par `roles/completion/`
+pour compiler [`lsp-ai`](https://github.com/SilasMarvin/lsp-ai) depuis
+les sources — jamais son binaire précompilé (motif complet,
+`docs/completion.md` § 2.1, D19).
+
+| Ce qui est récupéré | Provenance | Ancrage de confiance réel | Écart résiduel assumé |
+|---|---|---|---|
+| Code source de `lsp-ai`, à l'empreinte de commit `1e910a8cf0048406eb227bf2064743010a9ff3a9` | Dépôt git GitHub, `github.com/SilasMarvin/lsp-ai` (clone HTTPS) | TLS vers GitHub + **empreinte de commit épinglée** (jamais une étiquette — une étiquette peut être déplacée, un commit non) | Aucune signature cryptographique de commit (pas de commit signé GPG constaté) — l'ancrage repose sur TLS + immuabilité du graphe de commits Git, pas sur une clé de signataire identifié (contrairement à Terra/COPR, § 1/§ 4) |
+| Dépendances transitives (crates.io, ~260 paquets verrouillés) | Registre public `crates.io` (Rust Foundation) | **Empreinte de contenu par paquet**, portée par `Cargo.lock` (`checksum = "..."`, SHA-256 par version publiée) — vérifiée par `cargo build --locked`, qui échoue plutôt que d'accepter un contenu ne correspondant pas à l'empreinte enregistrée | Aucun audit de code indépendant des ~260 paquets — l'ancrage garantit l'intégrité (le contenu tiré correspond à ce que `Cargo.lock` enregistre), pas l'absence de code malveillant dans une dépendance elle-même compromise en amont au moment de la publication |
+| Une dépendance git de `lsp-ai`, `hf-hub` (`github.com/huggingface/hf-hub`) | Dépôt git GitHub, tiré transitivement | Empreinte de commit également (`6303587576f8a1ce9f91f8274265a153b89afb6e`) — mais **écart concret rencontré** : cette dépendance est déclarée par simple exigence de version dans `Cargo.toml`, pas par `rev` fixe ; le dépôt amont a retiré les étiquettes correspondantes, cassant la résolution malgré l'empreinte déjà verrouillée (`docs/completion.md` § 7.2.1) | Un dépôt git tiers peut retirer les références (étiquettes, branches) qu'un projet dépendant présumait stables, même quand une empreinte de commit précise reste, elle, immuable et récupérable — écart structurel de l'écosystème, pas propre à `lsp-ai` |
+
+**Différence avec les registres de conteneurs (§ 6)** : `crates.io`
+distribue du **code source** compilé localement (pas une image
+préconstruite) — l'auditabilité est plus directe (le code compilé est
+lisible avant compilation, contrairement aux couches binaires d'une
+image de conteneur), au prix d'un temps de compilation et d'une
+surface de dépendances transitives bien plus large à faire confiance
+(~260 paquets contre une poignée de couches d'image).
+
+**Ce que ce dépôt ne fait jamais avec cette surface** : aucun binaire
+précompilé de `lsp-ai` téléchargé (D19, explicite) ; aucune
+dépendance ajoutée au-delà de ce que `lsp-ai` déclare lui-même dans
+son `Cargo.lock` amont (`--locked` l'impose) ; aucun paquet `cargo`
+installé globalement au-delà de la chaîne de compilation elle-même
+(`rust`/`cargo`, `fedora`/`updates`).
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — D10, D7 (COPR), D5
@@ -368,6 +401,8 @@ un livrable qui télécharge réellement un modèle.
 - [`docs/local-ai.md`](local-ai.md) — D14, empreinte épinglée de
   `docker.io/ollama/ollama`, confinement réseau du registre de modèles
   (IA-2).
+- [`docs/completion.md`](completion.md) — D19, `crates.io` et
+  l'empreinte de commit `lsp-ai` en usage réel (CMP-1).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing, garde `--assumeno`
   sur les commandes touchant un dépôt à `gpgcheck` incertain.
 

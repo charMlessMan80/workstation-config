@@ -1,0 +1,166 @@
+---
+# Décisions de l'opérateur (docs/machine-facts.md § Décisions — numéros
+# vérifiés libres avant attribution, CMP-1) :
+#   D19 — complétion locale par lsp-ai, compilé depuis les sources
+#         (crates.io, quatrième surface d'approvisionnement de ce
+#         dépôt) — jamais le binaire précompilé (aucune somme de
+#         contrôle publiée, ancrage de confiance plus faible que npm).
+#   D20 — modèle de complétion à la demande, pas résident (requalifie
+#         D15) — ce rôle ne charge ni ne choisit aucun modèle.
+
+# --- D19 : dépôt amont, épinglé par empreinte de commit, pas une étiquette ---
+# Étiquette la plus récente au moment de la résolution (docs/completion.md
+# § 2.1) : v0.7.1 (2024-09-24) — mais HEAD de `main` a avancé depuis
+# (dernier commit vérifié : 2025-01-07, `git ls-remote`/API GitHub).
+# Épinglé par empreinte de commit, jamais par étiquette (une étiquette
+# peut être déplacée, un commit non — même motif que
+# local_ai_ollama_image_digest dans roles/local_ai/).
+completion_lsp_ai_repo: https://github.com/SilasMarvin/lsp-ai.git
+completion_lsp_ai_commit: 1e910a8cf0048406eb227bf2064743010a9ff3a9
+
+# Répertoire de travail HORS de ce dépôt git (demande § 2.2) — sous le
+# cache utilisateur, jamais versionné (D4 : code source tiers, pas une
+# recette). Réutilisé d'une exécution à l'autre (le module git est
+# idempotent sur `version:` déjà atteinte) plutôt que recréé à chaque
+# fois, pour ne pas retélécharger l'historique à chaque exécution.
+completion_build_dir: "{{ ansible_facts.env.HOME }}/.cache/completion-build/lsp-ai"
+
+# Domaine utilisateur uniquement (interdits de la demande) — jamais
+# /usr/local/, jamais un chemin système.
+completion_bin_dir: "{{ ansible_facts.env.HOME }}/.local/bin"
+completion_bin_name: lsp-ai
+
+# --- Chaîne de compilation --------------------------------------------
+# Seule installation système autorisée par la demande (« la chaîne de
+# compilation qui vient des dépôts ») — fedora/updates uniquement,
+# jamais terra (vérifié par lecture avant d'écrire ce rôle,
+# docs/completion.md § 1 : `dnf repoquery --available --qf '%{repoid}'
+# rust cargo` ne montre que fedora/updates).
+completion_rust_packages:
+  - rust
+  - cargo
+
+# Garde a posteriori (post-installation) : la chaîne est bien
+# fonctionnelle. Substituable pour la démonstration d'échec forcé sans
+# jamais désinstaller quoi que ce soit réellement :
+# -e completion_rust_check_binaries=['cargo_absent_garanti']
+completion_rust_check_binaries:
+  - cargo
+  - rustc
+
+# --- Correction d'un décalage préexistant dans Cargo.lock amont --------
+# Découverte en écrivant ce rôle (docs/completion.md § 1.1, signalée à
+# l'opérateur avant d'être appliquée, § 0 de la demande CMP-1) :
+# `cargo build --release --locked` échoue tel quel sur ce Cargo.lock —
+# hf-hub est une dépendance git déclarée par version seule ("0.3.2"),
+# sans rev fixe ; le dépôt hf-hub amont a retiré ses étiquettes 0.3.x
+# (vérifié : `git ls-remote --tags https://github.com/huggingface/hf-hub`
+# ne montre plus que v0.4.0+), donc Cargo ne peut plus revalider "0.3.2"
+# même avec Cargo.lock présent. Un recouvrement de source Cargo
+# (`[source]`/`replace-with`) a été essayé et écarté : ce mécanisme
+# exige lui-même un lockfile déjà cohérent avec le remplacement actif
+# (chicken-and-egg documenté par Cargo lui-même). Correctif retenu,
+# vérifié avant d'être encodé dans ce rôle : `cargo update -p hf-hub
+# --precise <ce commit>` — le même commit que Cargo.lock épingle déjà
+# (pas une nouvelle fixation arbitraire), qui ne change PAS l'entrée
+# hf-hub elle-même (vérifié, `git diff`) mais force une réécriture
+# cohérente du lockfile (format 3 → 4) qui corrige au passage un
+# décalage sans rapport déjà présent dans le Cargo.lock amont (auto-
+# version du paquet lsp-ai : "0.7.0" au lieu de "0.7.1" déclaré par son
+# propre Cargo.toml à ce commit). Aucun autre paquet touché (« 262
+# unchanged dependencies behind latest »).
+completion_hf_hub_pinned_commit: 6303587576f8a1ce9f91f8274265a153b89afb6e
+
+# --- Dépendances de compilation supplémentaires -------------------------
+# Découverte en écrivant ce rôle (docs/completion.md § 7.2, cinq
+# paquets trouvés successivement, pas en une fois) : `reqwest`
+# (dépendance par défaut de lsp-ai, pas seulement du feature
+# `llama_cpp`) tire `openssl-sys`, qui compile OpenSSL vendoré depuis
+# les sources — la configuration OpenSSL (`Configure`/`configdata.pm`)
+# exige plusieurs modules Perl absents de ce poste, jamais nécessaires
+# jusqu'ici, établis par lecture exhaustive des `use`/`require` des
+# fichiers réellement invoqués (pas un module Perl générique
+# « complet ») : `FindBin`, `IPC::Cmd`, `File::Compare`,
+# `IO::Socket::INET6`, `Text::Template`. Même exception que rust/cargo
+# (« la chaîne de compilation qui vient des dépôts »), fedora/updates
+# uniquement — vérifié, `dnf repoquery --available --qf '%{repoid}'`
+# sur les cinq ne montre que fedora/updates.
+completion_build_extra_packages:
+  - perl-FindBin
+  - perl-IPC-Cmd
+  - perl-File-Compare
+  - perl-IO-Socket-INET6
+  - perl-Text-Template
+
+# --- Garde : node/npm absents, D12 reste en vigueur --------------------
+# Même patron que roles/editor/ (garde D12, mal nommée « D11 » dans ses
+# commentaires — écart préexistant, pas corrigé ici, hors périmètre de
+# ce rôle) : test d'exécution sur le PATH réel, pas une lecture de base
+# rpm — un binaire node/npm pourrait provenir d'ailleurs. Substituable
+# pour la démonstration d'échec forcé (§ 3 de la demande) sans jamais
+# changer l'état réel du système : -e completion_forbidden_binaries=['sh']
+# (garanti présent) casse la garde sans installer quoi que ce soit.
+completion_forbidden_binaries:
+  - node
+  - npm
+
+# --- Garde : service d'inférence local joignable ------------------------
+# Jamais une API distante (demande § 2.4) — mêmes valeurs que
+# roles/local_ai/defaults/main.yml (local_ai_ollama_bind_address/
+# local_ai_ollama_port), reprises ici sans import inter-rôles (ce dépôt
+# n'a pas de mécanisme de partage de defaults entre rôles — chaque rôle
+# reste autonome, même motif que la reprise délibérée de
+# gpu_cdi_verify_spec_path dans roles/local_ai/). Si l'un des deux rôles
+# change son adressage, l'autre doit être mis à jour à la main — nommé
+# ici pour que ça ne se perde pas.
+completion_ollama_host: 127.0.0.1
+completion_ollama_port: 11434
+completion_ollama_url_check: "http://{{ completion_ollama_host }}:{{ completion_ollama_port }}/api/tags"
+
+# Calculées une fois ici, réutilisées telles quelles dans le template
+# ET dans la garde qui relit le fichier déployé — évite toute
+# divergence entre ce qui est écrit et ce qui est vérifié (une
+# concaténation Jinja recalculée séparément aux deux endroits avait
+# produit un faux échec en écrivant ce rôle, corrigé en centralisant
+# ici).
+completion_ollama_generate_url: "http://{{ completion_ollama_host }}:{{ completion_ollama_port }}/api/generate"
+completion_ollama_chat_url: "http://{{ completion_ollama_host }}:{{ completion_ollama_port }}/api/chat"
+
+# Valeurs ATTENDUES par la garde 5/5 (relecture de la configuration
+# déployée) — distinctes des valeurs ci-dessus qui pilotent ce qui est
+# réellement écrit dans le fichier, même patron que les autres gardes
+# substituables de ce dépôt (ex. local_ai_network_internal_expected).
+# Par défaut identiques à ce qui est déployé ; substituables par -e
+# pour la démonstration d'échec forcé SANS jamais changer ce que le
+# fichier réellement déployé contient :
+# -e completion_ollama_generate_url_expected=http://exemple.invalide/api/generate
+completion_ollama_generate_url_expected: "{{ completion_ollama_generate_url }}"
+completion_ollama_chat_url_expected: "{{ completion_ollama_chat_url }}"
+
+# --- Configuration Helix -------------------------------------------------
+# Langages auxquels lsp-ai est rattaché (demande § 2.5) — yaml d'abord :
+# le plus directement pertinent à ce dépôt (Ansible), et celui dont
+# l'absence de serveur était déjà nommée par D12/EDI-1
+# (`hx --health yaml` : "not found in $PATH").
+completion_helix_languages:
+  - yaml
+
+completion_helix_config_dir: "{{ ansible_facts.env.HOME }}/.config/helix"
+
+# Nom de modèle placeholder — AUCUN modèle n'est chargé par ce rôle
+# (D17, toujours en vigueur) ni choisi (D20). Nommé explicitement pour
+# qu'une complétion vide ne soit jamais confondue avec un succès
+# (demande § 3 : « à ne pas maquiller en succès »).
+completion_model_placeholder: "aucun-modele-charge-D20"
+
+# Contexte/paramètres de complétion — valeurs de départ documentées par
+# le projet amont (docs/completion.md § 2, exemple de configuration
+# Ollama cité), pas inventées.
+completion_max_context: 2000
+completion_num_predict: 32
+
+# Substituable pour la démonstration d'échec forcé du service (§ 3 de
+# la demande) sans jamais changer le service réel :
+# -e completion_ollama_url_check=http://127.0.0.1:1/api/tags
+completion_service_wait_retries: 3
+completion_service_wait_delay: 2

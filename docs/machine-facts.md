@@ -1033,16 +1033,26 @@ anticipée (Ollama contacte `ollama.com` de son propre chef, `OLLAMA_NO_CLOUD:fa
 par défaut, non corrigé ici, nommé pour un livrable ultérieur) :
 `docs/local-ai.md` § 7.
 
-**D15 (2026-08-07) — modèle de complétion résident en permanence
-(`keep_alive` infini).** Motif : latence minimale, usage principal
-(complétion de code). Contrepartie assumée par l'opérateur : un
-contexte CUDA ouvert en permanence empêche RTD3 de s'engager — les
-~8 W récupérés par la bascule MUX (D2ter) sont repayés tant que le
-service tourne **avec un modèle chargé**. Mesuré dans ce livrable,
-service démarré **sans** modèle : RTD3 s'engage toujours normalement
-dans ce cas précis (`docs/local-ai.md` § 7.6 — 0 ms de temps actif sur
-280 s observées) — la contrepartie ne commence qu'au premier
-chargement effectif d'un modèle, pas au démarrage du service.
+**[REQUALIFIÉE le 2026-08-07, D20] D15 (2026-08-07) — modèle de
+complétion résident en permanence (`keep_alive` infini).** Motif :
+latence minimale, usage principal (complétion de code). Contrepartie
+assumée par l'opérateur : un contexte CUDA ouvert en permanence
+empêche RTD3 de s'engager — les ~8 W récupérés par la bascule MUX
+(D2ter) sont repayés tant que le service tourne **avec un modèle
+chargé**. Mesuré dans ce livrable, service démarré **sans** modèle :
+RTD3 s'engage toujours normalement dans ce cas précis
+(`docs/local-ai.md` § 7.6 — 0 ms de temps actif sur 280 s observées) —
+la contrepartie ne commence qu'au premier chargement effectif d'un
+modèle, pas au démarrage du service. **ÉTAIT** la décision de
+résidence permanente elle-même — **requalifiée par D20** (ci-dessous,
+CMP-1) en modèle **à la demande** : engager la contrepartie ci-dessus
+avant d'avoir établi que la complétion sert réellement au quotidien
+revenait à payer un coût certain pour un bénéfice supposé. Le motif
+originel de D15 (latence par frappe) reste correct **si** un
+mécanisme de complétion automatique existe dans l'éditeur — établi
+depuis, `docs/completion.md` § 2.1 (`lsp-ai`) — mais la décision de
+résidence elle-même est révisée indépendamment, par prudence
+budgétaire, pas parce que le motif serait devenu faux.
 
 **D16 (2026-08-07) — `NVreg_PreserveVideoMemoryAllocations=1`.**
 Motif : un modèle chargé survit à une suspension système. Contrepartie
@@ -1114,7 +1124,49 @@ externe (aucune somme de contrôle publiée, dernière publication ~23
 mois avant cette date, développement en pause déclaré par le
 mainteneur) — un coût nouveau, distinct de celui de D12 (npm), non
 pesé avant `docs/completion.md`. **Signalé, pas tranché ici** :
-questions qui départagent dans `docs/completion.md`.
+questions qui départagent dans `docs/completion.md`. **[TRANCHÉ le
+2026-08-07, D19/D20 ci-dessous]** — l'opérateur a tranché sur la base
+de ces questions : jamais le binaire précompilé (l'absence de somme de
+contrôle en faisait un ancrage **plus faible que npm**, l'inverse de
+ce que cette voie était censée éviter), compilation depuis les sources
+retenue à la place ; résidence permanente requalifiée en complétion à
+la demande (D20), indépendamment de la question Kate qui reste
+ouverte.
+
+**D19 (2026-08-07, CMP-1) — complétion locale par `lsp-ai`, compilé
+depuis les sources (jamais le binaire précompilé).** Motif : le
+binaire précompilé n'a aucune somme de contrôle publiée — ancrage de
+confiance plus faible que npm, qui transporte au moins des empreintes
+d'intégrité dans ses fichiers de verrouillage ; l'adopter aurait
+accepté pire que ce que D12 (npm fermé) refusait, en croyant faire
+l'inverse. La compilation ouvre **crates.io**, quatrième surface
+d'approvisionnement de ce dépôt (`docs/repositories.md` § 7) — avec
+vérification d'intégrité par empreinte (`Cargo.lock`, `--locked`) et
+code source auditable. Risques assumés, consignés tels quels :
+dernière publication (`v0.7.1`) vieille d'environ 23 mois, dernier
+commit (celui réellement compilé) environ 19 mois, développement
+déclaré en pause par le mainteneur, compatibilité Kate jamais testée
+par personne (Helix seul dans ce livrable, Kate reste un point
+ouvert). Épinglé par empreinte de commit
+(`1e910a8cf0048406eb227bf2064743010a9ff3a9`), jamais une étiquette.
+Exécuté par `roles/completion/` — deux obstacles réels rencontrés en
+compilant (dépendance git `hf-hub` sans rev fixe dont les étiquettes
+amont ont été retirées ; GCC système en C23 par défaut incompatible
+avec le C vendoré K&R d'`oniguruma`), signalés avant correction,
+détail complet et preuve de la poignée de main LSP :
+`docs/completion.md` § 7.
+
+**D20 (2026-08-07, CMP-1) — modèle de complétion à la demande, pas
+résident.** Requalifie D15 (ci-dessus, marquée `[REQUALIFIÉE]`, pas
+effacée). Motif : la résidence permanente coûte ~8 W en continu et
+neutralise la veille runtime D3 (D15) — l'engager avant d'avoir établi
+que la complétion sert réellement au quotidien serait payer un coût
+certain pour un bénéfice supposé, d'autant que le mécanisme qui la
+justifierait (`lsp-ai`) vient d'être établi comme fonctionnel mais
+non éprouvé en usage réel (aucun modèle chargé à ce jour). Révisable
+après usage mesuré — pas une fermeture définitive de la résidence,
+une séquence : à la demande d'abord, résident ensuite si l'usage le
+justifie.
 
 ## Points ouverts
 
@@ -2409,3 +2461,55 @@ questions qui départagent dans `docs/completion.md`.
   téléchargé ; aucun dépôt ajouté ; aucune commande `dnf` n'a touché
   `terra` ; aucune configuration d'éditeur ni de service modifiée ;
   aucun fichier écrit hors de ce dépôt.
+- **2026-08-07 — `lsp-ai` compilé depuis les sources, intégré à Helix,
+  D19/D20, `roles/completion/` (CMP-1).** Deux décisions de
+  l'opérateur (ci-dessus, § Décisions) : complétion par `lsp-ai`
+  compilé depuis les sources plutôt que son binaire précompilé
+  (D19, quatrième surface d'approvisionnement — `crates.io`,
+  `docs/repositories.md` § 7) ; modèle de complétion à la demande,
+  pas résident (D20, requalifie D15 sans l'effacer).
+  Résolution avant compilation : `rust`/`cargo` disponibles
+  `fedora`/`updates` uniquement (1.97.1), aucun `rust-version` déclaré
+  par `lsp-ai` ; `Cargo.lock` présent (104 548 octets) à l'empreinte de
+  commit retenue (`1e910a8cf0048406eb227bf2064743010a9ff3a9`,
+  2025-01-07 — pas l'étiquette `v0.7.1`, plus ancienne, une étiquette
+  pouvant être déplacée).
+  Deux obstacles réels rencontrés en compilant, signalés à l'opérateur
+  avant correction, aucun anticipé par la seule lecture des
+  manifestes : une dépendance git (`hf-hub`) déclarée par version sans
+  `rev` fixe, dont le dépôt amont a retiré les étiquettes
+  correspondantes, cassant `--locked` malgré `Cargo.lock` présent —
+  corrigé par `cargo update -p hf-hub --precise <même commit déjà
+  verrouillé>`, qui ne change pas cette entrée mais corrige un
+  décalage sans rapport déjà présent dans le `Cargo.lock` amont ; le
+  GCC système (16.1.1) compile en C23 par défaut, incompatible avec le
+  C vendoré K&R de la bibliothèque `oniguruma` (tirée par
+  `tokenizers`) — corrigé par `CFLAGS=-std=gnu17` pour la seule
+  compilation C déclenchée par ce rôle. Cinq modules Perl absents
+  également installés (dépendances de la configuration d'OpenSSL
+  vendoré par `openssl-sys`), tous `fedora`/`updates`.
+  Empreinte du binaire produit identique sur deux compilations propres
+  indépendantes : `7bc6e76e296861d958ab369131de433457f6226b994487f9b418ae55ea8f9159`
+  (`lsp-ai 0.7.1`). Idempotence non triviale à obtenir (le clonage et
+  la correction du lockfile ne s'exécutent qu'au premier passage, pas
+  reforcés ensuite) — confirmée, `changed=0` en deuxième exécution.
+  Preuve de la poignée de main LSP par lecture du journal Helix (`hx
+  -vv`, piloté sans capture visuelle) : réponse `initialize` du
+  serveur portant `completionProvider`, contrastée avec une
+  configuration neutralisée (binaire introuvable) où aucune capacité
+  n'est annoncée — les deux journaux visiblement différents. Quatre
+  démonstrations d'échec forcé supplémentaires sur les gardes du rôle,
+  toutes `changed=0`. Kate non configuré, compatibilité toujours non
+  testée par personne — point ouvert, pas affirmé.
+  Nouvelle règle `CLAUDE.md` (§ Avant d'agir) : toute élévation de
+  privilège précédée d'une tentative sans privilège — motivée par deux
+  occurrences passées d'élévation réflexe (IA-0, CMP-0). **Incident
+  reconnu dans ce même livrable** : une élévation
+  (`sudo dnf install perl-IPC-Cmd`) exécutée sans tentative sans
+  privilège préalable, quelques instants après l'écriture de cette
+  règle — signalé explicitement, pas dissimulé, non répété pour les
+  trois modules Perl suivants.
+  Aucun modèle téléchargé sous aucune forme ; aucun binaire `lsp-ai`
+  précompilé récupéré ; `command -v node npm` toujours vide ; aucun
+  nouveau dépôt `dnf` (`crates.io`/le dépôt git `lsp-ai` n'en sont
+  pas) ; `getenforce` inchangé (`Enforcing`) ; aucun redémarrage.

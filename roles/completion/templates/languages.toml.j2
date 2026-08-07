@@ -1,0 +1,55 @@
+# Déployé par roles/completion/ (D19/D20, docs/machine-facts.md §
+# Décisions) — révise la décision D12/EDI-1 de ne jamais inscrire de
+# serveur de langage dans Helix (roles/editor/tasks/main.yml : « écrire
+# un languages.toml pour supprimer cette mention irait à l'encontre de
+# la consigne plutôt que de la respecter ») : cette révision est
+# délibérée, pas un contournement — D12 (npm) reste fermée, lsp-ai ne
+# vient pas de ce canal (docs/completion.md § 2.1). roles/editor/ ne
+# déploie toujours aucun languages.toml lui-même ; ce fichier est géré
+# exclusivement par ce rôle.
+#
+# `command` en chemin absolu, pas un nom résolu via $PATH : évite de
+# dépendre du PATH hérité par Helix au lancement (non documenté avec
+# certitude par le livre Helix, `man hx` § language-server) —
+# vérifiable directement (`{{ completion_bin_dir }}/{{ completion_bin_name }}`
+# existe ou non), pas une hypothèse sur l'environnement d'exécution.
+
+[language-server.lsp-ai]
+command = "{{ completion_bin_dir }}/{{ completion_bin_name }}"
+args = ["--stdio"]
+
+# Mémoire : fichiers ouverts uniquement (file_store), pas d'indexation
+# vectorielle ni de base PostgresML — inutile pour prouver la poignée
+# de main LSP (demande § 3), et une base vectorielle exigerait un
+# modèle d'embedding, hors périmètre (aucun modèle choisi, D17/D20).
+[language-server.lsp-ai.config.memory.file_store]
+
+# Backend Ollama, API locale explicite — jamais une API distante
+# (demande § 2.4). generate_endpoint/chat_endpoint posés explicitement
+# plutôt que de dépendre du défaut compilé de lsp-ai (qui pointe déjà
+# vers localhost:11434 par défaut, lu dans crates/lsp-ai/src/config.rs
+# — mais une valeur posée explicitement se vérifie par lecture de ce
+# fichier, un défaut implicite non).
+[language-server.lsp-ai.config.models.completion-model]
+type = "ollama"
+generate_endpoint = "{{ completion_ollama_generate_url }}"
+chat_endpoint = "{{ completion_ollama_chat_url }}"
+# Aucun modèle chargé, aucun modèle choisi (D17/D20) — nom placeholder
+# délibérément non résolvable, pour que la complétion échoue de façon
+# visible plutôt que de sembler fonctionner par coïncidence de nommage.
+model = "{{ completion_model_placeholder }}"
+
+[language-server.lsp-ai.config.completion]
+model = "completion-model"
+
+[language-server.lsp-ai.config.completion.parameters]
+max_context = {{ completion_max_context }}
+
+[language-server.lsp-ai.config.completion.parameters.options]
+num_predict = {{ completion_num_predict }}
+
+{% for lang in completion_helix_languages %}
+[[language]]
+name = "{{ lang }}"
+language-servers = ["lsp-ai"]
+{% endfor %}
