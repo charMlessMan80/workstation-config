@@ -1091,21 +1091,30 @@ reste à établir pour un livrable qui télécharge réellement un modèle
 (la mesure détecte bien une tentative bloquée, provoquée
 délibérément sans jamais quitter la machine) : `docs/local-ai.md` § 8.3.
 
-**D15 revue, pas invalidée à la légère (IA-2)** : la lecture de la
-faisabilité de la complétion dans Helix/Kate (`docs/local-ai.md` § 8.6)
-montre qu'aucun mécanisme d'aujourd'hui ne permet une complétion
-automatique au fil de la frappe dans ces deux éditeurs — ni greffon
-(Helix n'en a pas), ni serveur de langage générique compatible
-(`llm-ls` existe, licence Apache-2.0, hors npm, mais sa complétion
-passe par une méthode JSON-RPC propriétaire qu'un client LSP générique
-n'appelle jamais). Le motif exact de D15 (latence par frappe) ne tient
-donc plus tel quel — seul un déclenchement manuel
-(`:pipe-append`/outil externe vers l'API Ollama) est réalisable
-aujourd'hui, qui tolère un réveil RTD3 occasionnel. **Signalé, pas
-tranché ici** (lecture seule, IA-2) : à l'opérateur de décider entre
-un `keep_alive` fini pour le modèle de complétion (annule la
-contrepartie D15) ou l'acceptation consciente du coût pour un usage
-qui restera manuel.
+**[REQUALIFIÉ le 2026-08-07, résolution complétion] D15 revue, pas
+invalidée à la légère (IA-2)** : la lecture de la faisabilité de la
+complétion dans Helix/Kate (`docs/local-ai.md` § 8.6) montrait
+qu'aucun mécanisme d'alors ne permettait une complétion automatique au
+fil de la frappe dans ces deux éditeurs — ni greffon (Helix n'en a
+pas), ni serveur de langage générique compatible (`llm-ls` existe,
+licence Apache-2.0, hors npm, mais sa complétion passe par une méthode
+JSON-RPC propriétaire qu'un client LSP générique n'appelle jamais).
+**ÉTAIT** : conclusion tirée d'un seul serveur vérifié (`llm-ls`),
+généralisée à tort à « aucun mécanisme ». **Incomplet, pas faux sur ce
+qu'elle avait vérifié** — corrigé par une recherche élargie
+(`docs/completion.md`) : `lsp-ai` (MIT, Rust, binaire précompilé hors
+npm) implémente la complétion via `textDocument/completion` **standard**
+— vérifié jusqu'au bout de la chaîne dans son code source (capacité
+déclarée → dispatch de requête → construction de la réponse), documenté
+compatible Helix par le projet amont. Le motif exact de D15 (latence
+par frappe) **redevient défendable**, sous réserve de deux points
+laissés ouverts par `docs/completion.md` § 2.1 : compatibilité Kate non
+testée par personne, et absence d'ancrage de confiance pour ce binaire
+externe (aucune somme de contrôle publiée, dernière publication ~23
+mois avant cette date, développement en pause déclaré par le
+mainteneur) — un coût nouveau, distinct de celui de D12 (npm), non
+pesé avant `docs/completion.md`. **Signalé, pas tranché ici** :
+questions qui départagent dans `docs/completion.md`.
 
 ## Points ouverts
 
@@ -2364,3 +2373,39 @@ qui restera manuel.
   pas un dépôt) ; `sudoers`/`gpu_mux_mode`/`dgpu_disable`/`kwinrulesrc`
   non touchés ; SELinux jamais modifié ; aucune déconnexion ; aucun
   redémarrage machine.
+- **2026-08-07 — résolution en lecture seule de la complétion locale,
+  `docs/completion.md`.** Question posée : le blocage de la complétion
+  automatique dans Helix/Kate, constaté en clôture d'IA-2, est-il côté
+  éditeur ou côté serveur ? Établi par lecture directe (changelog
+  packagé localement pour Helix, extraction de chaînes du binaire
+  installé pour le greffon LSP de Kate) : **ni l'un ni l'autre n'a de
+  blocage structurel** — les deux sont des clients LSP standard,
+  capables de `textDocument/completion` à la frappe ; le blocage
+  identifié en IA-2 (`llm-ls`) était propre à ce serveur précis
+  (méthode JSON-RPC propriétaire), pas généralisable. Recherche élargie
+  à deux autres serveurs : `tabby-agent` (Node.js requis, protocole
+  standard + extensions optionnelles) et **`lsp-ai`** (MIT, Rust,
+  binaire précompilé hors npm, protocole standard vérifié de bout en
+  bout dans son code, compatibilité Helix documentée par le projet
+  amont) — ce dernier résout la complétion **sans rouvrir D12 ni
+  réviser D13**, une troisième voie non anticipée par la demande.
+  Coût propre à cette voie, nommé symétriquement à celui de npm :
+  aucune somme de contrôle publiée pour le binaire, dernière
+  publication ~23 mois avant cette date, développement en pause
+  déclaré par le mainteneur, compatibilité Kate non testée par
+  personne — deux marqueurs de vérification ouverts sur ces points.
+  D15 requalifiée en conséquence (ci-dessus, § Décisions) — pas
+  tranchée, l'opérateur décide via les questions de `docs/completion.md`.
+  Coût de rouvrir D12 chiffré pour mémoire (nodejs22 : ~87,5 Mio
+  minimal, 169 Mio avec dépendances faibles, `dnf install --assumeno`,
+  sans privilège) — aucune voie retenue ne l'exige à ce stade. Motifs
+  D13 (magasin d'extensions, télémétrie, dépendance Terra pour
+  Zed/Cursor) revérifiés, toujours valides.
+  **Aucune action privilégiée dans ce livrable** — une élévation
+  (`sudo dnf install --assumeno nodejs22`) exécutée par réflexe puis
+  reconnue superflue (la même commande fonctionne sans privilège),
+  même défaut de méthode que celui déjà reconnu en IA-0, non répété.
+  Aucun paquet installé, ni `node` ni `npm` ; aucun modèle ni image
+  téléchargé ; aucun dépôt ajouté ; aucune commande `dnf` n'a touché
+  `terra` ; aucune configuration d'éditeur ni de service modifiée ;
+  aucun fichier écrit hors de ce dépôt.
