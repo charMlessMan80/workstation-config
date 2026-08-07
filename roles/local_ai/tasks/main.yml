@@ -160,6 +160,14 @@
     mode: "0755"
   when: not ansible_check_mode
 
+- name: "Déployer le réseau Podman dédié, interne (unité Quadlet .network, IA-2 §1) : {{ local_ai_network_unit_name }}"
+  ansible.builtin.template:
+    src: ollama.network.j2
+    dest: "{{ local_ai_quadlet_dir }}/{{ local_ai_network_unit_name }}.network"
+    mode: "0644"
+  register: local_ai_network_write
+  when: not ansible_check_mode
+
 - name: "Déployer le volume Podman nommé pour les modèles, unité Quadlet : {{ local_ai_volume_name }}"
   ansible.builtin.template:
     src: ollama-models.volume.j2
@@ -179,13 +187,23 @@
 # --- Activation : daemon-reload (fait matérialiser les unités générées
 # par Quadlet à partir des fichiers ci-dessus), puis démarrage ---------
 
-- name: "Activer et démarrer le service Ollama (utilisateur), avec rechargement du démon si nécessaire"
+# Redémarre (pas seulement « started », qui est un no-op sur un
+# service déjà actif) quand une des trois unités Quadlet a changé —
+# défaut trouvé en écrivant IA-2 : un conteneur déjà en cours
+# d'exécution ne relit jamais tout seul un nouveau réseau ou une
+# nouvelle variable d'environnement, seul un redémarrage réel fait
+# reprendre la nouvelle définition générée par Quadlet.
+- name: "Activer et (re)démarrer le service Ollama (utilisateur), avec rechargement du démon si nécessaire"
   ansible.builtin.systemd:
     name: "{{ local_ai_service_name }}.service"
     scope: user
     daemon_reload: true
     enabled: true
-    state: started
+    state: >-
+      {{ 'restarted' if (local_ai_network_write.changed | default(false))
+         or (local_ai_volume_write.changed | default(false))
+         or (local_ai_container_write.changed | default(false))
+         else 'started' }}
   register: local_ai_service_state
   when: not ansible_check_mode
 
@@ -251,6 +269,73 @@
     success_msg: "GPU visible depuis l'intérieur du conteneur : {{ local_ai_gpu_in_container.stdout_lines | default([]) | join(' / ') }}"
   when: not ansible_check_mode
 
+# --- Gardes a posteriori (IA-2 §1) — confinement réseau, échec bruyant,
+# après démarrage : ces deux propriétés ne sont observables qu'une fois
+# le réseau créé et le service démarré, contrairement aux trois gardes
+# préalables ci-dessus (CLAUDE.md § toute garde se démontre dans les
+# deux sens — expected substituable par -e pour la démonstration
+# d'échec forcé, sans jamais changer ce qui est réellement déployé,
+# même patron que les gardes 2/3 et 3/3).
+# --------------------------------------------------------------------
+
+- name: "Garde 4/5 — relever si le réseau dédié est bien interne (aucune route de sortie)"
+  ansible.builtin.command:
+    cmd: "podman network inspect systemd-{{ local_ai_network_unit_name }} --format '{{ '{{.Internal}}' }}'"
+  register: local_ai_guard_network
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si le réseau dédié n'est pas interne (ou si l'attendu a été substitué pour la démonstration)"
+  ansible.builtin.assert:
+    that:
+      - (local_ai_guard_network.stdout | trim) == (local_ai_network_internal_expected | string)
+    fail_msg: >-
+      Réseau systemd-{{ local_ai_network_unit_name }} : Internal attendu
+      = '{{ local_ai_network_internal_expected }}', relevé =
+      '{{ local_ai_guard_network.stdout | trim }}'. Ce rôle s'arrête :
+      sans réseau interne, le conteneur regagnerait une route de sortie
+      vers Internet, exactement ce que ce livrable supprime (IA-2 §1,
+      docs/local-ai.md § 8).
+    success_msg: "Réseau dédié confirmé interne : Internal={{ local_ai_guard_network.stdout | trim }}."
+  when: not ansible_check_mode
+
+- name: "Garde 5/5 — relever ce qu'Ollama a lui-même annoncé sur la fonctionnalité cloud (effet constaté, pas la variable posée)"
+  # `podman logs` relaie le flux stderr du conteneur sur SON PROPRE
+  # stderr, pas stdout (vérifié : le journal d'Ollama, qui écrit sur
+  # son propre stderr, n'apparaissait que dans .stderr du module
+  # command, jamais dans .stdout — découvert en écrivant cette garde,
+  # premier passage `.stdout` seul la faisait échouer à tort) — les
+  # deux flux sont donc examinés ci-dessous.
+  ansible.builtin.command:
+    cmd: "podman logs {{ local_ai_service_name }}"
+  register: local_ai_guard_cloud_log
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si Ollama n'a pas lui-même annoncé le cloud désactivé (ou si l'attendu a été substitué pour la démonstration)"
+  ansible.builtin.assert:
+    that:
+      - >-
+        ('msg="Ollama cloud disabled: ' ~ local_ai_cloud_disabled_expected ~ '"')
+        in (local_ai_guard_cloud_log.stdout ~ local_ai_guard_cloud_log.stderr)
+    fail_msg: >-
+      Le journal du service n'annonce pas 'Ollama cloud disabled:
+      {{ local_ai_cloud_disabled_expected }}' — dernières lignes
+      pertinentes : {{ (local_ai_guard_cloud_log.stdout_lines
+        + local_ai_guard_cloud_log.stderr_lines)
+        | select('search', 'cloud disabled') | list }}. Ce rôle
+      s'arrête : la fonctionnalité cloud documentée
+      (docs/local-ai.md § 7.3/§ 8) doit rester désactivée, constaté
+      dans le propre journal du serveur, pas seulement posé par la
+      variable d'environnement qui la configure.
+    success_msg: >-
+      Ollama a lui-même annoncé le cloud désactivé
+      (attendu={{ local_ai_cloud_disabled_expected }}), confirmé dans
+      son propre journal.
+  when: not ansible_check_mode
+
 # --- Rapport -----------------------------------------------------------
 
 - name: "Rapporter l'état (mode simulation --check)"
@@ -258,8 +343,9 @@
     msg: >-
       --check : aucune écriture réalisée. Les trois gardes préalables
       seraient revérifiées, l'écrasement modprobe.d et les unités
-      Quadlet seraient déployés, le service serait démarré — aucun
-      modèle ne serait chargé.
+      Quadlet (réseau interne dédié, volume, conteneur) seraient
+      déployés, le service serait démarré — aucun modèle ne serait
+      chargé.
   when: ansible_check_mode
 
 - name: "Rapporter l'état (exécution réelle)"
@@ -281,4 +367,8 @@
           uniquement.
       - "Aucun modèle chargé (liste vide, confirmé) — GPU visible depuis l'intérieur du conteneur, confirmé."
       - "Image épinglée : {{ local_ai_ollama_image }}"
+      - >-
+          Réseau dédié interne confirmé (Internal={{ local_ai_guard_network.stdout | default('?') | trim }}) —
+          OLLAMA_NO_CLOUD={{ local_ai_ollama_no_cloud }}, confirmé dans le
+          propre journal du serveur (« Ollama cloud disabled: {{ local_ai_cloud_disabled_expected }} »).
   when: not ansible_check_mode

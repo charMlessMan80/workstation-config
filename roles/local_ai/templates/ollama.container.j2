@@ -23,6 +23,17 @@ ContainerName={{ local_ai_service_name }}
 # officiel : `-v ollama:/root/.ollama`).
 Volume={{ local_ai_volume_name }}.volume:/root/.ollama
 
+# Réseau dédié, interne (IA-2, §1 de la demande) — référence l'unité
+# Quadlet .network ci-dessous (même patron que Volume= ci-dessus pour
+# ollama-models.volume), pas le réseau pasta par défaut (partage
+# l'adressage de l'hôte, sortie non filtrée — mesuré, docs/local-ai.md
+# § 8.1 : c'est par ce chemin que le conteneur a contacté ollama.com de
+# son propre chef). PublishPort= ci-dessous continue de fonctionner :
+# vérifié avant d'écrire ce fichier que le transfert de port et la
+# restriction de sortie sont deux mécanismes indépendants
+# (docs/local-ai.md § 8.2).
+Network={{ local_ai_network_unit_name }}.network
+
 # API exposée en local uniquement — adresse hôte explicite (jamais
 # 0.0.0.0/omise). L'image définit déjà OLLAMA_HOST=0.0.0.0:11434 EN
 # INTERNE (vérifié : `skopeo inspect --config`, ENV déjà présent dans
@@ -34,6 +45,22 @@ PublishPort={{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}:11434
 
 # D15 — modèle de complétion résident en permanence.
 Environment=OLLAMA_KEEP_ALIVE={{ local_ai_ollama_keep_alive }}
+
+# IA-2, §1 de la demande — défense en profondeur, en complément du
+# réseau interne ci-dessus, pas à sa place : ferme la fonctionnalité
+# « cloud » documentée par Ollama (appels de recommandation non
+# sollicités vers ollama.com, exécution cloud activée par défaut).
+# Vérifié par mesure avant d'écrire ce fichier (docs/local-ai.md § 8.3)
+# que cette variable supprime réellement la tentative d'appel (aucun
+# fichier cache/model-recommendations.json créé, même avec une sortie
+# réseau disponible) — pas seulement une désactivation cosmétique de
+# l'exécution cloud qui laisserait la tentative réseau intacte. Couvre
+# ce cas précis plus proprement que le réseau interne seul (pas de
+# tentative, donc pas de répétition de messages d'échec dans le
+# journal) ; le réseau interne couvre tout le reste, y compris un appel
+# non sollicité qu'une future mise à jour de l'image n'aurait pas
+# placé derrière cette variable.
+Environment=OLLAMA_NO_CLOUD={{ local_ai_ollama_no_cloud }}
 
 # Accès GPU par CDI natif, déjà prouvé de bout en bout
 # (docs/gpu-containers.md) — pas de dépendance à `--gpus` (spécifique à

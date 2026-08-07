@@ -1071,6 +1071,42 @@ chiffrée pour les quantifications plus agressives, donc pas de
 descente sans mesure. **Aucun modèle choisi ni téléchargé dans ce
 livrable ni dans IA-1** — réservé à IA-2.
 
+**D18 (2026-08-07, IA-2) — confinement réseau du service d'inférence :
+réseau Podman dédié `--internal` (garde structurelle) +
+`OLLAMA_NO_CLOUD=1` (défense en profondeur), en réponse à la
+découverte D14 (appels non sollicités vers `ollama.com`, fonctionnalité
+cloud activée par défaut).** Motif : `--internal` est vérifiable depuis
+l'hôte sans dépendre du bon comportement du logiciel dans le conteneur
+(`podman network inspect`) et couvre tout vecteur de sortie non encore
+identifié par nom ; `OLLAMA_NO_CLOUD=1` empêche la tentative elle-même
+pour le cas déjà documenté (moins de bruit de journal), vérifié
+efficace par mesure avant d'être retenu (`docs/local-ai.md` § 8.2).
+`--network=none` (aucune pile réseau) a été testé et écarté : il casse
+aussi le transfert de port publié — l'API locale, pas seulement
+`ollama pull`, cesserait de répondre à l'hôte. Contrepartie assumée,
+nommée, non résolue par ce livrable : `ollama pull` échoue aussi sur ce
+réseau — un chemin distinct (`podman network connect` temporaire)
+reste à établir pour un livrable qui télécharge réellement un modèle
+(`docs/local-ai.md` § 8.5). Preuve avant/après et démonstration inverse
+(la mesure détecte bien une tentative bloquée, provoquée
+délibérément sans jamais quitter la machine) : `docs/local-ai.md` § 8.3.
+
+**D15 revue, pas invalidée à la légère (IA-2)** : la lecture de la
+faisabilité de la complétion dans Helix/Kate (`docs/local-ai.md` § 8.6)
+montre qu'aucun mécanisme d'aujourd'hui ne permet une complétion
+automatique au fil de la frappe dans ces deux éditeurs — ni greffon
+(Helix n'en a pas), ni serveur de langage générique compatible
+(`llm-ls` existe, licence Apache-2.0, hors npm, mais sa complétion
+passe par une méthode JSON-RPC propriétaire qu'un client LSP générique
+n'appelle jamais). Le motif exact de D15 (latence par frappe) ne tient
+donc plus tel quel — seul un déclenchement manuel
+(`:pipe-append`/outil externe vers l'API Ollama) est réalisable
+aujourd'hui, qui tolère un réveil RTD3 occasionnel. **Signalé, pas
+tranché ici** (lecture seule, IA-2) : à l'opérateur de décider entre
+un `keep_alive` fini pour le modèle de complétion (annule la
+contrepartie D15) ou l'acceptation consciente du coût pour un usage
+qui restera manuel.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1150,10 +1186,25 @@ livrable ni dans IA-1** — réservé à IA-2.
   les deux sont bien installés (transactions 14–17 dans l'historique dnf).
   Arbitrage (quel pilote VA-API prime pour quel usage) non déterminé.
   Priorité basse.
-- **`NVreg_PreserveVideoMemoryAllocations` commenté** dans
-  `/usr/lib/modprobe.d/nvidia-power-management.conf` : les allocations VRAM
-  ne survivent pas à la veille. Impact direct sur un serveur d'inférence
-  local. Fait établi (voir « GPU »). À traiter au livrable IA.
+- **[CORRIGÉ le 2026-08-07, IA-2] `NVreg_PreserveVideoMemoryAllocations`
+  commenté** dans `/usr/lib/modprobe.d/nvidia-power-management.conf`.
+  **ÉTAIT** : « les allocations VRAM ne survivent pas à la veille » —
+  conclusion jamais sourcée par une lecture de la valeur brute
+  réellement chargée par le pilote, et qui conflait deux mécanismes
+  distincts : la veille **runtime** RTD3 (`Video Memory: Off`,
+  par périphérique, indifférente à une allocation VRAM résiduelle sans
+  contexte CUDA actif) et la **suspension système** (S0ix/s2idle sur ce
+  poste), seule concernée par ce paramètre — les deux confondus sous
+  « la veille » dans la formulation d'origine. Corrigé par mesure
+  directe (IA-1, `docs/local-ai.md` § 2.1bis) : la valeur brute
+  effectivement chargée est `2`, ni `0` (l'hypothèse implicite ici) ni
+  `1` — signification de `2` non documentée dans les sources amont
+  consultées, point resté ouvert (`docs/local-ai.md` § 2.1bis,
+  marqueur de vérification, pas repris ici pour ne pas dupliquer la
+  règle de comptage — voir CLAUDE.md § le jeton ne s'écrit jamais nu).
+  Traité au livrable IA (D16, 2026-08-07) :
+  `NVreg_PreserveVideoMemoryAllocations=1` déployé par écrasement
+  propre — voir § Décisions D16 ci-dessous.
 - **`NVreg_DynamicPowerManagement` non défini** : absent du fichier de
   configuration modprobe, donc niveau de gestion d'alimentation runtime
   laissé au défaut du pilote, pas choisi. Fait établi (voir « GPU »).
@@ -2245,3 +2296,71 @@ livrable ni dans IA-1** — réservé à IA-2.
   contrôle identique) ; aucun dépôt ajouté ; `sudoers`/`gpu_mux_mode`/
   `dgpu_disable`/`kwinrulesrc` non touchés ; aucune modification
   SELinux ; aucune déconnexion ; aucun redémarrage.
+- **2026-08-07 — confinement réseau du service d'inférence, D18,
+  `roles/local_ai/` (IA-2).** Redémarrage du 2026-08-07 confirmé,
+  reconfirmé directement dans cette session (pas seulement repris du
+  rapport de l'opérateur) : `PreserveVideoMemoryAllocations: 1`,
+  `ollama.service`/`ollama-network.service`/`ollama-models-volume.service`
+  chargés par Quadlet seul, `runtime_status=suspended`, fichier
+  fournisseur `/usr/lib/modprobe.d/nvidia-power-management.conf`
+  identique par somme de contrôle à IA-1.
+  Deux corrections portées (`docs/local-ai.md` § 8.0) : l'amalgame
+  RTD3/suspension système dans le point ouvert `NVreg_PreserveVideoMemoryAllocations`
+  ci-dessus, marqué `[CORRIGÉ]`/`ÉTAIT`, pas effacé ; la conclusion non
+  sourcée « les allocations VRAM ne survivent pas à la veille »
+  corrigée sans rouvrir la question de fond sur la valeur `2` non
+  documentée (marqueur déjà ouvert en IA-1, toujours ouvert).
+  Variables de sortie réseau établies par trois lectures locales, sans
+  présumer de nom (`ollama serve --help`, journal « server config » du
+  service réel, extraction de chaînes du binaire réellement déployé) :
+  `OLLAMA_NO_CLOUD` (documentée, défaut `false`), `OLLAMA_REMOTES`
+  (non documentée par `--help`, défaut `[ollama.com]`), et des
+  variables non observées en fonctionnement (`OLLAMA_CLOUD_BASE_URL`,
+  `OLLAMA_API_KEY`, `OLLAMA_AGENT_DISABLE_WEBSEARCH`/`_SHELL`) —
+  marqueur ouvert sur leur sémantique exacte.
+  Confinement retenu (D18) : réseau Podman dédié `--internal` (Quadlet
+  `.network`) en garde structurelle, vérifiable depuis l'hôte, plus
+  `OLLAMA_NO_CLOUD=1` en défense en profondeur, vérifiée efficace par
+  mesure (aucune tentative, pas seulement un échec propre) avant
+  d'être retenue. `--network=none` testé et écarté : casse aussi
+  `PublishPort=`, pas seulement `ollama pull` (« Port mappings have
+  been discarded... »). Preuve : fichier de cache des recommandations
+  (682 octets, écrit à chaque démarrage avant IA-2) plus jamais réécrit
+  après deux redémarrages du service depuis IA-2 ; démonstration
+  inverse réalisée en réactivant délibérément `OLLAMA_NO_CLOUD=0`
+  réseau inchangé — la tentative réapparaît dans le journal du serveur
+  (`dial tcp: lookup ollama.com ... no such host`) et reste bloquée
+  avant toute sortie réelle, confirmant que la mesure est sensible.
+  Deux nouvelles gardes a posteriori dans le rôle (réseau interne
+  confirmé, cloud désactivé confirmé dans le propre journal du
+  serveur — effet constaté, pas la variable posée), démontrées dans
+  les deux sens, restaurées à l'état nominal après chaque essai forcé.
+  Défaut trouvé et corrigé en écrivant ces gardes : `state: started`
+  d'Ansible ne redémarre pas un service déjà actif quand la définition
+  Quadlet change — remplacé par un redémarrage conditionnel aux unités
+  effectivement modifiées, idempotence revérifiée après correction.
+  Faisabilité de la complétion dans Helix/Kate établie en lecture
+  seule (`docs/local-ai.md` § 8.6) : aucun greffon Helix, `llm-ls`
+  (Apache-2.0, hors npm) inutilisable par un client LSP générique
+  (méthode JSON-RPC propriétaire, lu directement dans son code amont)
+  — D15 signalée comme nécessitant une révision de l'opérateur, pas
+  tranchée ici. Candidats de modèles recensés en lecture seule
+  (`docs/local-ai.md` § 8.7), licences et coût de cache d'attention
+  chiffrés par lecture des `config.json` amont de chaque modèle —
+  aucun modèle choisi.
+  Registre de conteneurs Docker Hub nommé dans `docs/repositories.md`
+  § 6, au même titre que Terra et le COPR (ancrage de confiance :
+  empreinte d'image épinglée, pas une clé de signature).
+  Une seule action privilégiée nouvelle hors rôle (`ausearch`,
+  corroboration SELinux) ; la garde D16 du rôle (`become: true`)
+  inchangée depuis IA-1, rejouée à chaque exécution de cette série
+  sans jamais modifier son contenu. `ansible-lint --profile production
+  roles/local_ai/` : 0 défaut. `--syntax-check`/`--check`/exécution
+  réelle/deuxième exécution/quatre démonstrations d'échec forcé (dont
+  une inverse, `changed=2`, restaurée) tous rejoués. `getenforce`
+  `Enforcing` inchangé, aucun refus AVC (deux méthodes). Aucun modèle
+  téléchargé sous aucune forme ; `podman images` inchangé ; aucun
+  paquet installé ; aucun dépôt ajouté (le réseau Podman dédié n'est
+  pas un dépôt) ; `sudoers`/`gpu_mux_mode`/`dgpu_disable`/`kwinrulesrc`
+  non touchés ; SELinux jamais modifié ; aucune déconnexion ; aucun
+  redémarrage machine.

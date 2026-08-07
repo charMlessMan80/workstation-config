@@ -1057,6 +1057,559 @@ contrôle identique) ; `sudoers`, `gpu_mux_mode`, `dgpu_disable`,
 inchangé, aucun `setenforce`) ; aucun redémarrage, aucune déconnexion
 de session.
 
+### 7.7 — Redémarrage, confirmé (2026-08-07, reconfirmé dans cette même
+session avant IA-2)
+
+Le redémarrage laissé en attente au § 7.5 a eu lieu. Quatre contrôles,
+relus **directement dans la session IA-2**, pas seulement repris du
+rapport de l'opérateur :
+```
+$ cat /proc/driver/nvidia/params | grep -i PreserveVideoMemory
+PreserveVideoMemoryAllocations: 1
+$ systemctl --user list-units 'ollama*'
+ollama-models-volume.service   loaded active exited
+ollama.service                 loaded active running
+$ cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status
+suspended
+$ sha256sum /usr/lib/modprobe.d/nvidia-power-management.conf
+de19aadaad8cdacd4caa5331a87b49cc9a79e36f81badec4932ad26343ea0257   # identique à § 7 ci-dessus
+```
+D16 est donc réellement actif (`1`, plus `2` non documenté du § 2.1bis) ;
+le service est remonté seul par Quadlet (`enabled: true`, § 7.3) sans
+action manuelle ; RTD3 s'engage normalement service démarré sans
+modèle, cohérent avec § 7.6 ; le fichier fournisseur reste intact.
+
+## 8. IA-2 — confinement réseau, faisabilité de la complétion, candidats de modèles (2026-08-07)
+
+**Aucun modèle téléchargé dans ce livrable.** Périmètre : `roles/local_ai/`
+(partie réseau), ce document, `docs/repositories.md` (§ 6, registre de
+conteneurs nommé), `docs/machine-facts.md` (en dernier).
+
+### 8.0 — Deux corrections portées depuis IA-0/IA-1
+
+**8.0.1 — Amalgame entre deux mécanismes distincts, dont l'opérateur
+est l'auteur du signalement.** `Video Memory: Off` (statut RTD3, veille
+**runtime**, par périphérique) et `NVreg_PreserveVideoMemoryAllocations`
+(suspension **système**, S0ix/s2idle sur ce poste) sont deux chemins
+indépendants — déjà correctement distingués dans le corps de ce
+document (§ 2.1, § 2.1bis, § 7.1) depuis IA-1. **Le seul endroit où
+l'amalgame subsistait, non corrigé, est un point ouvert de
+`docs/machine-facts.md`** (« `NVreg_PreserveVideoMemoryAllocations`
+commenté : les allocations VRAM ne survivent pas à la veille ») —
+corrigé dans ce même livrable, § Décisions/points ouverts,
+`[CORRIGÉ le 2026-08-07]`/`ÉTAIT`, pas effacé (CLAUDE.md § marquer
+l'historique plutôt que l'effacer).
+
+**8.0.2 — Conclusion tirée d'une prémisse juste mais jamais lue
+directement.** La prémisse (« paramètre commenté = paramètre absent »)
+est correcte ; la conclusion comportementale (« les allocations VRAM ne
+survivent pas ») ne l'était pas — personne n'avait lu la valeur brute
+réellement chargée avant IA-1 § 2.1bis, qui a établi qu'elle vaut `2`,
+pas `0`. Le marqueur sur la signification exacte de `2` reste ouvert
+(§ 2.1bis) — seule la conclusion comportementale non sourcée est
+corrigée, pas la question de fond. Même correction reportée dans
+`docs/machine-facts.md` (§ Décisions/points ouverts, en dernier).
+
+### 8.1 — Ce que le service contacte réellement, établi par lecture puis par mesure
+
+**Aucun nom de variable présumé** — trois sources locales, pas de
+documentation amont supposée avant d'avoir été lue :
+
+1. **`ollama serve --help` (exécuté dans le conteneur, 0.32.6, source
+   la plus autoritative possible : le binaire réellement déployé sur ce
+   poste)** — seule variable de sortie réseau **documentée** par le
+   binaire lui-même :
+   ```
+   OLLAMA_NO_CLOUD   Disable Ollama cloud features (remote inference and web search)
+   ```
+   Valeur par défaut non donnée par `--help` — établie par la lecture
+   suivante.
+2. **Journal du serveur au démarrage** (`podman logs ollama`,
+   `msg="server config"`, émis par Ollama lui-même, pas provoqué) — la
+   carte complète des variables **effectivement chargées** à cet
+   instant, dont deux gouvernent la sortie réseau et n'apparaissent
+   **nulle part dans `--help`** :
+   ```
+   OLLAMA_NO_CLOUD:false   OLLAMA_REMOTES:[ollama.com]
+   ```
+   `OLLAMA_NO_CLOUD` par défaut **`false`** (cloud activé) ;
+   `OLLAMA_REMOTES` par défaut **`[ollama.com]`** — undocumented par
+   `--help`, seule cette lecture du journal réel l'établit.
+3. **Chaînes compilées dans le binaire** (`podman cp` du binaire vers
+   l'hôte, `strings -a`, sur le fichier réellement exécuté par ce
+   service — pas une hypothèse de nommage) — surface plus large que les
+   deux lectures précédentes, y compris des variables **absentes du
+   journal de démarrage standard** (probablement gardées par un
+   commutateur expérimental non activé ici — `OLLAMA_EXPERIMENT`
+   apparaît aussi dans cette liste) :
+   ```
+   OLLAMA_NO_CLOUD  OLLAMA_REMOTES  OLLAMA_CLOUD_BASE_URL  OLLAMA_API_KEY
+   OLLAMA_AGENT_DISABLE_WEBSEARCH  OLLAMA_AGENT_DISABLE_SHELL
+   ```
+   `@VERIF : sémantique exacte et valeur par défaut de
+   OLLAMA_CLOUD_BASE_URL, OLLAMA_API_KEY,
+   OLLAMA_AGENT_DISABLE_WEBSEARCH, OLLAMA_AGENT_DISABLE_SHELL —
+   absentes du journal « server config » standard (§ ci-dessus, donc
+   non observées en fonctionnement), leur nom seul est établi
+   (extraction de chaînes du binaire réellement déployé), pas leur
+   comportement. La documentation officielle de `OLLAMA_NO_CLOUD`
+   (« remote inference **and web search** ») suggère que
+   `OLLAMA_AGENT_DISABLE_WEBSEARCH` est un sous-bascule de la même
+   fonctionnalité cloud plutôt qu'un vecteur de sortie indépendant —
+   plausible, non confirmé par une lecture directe de code.` **Sans
+   conséquence sur la voie retenue ci-dessous** : c'est précisément
+   l'argument en faveur du confinement réseau structurel (§ 8.2) plutôt
+   que d'une liste de variables à poser une par une — un vecteur non
+   encore identifié par nom (comme ceux-ci) reste bloqué par construction,
+   pas par exhaustivité de configuration.
+
+**Trois catégories, statut distinct (comme demandé)** :
+- **Récupération de modèles** (`ollama pull`, registre de modèles
+  Ollama) — surface d'approvisionnement **attendue et assumée**, nommée
+  dans `docs/repositories.md` § 6.
+- **Appels de recommandation non sollicités** — confirmés par mesure
+  (§ 7.3, § 8.3 ci-dessous) : 682 octets vers `ollama.com`, jamais
+  demandés par ce dépôt.
+- **Fonctionnalité « cloud »** (`OLLAMA_NO_CLOUD:false` par défaut) — la
+  plus grave : ouvre la possibilité que des **requêtes d'inférence**
+  quittent la machine, contredisant directement le motif « rien ne
+  quitte la machine » d'IA-0 § 1.
+
+### 8.2 — Concevoir le confinement : ce que l'outil fait déjà, ce que Podman offre en propre
+
+**Voie A — variable d'environnement (`OLLAMA_NO_CLOUD=1`), vérifiée
+avant d'être retenue, pas posée de confiance** (CLAUDE.md § une
+variable posée n'est pas un effet constaté). Testé sur un conteneur
+jetable, réseau par défaut (sortie disponible, pour isoler l'effet de
+la seule variable) :
+```
+$ podman run -d --network=pasta -p 127.0.0.1:19999:11434 -e OLLAMA_NO_CLOUD=1 <même image épinglée> serve
+$ podman exec <ctr> sh -c 'ls /root/.ollama/cache/'
+ls: cannot access '/root/.ollama/cache/': No such file or directory
+```
+**Aucune tentative, pas seulement un échec propre** — comparé au même
+test sans la variable, où `cache/model-recommendations.json` (682
+octets) est créé (§ 8.3). `OLLAMA_NO_CLOUD=1` supprime réellement la
+tentative, pas seulement l'exécution d'un modèle cloud si une requête
+le demandait — vérifié, retenu comme complément.
+
+**Voie B — Podman `--network=none`.** Testé sur la même image, jamais
+sur le conteneur de production :
+```
+$ podman run --rm --network=none -p 127.0.0.1:19999:11434 <image> serve
+Port mappings have been discarded because "none" network namespace mode does not support them
+```
+**Coût disqualifiant, plus large que celui nommé par la demande** : pas
+seulement `ollama pull` qui échouerait, **l'API locale elle-même
+cesse d'être joignable depuis l'hôte** — `--network=none` supprime
+toute la pile réseau du conteneur, y compris le mécanisme de transfert
+de port (`pasta`/`rootlessport`) dont `PublishPort=` dépend. Écarté :
+casse l'usage même que ce service existe pour servir.
+
+**Voie C — réseau Podman dédié, `--internal`** (`man podman-run` §
+`--network`, `man podman-systemd.unit` § Network units, `Internal=`
+↔ `--internal`, lu avant d'écrire quoi que ce soit). Testé sur un
+conteneur jetable avant de le retenir :
+```
+$ podman network create --internal ollama-test-internal
+$ podman run -d --network=ollama-test-internal -p 127.0.0.1:19999:11434 <image> serve
+$ curl -sS http://127.0.0.1:19999/api/tags
+{"models":[]}                                                      # PublishPort intact
+$ podman logs <ctr> | grep -i recommendations
+msg="model recommendations refresh failed" error="Get \"https://ollama.com/api/experimental/model-recommendations\":
+  dial tcp: lookup ollama.com on 10.89.0.1:53: no such host"        # sortie bloquée
+```
+**Les deux propriétés recherchées, vérifiées ensemble** :
+`PublishPort=` (hôte → conteneur) et la restriction de sortie
+(conteneur → Internet) sont deux mécanismes indépendants dans
+Podman/netavark — un réseau `--internal` n'installe simplement aucune
+route vers la passerelle par défaut, sans toucher au transfert de port.
+
+**Retenu : les deux voies, en profondeur, pas l'une à la place de
+l'autre.** Critère de départage explicite (demande § 1.2) : préférer ce
+qui se **vérifie** à ce qui se **configure**. Le réseau interne (voie
+C) est la garde **structurelle**, vérifiable depuis l'hôte sans faire
+confiance au bon comportement du logiciel à l'intérieur du conteneur
+(`podman network inspect ... Internal`) — elle couvre par construction
+tout vecteur de sortie non identifié par nom, y compris les variables
+au comportement non confirmé du § 8.1. `OLLAMA_NO_CLOUD=1` (voie A) reste un complément
+utile : elle empêche la **tentative** elle-même (pas seulement son
+échec), donc pas de bruit de journal répété (§ 8.3) — mais elle ne
+serait pas suffisante seule, puisqu'elle ne couvre qu'un nom de
+variable déjà connu aujourd'hui.
+
+### 8.3 — Preuve : trafic sortant réel du service de production, avant/après, et démonstration inverse
+
+**Avant IA-2 (déjà consigné § 7.3, revérifié ici par horodatage de
+fichier plutôt que recopié)** :
+```
+$ stat --format '%Y %s' <volume>/cache/model-recommendations.json
+1786181179 682   # écrit le 2026-08-07 12:46:19, avant tout changement IA-2
+```
+**Après IA-2 (réseau interne + `OLLAMA_NO_CLOUD=1` déployés,
+service redémarré deux fois depuis, à 14:08 et 16:08)** :
+```
+$ stat --format '%y' <volume>/cache/model-recommendations.json
+2026-08-07 12:46:19.007757502 +0200   # mtime INCHANGÉ malgré deux redémarrages
+$ podman logs ollama | grep -iE 'ollama.com|recommendation|dial'
+(rien)
+```
+Le fichier n'a **plus jamais été réécrit** depuis IA-2, malgré deux
+redémarrages du service qui, avant IA-2, déclenchaient chacun une
+tentative (§ 7.3 : `consecutive_failures=0`, cache réécrit à chaque
+démarrage).
+
+**Démonstration inverse — la mesure aurait détecté le trafic s'il avait
+eu lieu, prouvé en le provoquant réellement, sans jamais quitter la
+machine** : `OLLAMA_NO_CLOUD` remis à `0` par `-e` sur le rôle
+(réseau interne **inchangé**) :
+```
+$ ansible-playbook roles/local_ai/local_ai.yml -e local_ai_ollama_no_cloud=0 -e local_ai_cloud_disabled_expected=false
+$ podman logs ollama | tail
+msg="model recommendations refresh failed" error="dial tcp: lookup ollama.com on 10.89.0.1:53: no such host"
+msg="model show cloud cache hydration failed" error="dial tcp: lookup ollama.com on 10.89.0.1:53: no such host"
+$ stat --format '%y' <volume>/cache/model-recommendations.json
+2026-08-07 12:46:19.007757502 +0200   # toujours inchangé — la tentative a échoué avant tout accès réseau réel
+```
+**La tentative a bien eu lieu** (la variable seule ne l'empêchait plus)
+**et a été bloquée avant de quitter la machine** (résolution DNS
+échouée sur le résolveur interne du réseau `--internal`, jamais un
+résolveur externe) — la mesure (journal + horodatage de cache) est
+donc sensible : elle voit la différence entre « aucune tentative » et
+« tentative bloquée ». État nominal restauré immédiatement après
+(`local_ai_ollama_no_cloud=1` par défaut, rejoué, `changed=2`
+[conteneur + garde], service à nouveau conforme, § 8.4).
+
+### 8.4 — Garde dans le rôle, démonstration dans les deux sens
+
+Deux gardes a posteriori ajoutées (`roles/local_ai/tasks/main.yml`,
+« Garde 4/5 » et « Garde 5/5 »), échec bruyant, valeurs attendues
+substituables par `-e` sans jamais changer ce qui est réellement
+déployé (même patron que les trois gardes préalables déjà en place) :
+
+- **Garde réseau** : `podman network inspect systemd-ollama --format
+  {{.Internal}}` comparé à `local_ai_network_internal_expected`
+  (défaut `true`).
+- **Garde cloud** : le propre journal du serveur (`podman logs ollama`)
+  doit contenir `msg="Ollama cloud disabled: true"` — **effet constaté
+  par le serveur lui-même**, pas la variable qu'on lui a posée. Défaut
+  trouvé et corrigé en écrivant cette garde : `podman logs` relaie le
+  flux du conteneur sur **son propre stderr**, jamais son stdout —
+  vérifié par un test Python isolé avant correction (
+  `subprocess.run(capture_output=True)`, `stderr` contenait le message,
+  `stdout` non), la garde lit désormais les deux flux.
+
+**Nominal** : `ansible-playbook roles/local_ai/local_ai.yml` → les deux
+gardes `ok`, `changed=0` en deuxième exécution consécutive.
+**Échec forcé, deux fois, chacune restaurée** :
+```
+$ ansible-playbook roles/local_ai/local_ai.yml -e local_ai_network_internal_expected=false
+fatal: [...] "Réseau systemd-ollama : Internal attendu = 'false', relevé = 'true'. [...]"
+$ ansible-playbook roles/local_ai/local_ai.yml -e local_ai_cloud_disabled_expected=false
+fatal: [...] "Le journal du service n'annonce pas 'Ollama cloud disabled: false' [...]"
+```
+Aucun des deux essais n'a modifié le système réel (`changed=0` sur les
+deux, le premier échoue avant toute écriture de service ; le second
+étudié § 8.3 ci-dessus, `changed=2`, restauré par une exécution
+nominale immédiatement rejouée).
+
+**Défaut corrigé en cours de route, sans rapport avec les gardes** :
+`ansible.builtin.systemd: state: started` est un no-op sur un service
+déjà actif — la première exécution IA-2 a écrit les nouvelles unités
+Quadlet (`changed`) sans jamais redémarrer le conteneur pour les
+appliquer, laissant tourner l'ancienne définition (ancien réseau,
+sans `OLLAMA_NO_CLOUD`) pendant qu'un premier passage des nouvelles
+gardes échouait, à raison, sur cet écart. Corrigé : `state` vaut
+désormais `restarted` quand l'une des trois unités (réseau, volume,
+conteneur) a changé, `started` sinon — idempotence revérifiée après
+correction (`changed=0` en deuxième exécution, § validation).
+
+### 8.5 — Coût pour la récupération de modèles, nommé, pas résolu
+
+Un réseau `--internal` bloque la résolution DNS et toute route de
+sortie — `ollama pull` échouerait pour la même raison que
+`ollama.com` (§ 8.3). **Non résolu dans ce livrable** (aucun modèle
+téléchargé). Chemin distinct identifié, pas implémenté — natif à
+Podman, pas un mécanisme à inventer (CLAUDE.md § déterminer ce que
+l'outil gère déjà) :
+```
+$ podman network connect <réseau-avec-sortie> ollama   # temporaire, pour la durée du pull
+$ podman network disconnect <réseau-avec-sortie> ollama # revient à l'état confiné
+```
+Podman permet d'attacher un second réseau à un conteneur déjà en cours
+d'exécution — le réseau interne resterait la voie par défaut, un accès
+sortant ne serait ouvert que le temps d'un `ollama pull` délibéré, puis
+retiré. Alternative plus lourde, nommée pour mémoire : basculer
+temporairement `Network=` du fichier `.container` vers le réseau
+`pasta` par défaut, redémarrer, tirer le modèle, revenir en arrière —
+manuel, visible, pas automatisé par ce rôle.
+
+### 8.6 — Partie B : faisabilité de la complétion dans Helix/Kate (lecture seule)
+
+**Question posée : D15 (modèle de complétion résident) suppose que la
+complétion arrive dans l'éditeur — est-ce vrai ?**
+
+**Helix n'a pas de système de greffons.** Établi par lecture de
+discussions officielles du projet (source externe, nommée) :
+[helix-editor/helix discussion #10131](https://github.com/helix-editor/helix/discussions/10131),
+[#8887](https://github.com/helix-editor/helix/issues/8887) — « Helix
+does not yet have a plugin system ». Le seul point d'extension
+reconnu par l'éditeur est le protocole LSP standard (client déjà
+présent, `docs/editor.md` § 2026-08-06) ; l'extension LSP 3.18
+`inlineCompletionProvider` (le mécanisme qui permettrait un vrai
+« texte fantôme » IA comme dans les éditeurs à greffons) est discutée
+mais **non implémentée** dans les versions couvertes par ces sources.
+
+**`llm-ls` (Hugging Face) — le candidat binaire hors npm le plus
+sérieux, écarté après lecture de son code, pas de sa réputation.**
+Établi par lecture directe du dépôt amont (source externe, nommée) :
+[github.com/huggingface/llm-ls](https://github.com/huggingface/llm-ls),
+licence Apache-2.0, distribué par binaires précompilés (`Assets`
+attachés à chaque publication, ex. 0.5.3) **et** par `cargo install` —
+aucune dépendance npm, respecte D11(D12). Compatible d'un serveur
+Ollama comme moteur d'inférence, capable de remplissage au milieu
+(FIM). **Mais** — lu directement dans
+[`crates/llm-ls/src/main.rs`](https://github.com/huggingface/llm-ls/blob/main/crates/llm-ls/src/main.rs) :
+```
+.custom_method("llm-ls/getCompletions", LlmService::get_completions)
+.custom_method("llm-ls/acceptCompletion", ...)
+.custom_method("llm-ls/rejectCompletion", ...)
+```
+**`llm-ls` n'implémente pas `textDocument/completion` standard** — la
+complétion passe par une méthode JSON-RPC **propriétaire**,
+`llm-ls/getCompletions`, qu'un client LSP générique n'a aucune raison
+d'appeler. Seules les extensions dédiées officiellement listées
+(`llm.nvim`, `llm-vscode`, `llm-intellij`, `jupytercoder` — le README
+amont ne mentionne ni Helix ni Kate) savent l'invoquer, parce
+qu'elles portent chacune le code de scripting nécessaire. **Ni Helix
+(pas de greffons) ni le greffon client LSP de Kate (générique, pas
+scriptable pour des méthodes propriétaires — établi par lecture de
+[kate-editor.org/posts/kate-language-server-protocol-client](https://kate-editor.org/posts/kate-language-server-protocol-client/),
+aucune mention de méthodes personnalisées) ne peuvent l'appeler.**
+`llm-ls`, malgré son nom, n'est donc pas un serveur de langage
+générique utilisable par n'importe quel client LSP — c'est un serveur
+compagnon d'extensions spécifiques.
+
+**Aucun autre serveur de langage packagé pour le remplissage au milieu
+n'a été trouvé** dans les onze dépôts activés (recherche par nom et
+par résumé, `dnf repoquery`, aucune correspondance sur `llm-ls`,
+`tabby`, `continue`, `twinny`, `codeium`, en dehors de faux positifs
+sans rapport — paquets Haskell `copilot`, polices).
+
+**Mécanisme natif restant, sans greffon ni serveur LSP dédié** : les
+deux éditeurs savent invoquer une commande shell arbitraire et insérer
+sa sortie — `:pipe`/`:pipe-append` pour Helix (capacité native,
+`docs/editor.md`), le greffon `externaltoolsplugin` déjà **activé**
+pour Kate (`docs/editor.md` § 2026-08-06). Une commande `curl` vers
+l'API locale d'Ollama (`/api/generate`, déjà en place, § 3.2) suffit à
+obtenir une complétion FIM à la demande — respecte D11 (aucun greffon,
+aucun npm), fonctionne dès aujourd'hui sans rien installer de plus. Ce
+n'est **pas** une complétion automatique au fil de la frappe : c'est un
+déclenchement manuel, ponctuel, plus proche d'un remplissage de
+gabarit que d'une expérience de complétion.
+
+**Conclusion, formulée sans détour : troisième issue.** Un mécanisme
+existe (`:pipe-append`/outil externe → Ollama), il ne viole pas D11 —
+mais il ne réalise pas ce que D15 justifiait. Le motif exact de D15
+(« latence minimale... le serveur doit rester un processus persistant,
+**jamais relancé par requête** — un serveur relancé à chaque
+complétion paierait le réveil de 20-23 s à chaque frappe ») suppose
+une complétion **automatique, au fil de la frappe** — c'est
+précisément ce qu'aucun des deux éditeurs ne peut offrir sans greffon
+ni serveur LSP standard, structurellement absents ici (Helix : pas de
+greffons ; Kate : greffon LSP générique, `llm-ls` inutilisable en
+dehors de ses extensions officielles). Un déclenchement manuel,
+espacé de plusieurs minutes, tolère très bien un réveil RTD3 occasionnel
+de 20-23 s — l'argument qui justifiait la résidence permanente (D15)
+ne tient plus à cette cadence d'usage. **D14 (Ollama conteneurisé,
+CDI) reste valide** — l'infrastructure sert aussi le rôle chat/agent,
+indépendant de cette question. **C'est D15, précisément, qui doit être
+révisée** : la contrepartie qu'elle assume (RTD3 neutralisée, ~8 W en
+continu, § 7.6) n'a plus la justification qui l'a motivée tant
+qu'aucune complétion automatique n'est réalisable dans l'éditeur. Dit
+franchement, pas contourné : à l'opérateur de trancher entre revenir à
+un `keep_alive` fini pour le modèle de complétion (§ 8.7 ci-dessous),
+ou accepter consciemment le coût pour un usage qui restera manuel et
+peu fréquent.
+
+### 8.7 — Partie C : candidats de modèles, lecture seule, aucun téléchargement
+
+**Contrainte technique posée avant tout choix, comme demandé** : la
+complétion de code exige un modèle **FIM** (remplissage au milieu,
+prompt structuré avec des jetons de préfixe/suffixe/milieu) — un
+modèle de conversation générique sans entraînement FIM produirait une
+continuation, pas un remplissage cohérent avec le code qui suit le
+curseur. Critère de sélection retenu ci-dessous, pas déduit après
+coup.
+
+**Rôle complétion — petit, FIM, bash/Python/YAML/Jinja** (source :
+[ollama.com/library/qwen2.5-coder](https://ollama.com/library/qwen2.5-coder),
+[tags](https://ollama.com/library/qwen2.5-coder/tags),
+[qwenlm.github.io/blog/qwen2.5-coder-family](https://qwenlm.github.io/blog/qwen2.5-coder-family/)
+— FIM confirmé : « Fill-in-the-Middle mode for testing » ; « more than
+40 programming languages ») :
+
+| Modèle | Taille `Q4_K_M` | Contexte | Licence | Note |
+|---|---|---|---|---|
+| `qwen2.5-coder:1.5b-instruct-q4_K_M` | 986 Mio | 32 K | Apache-2.0 | Le plus léger, marge VRAM maximale |
+| `qwen2.5-coder:3b-instruct-q4_K_M` | 1,9 Gio | 32 K | **Qwen Research License** (non-commerciale) | **Seule taille de la famille sous licence restreinte** — à écarter d'un dépôt public sans lecture de ses termes exacts, `@VERIF : texte complet et portée précise de la Qwen Research License` |
+| `qwen2.5-coder:7b-instruct-q4_K_M` | 4,7 Gio | 128 K (32 K pour 0.5-3 B) | Apache-2.0 | Le plus proche de la cible « ~4 Gio » de la demande |
+
+**Rôle chat/agent — 13 B, `Q4_K_M`** (sources :
+[ollama.com/library/codellama](https://ollama.com/library/codellama),
+[tags](https://ollama.com/library/codellama/tags),
+[ollama.com/library/mistral-nemo:12b-instruct-2407-q4_K_M](https://ollama.com/library/mistral-nemo:12b-instruct-2407-q4_K_M),
+[ollama.com/library/qwen2.5/tags](https://ollama.com/library/qwen2.5/tags)) :
+
+| Modèle | Taille `Q4_K_M` | Contexte | Licence | Note |
+|---|---|---|---|---|
+| `codellama:13b-code-q4_K_M` | 7,9 Gio | 16 K | Llama 2 Community License (restrictions d'usage, pas OSI) | Seul candidat à **vraiment** 13 B ; FIM également supporté (jetons `<PRE>`/`<SUF>`/`<MID>`), pertinent si le rôle chat/agent sert aussi de repli complétion |
+| `mistral-nemo:12b-instruct-2407-q4_K_M` | 7,5 Gio | 128 K | Apache-2.0 | 12 B, pas 13 B — le plus proche par la licence la plus permissive |
+| `qwen2.5:14b-instruct-q4_K_M` | 9,0 Gio | 32 K | Apache-2.0 | 14 B, au-dessus de la cible — poids seul déjà proche du plafond avant tout cache KV |
+
+**Coût du cache d'attention — calculé, pas la seule taille des poids,
+comme demandé.** Formule standard (attention multi-têtes groupées) :
+`octets = 2 (K+V) × couches × têtes_KV × dim_tête × contexte ×
+octets/élément`. Paramètres d'architecture lus directement dans le
+`config.json` amont de chaque modèle (source externe, nommée) — pas
+mémorisés :
+
+- **Qwen2.5-Coder-7B** ([config.json](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct/raw/main/config.json)) :
+  28 couches, 4 têtes KV, dim_tête 128 → **56 Kio/jeton** (fp16, défaut
+  Ollama constaté : `OLLAMA_KV_CACHE_TYPE` vide dans le journal de
+  production, § 8.1, donc f16 non quantifié). À 4096 jetons (contexte
+  par défaut mesuré sur ce poste, § 7.4 : `default_num_ctx=4096`) :
+  **≈224 Mio**. À 32 K (plafond du modèle) : **≈1,75 Gio** — poids +
+  cache passent de 4,7 Gio à **≈6,45 Gio** au contexte maximal.
+- **Mistral-Nemo-12B** ([config.json](https://huggingface.co/mistralai/Mistral-Nemo-Instruct-2407/raw/main/config.json)) :
+  40 couches, 8 têtes KV, dim_tête 128 → **160 Kio/jeton**. À 4096
+  jetons : **≈625 Mio**. À 32 K : **≈5 Gio** — poids + cache passent de
+  7,5 Gio à **≈12,5 Gio**, une fraction significative de l'enveloppe
+  mesurée de ≈15,9 Gio (IA-0 § 2.3), **avant même de compter le modèle
+  de complétion résident à côté**.
+
+**L'arithmétique de coexistence d'IA-0 (~4 Gio + ~7,4 Gio sous
+~15,9 Gio) reste non vérifiée, et ce calcul montre pourquoi elle ne
+peut pas être acceptée telle quelle** : à contexte modeste (4096), la
+marge est large (≈0,85 Gio de cache cumulé pour les deux rôles) ; à
+contexte élevé pour le rôle chat/agent (32 K, plausible pour une tâche
+« contexte long » — IA-0 § 1), le cache seul du modèle chat/agent
+(≈5 Gio) dépasse la marge que l'arithmétique de poids seuls avait
+laissée. `@VERIF : chargement simultané réel de deux modèles à
+contexte représentatif — non mesuré, nécessite de charger des modèles
+réels, hors périmètre lecture seule de ce livrable (marqueur déjà
+ouvert en IA-0 § 1, reformulé ici avec un chiffre de cache, pas
+fermé).`
+
+**Questions qui départagent — aucun modèle choisi :**
+
+1. **D15 doit-elle être révisée maintenant (§ 8.6) ?** Si la complétion
+   reste manuelle (`:pipe-append`/outil externe), un `keep_alive` fini
+   (ex. quelques minutes) redevient défendable — cela change le
+   dimensionnement VRAM disponible pour le rôle chat/agent, puisque le
+   modèle de complétion ne resterait plus chargé en permanence.
+2. **Le modèle chat/agent doit-il rester à 13 B strict
+   (`codellama:13b`, licence Llama 2 restrictive) ou une taille voisine
+   sous licence plus permissive (`mistral-nemo:12b`, Apache-2.0) est-elle
+   acceptable pour un dépôt public (D4) ?**
+3. **Quelle longueur de contexte réellement visée pour le rôle
+   chat/agent ?** Le calcul ci-dessus montre que c'est ce chiffre, pas
+   la taille du modèle, qui décide si la coexistence tient — 4096
+   (large marge) et 32 K (marge consommée par le cache seul) ne sont
+   pas la même décision.
+4. **`qwen2.5-coder:3b`, seule taille de la famille sous licence
+   restreinte (Qwen Research License), doit-elle être exclue d'office
+   d'un dépôt public, ou sa lecture complète (marqueur de vérification
+   ci-dessus) change-t-elle cette réponse ?**
+5. **Le chemin de récupération de modèles à travers le réseau interne
+   (§ 8.5, `podman network connect` temporaire) convient-il, ou une
+   voie plus automatisée doit-elle être conçue avant le prochain
+   livrable qui télécharge un modèle ?**
+
+## Validation — IA-2 (2026-08-07)
+
+**Actions privilégiées, exhaustives** — aucune nouvelle par rapport à
+IA-1, les mêmes s'exécutent à chaque exécution du rôle (déploiement de
+la garde D16, sans changement de contenu depuis IA-1, donc `ok`, jamais
+`changed` dans cette série) :
+
+| # | Commande | Cible | Motif |
+|---|---|---|---|
+| 1 | `ansible.builtin.template` (`become: true`), rejouée à chaque exécution de ce livrable (6 exécutions réelles, 2 démonstrations d'échec forcé sur les nouvelles gardes, 1 démonstration inverse) | `/etc/modprobe.d/local-ai-nvidia-power-management.conf` | D16, inchangé — seule tâche `become: true` du rôle, contenu identique à IA-1 à chaque relecture |
+| 2 | `sudo -n ausearch -m avc -ts recent` (hors rôle, validation manuelle) | lecture `/var/log/audit/` | corroborer l'absence de refus AVC, même méthode qu'IA-1 — silencieuse sous D9 (NOPASSWD), disclosed ici |
+
+Toutes les autres actions (déploiement du réseau/volume/conteneur
+Quadlet, les cinq gardes, `podman network inspect`, `podman logs`,
+`podman cp` du binaire vers l'hôte pour `strings`, requêtes `curl`)
+s'exécutent sans `sudo`.
+
+**Validation Ansible** :
+```
+$ ansible-playbook --syntax-check roles/local_ai/local_ai.yml   # succès
+$ ansible-playbook --check roles/local_ai/local_ai.yml          # succès, changed=0
+$ ansible-playbook roles/local_ai/local_ai.yml                  # succès, changed=0 (état déjà nominal après convergence, § 8.4)
+$ ansible-playbook roles/local_ai/local_ai.yml                  # succès, changed=0 (deuxième exécution consécutive, idempotence confirmée)
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/local_ai/
+Passed: 0 failure(s), 0 warning(s) — profil production
+```
+
+**Les quatre démonstrations d'échec forcé** (deux d'IA-1, revérifiées
+implicitement par la structure inchangée des gardes 1-3 ; deux
+nouvelles d'IA-2, § 8.4), toutes `changed=0` sauf la démonstration
+inverse (§ 8.3, `changed=2`, restaurée par une exécution nominale
+immédiatement rejouée, revérifiée `changed=0`) :
+```
+$ ansible-playbook roles/local_ai/local_ai.yml -e local_ai_network_internal_expected=false
+fatal: [...] "Réseau systemd-ollama : Internal attendu = 'false', relevé = 'true'. [...]"
+$ ansible-playbook roles/local_ai/local_ai.yml -e local_ai_cloud_disabled_expected=false
+fatal: [...] "Le journal du service n'annonce pas 'Ollama cloud disabled: false' [...]"
+```
+Service restauré à l'état nominal après chaque essai, aucun n'a laissé
+le système dans un état de test.
+
+**Preuve que l'API n'écoute pas sur une interface externe (inchangé)** :
+```
+$ ss -H -tln sport = :11434
+LISTEN 0 4096 127.0.0.1:11434 0.0.0.0:*
+```
+
+**SELinux** :
+```
+$ getenforce                                  # Enforcing, avant et après ce livrable
+$ journalctl -k -g 'avc:' --no-pager -n 20     # -- No entries --
+$ sudo -n ausearch -m avc -ts recent           # <no matches>
+```
+
+**Aucun modèle téléchargé** : `curl http://127.0.0.1:11434/api/tags` →
+`{"models":[]}` ; volume `systemd-ollama-models` toujours à 12 Kio
+(clés d'identité + cache, inchangé depuis IA-1 — le cache de
+recommandations n'a plus été réécrit depuis IA-2, § 8.3) ; `podman
+images` inchangé (les deux mêmes images qu'IA-1, aucune couche
+supplémentaire tirée — `podman cp` copie un fichier déjà présent
+localement, ne tire rien).
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : huit
+marqueurs actionnables dans ce document à la clôture d'IA-2 — les cinq
+déjà comptés en IA-1 (§ 2.1 suspension S0ix, § 1 chargement simultané,
+§ 3.1 comportement ROCm, § 5 comportement `ollama pull`, § 2.1bis
+signification de `2`), **plus trois nouveaux** (§ 8.1 sémantique des
+variables non documentées trouvées par extraction de chaînes ; § 8.7
+texte complet de la Qwen Research License ; § 8.7 reformulation, avec
+un chiffre de cache, du marqueur de coexistence déjà ouvert en IA-0).
+Aucun marqueur fermé dans cette série — celui sur la suspension S0ix
+(§ 2.1) reste ouvert malgré D16 tranché en amont de sa mesure
+(rappelé § 2.1bis) ; celui sur la coexistence est reformulé, pas
+résolu.
+
+**Confirmations finales** : aucun modèle téléchargé, sous aucune forme ;
+aucun paquet installé ; aucun dépôt ajouté (le réseau Podman dédié
+n'est pas un dépôt) ; `/usr/lib/modprobe.d/nvidia-power-management.conf`
+intact (non revérifié par somme de contrôle dans ce livrable au-delà de
+la garde `rpm -Vf` déjà intégrée au rôle, rejouée à chaque exécution) ;
+`sudoers`, `gpu_mux_mode`, `dgpu_disable`, `kwinrulesrc` non touchés ;
+SELinux jamais modifié (`Enforcing` inchangé, aucun `setenforce`) ;
+aucun redémarrage de la machine, aucune déconnexion de session.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanismes RTD3, méthode
@@ -1065,9 +1618,10 @@ de session.
   de non-réveil au lancement de conteneur, image de test déjà en cache.
 - [`roles/gpu_cdi/`](../roles/gpu_cdi/) — mécanisme de détection de
   péremption (`verify-cdi-spec`), non déclenché automatiquement (§ 2.4).
-- [`docs/editor.md`](editor.md) — D11(D12) npm fermé, même discipline
-  de nomination des surfaces d'approvisionnement appliquée ici aux
-  registres de conteneurs.
+- [`docs/editor.md`](editor.md) — D11(D12) npm fermé, capacité native
+  `:pipe`/`externaltoolsplugin` réutilisée § 8.6 ; même discipline de
+  nomination des surfaces d'approvisionnement appliquée aux registres
+  de conteneurs.
 - [`docs/repositories.md`](repositories.md) — ancrages de confiance
-  D7/D10, pertinents pour tout registre de conteneurs retenu.
+  D7/D10, registre de conteneurs Ollama nommé § 6 (IA-2).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici.

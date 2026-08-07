@@ -1,0 +1,25 @@
+# Déployé par roles/local_ai/ — réseau Podman dédié au service Ollama,
+# nommé (Quadlet .network, comme ollama-models.volume.j2 pour le
+# volume) — IA-2, §1 de la demande : supprime toute sortie réseau non
+# sollicitée du conteneur sans toucher au transfert de port publié vers
+# l'hôte.
+#
+# Internal={{ local_ai_network_internal }} (--internal de `podman
+# network create`, `man podman-systemd.unit` § Network units) : aucune
+# route vers la passerelle par défaut n'est installée dans le réseau —
+# le conteneur ne peut atteindre aucune adresse hors de ce réseau,
+# donc aucun hôte externe (ollama.com compris). PublishPort= du fichier
+# .container n'est PAS affecté : le transfert de port (hôte → conteneur)
+# et la route de sortie (conteneur → hôte → Internet) sont deux
+# mécanismes indépendants dans Podman/netavark — vérifié avant d'écrire
+# ce fichier (docs/local-ai.md § 8.2) : `--network=none` (qui supprime
+# toute la pile réseau, pas seulement la route de sortie) casse
+# PublishPort ("Port mappings have been discarded..."), alors qu'un
+# réseau `--internal` le préserve intégralement, testé.
+#
+# Coût assumé, nommé : `ollama pull` échouerait aussi sur ce réseau (le
+# registre de modèles est un hôte externe comme un autre) — pas
+# résolu ici, aucun modèle téléchargé par ce rôle. Chemin distinct
+# nommé, pas implémenté : docs/local-ai.md § 8.5.
+[Network]
+Internal={{ local_ai_network_internal }}

@@ -40,6 +40,31 @@ local_ai_ollama_port: 11434
 # le chargement indéfiniment (docs/local-ai.md § 3.2, IA-0).
 local_ai_ollama_keep_alive: "-1"
 
+# --- IA-2 §1 : confinement de la sortie réseau non sollicitée --------
+# Voie retenue après mesure (docs/local-ai.md § 8) : réseau Podman dédié
+# --internal (aucune route de sortie, PublishPort préservé — vérifié,
+# distinct d'un réseau --network=none qui casse PublishPort) en garde
+# structurelle, vérifiable de l'extérieur ; OLLAMA_NO_CLOUD=1 en
+# complément, vérifié par mesure comme réellement efficace (pas une
+# désactivation cosmétique).
+local_ai_network_unit_name: ollama
+local_ai_network_internal: true
+
+# Substituable pour la démonstration d'échec forcé de la garde réseau
+# (§ 2.5 de la demande), sans jamais changer le réseau réellement
+# déployé — même patron que local_ai_podman_rootless_expected ci-dessus :
+# -e local_ai_network_internal_expected=false
+local_ai_network_internal_expected: "true"
+
+local_ai_ollama_no_cloud: "1"
+
+# Substituable pour la démonstration d'échec forcé de la garde cloud,
+# sans jamais changer la configuration réellement déployée — la garde
+# relit l'annonce que le serveur Ollama lui-même écrit dans son propre
+# journal (effet constaté, pas la variable qu'on lui a posée) :
+# -e local_ai_cloud_disabled_expected=false
+local_ai_cloud_disabled_expected: "true"
+
 # --- D16 : paramètre pilote, écrasement propre, jamais le fichier fournisseur
 # -----------------------------------------------------------------------
 # Jamais /usr/lib/modprobe.d/nvidia-power-management.conf (fichier

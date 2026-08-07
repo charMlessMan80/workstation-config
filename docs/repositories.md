@@ -327,6 +327,37 @@ recherche par nom, lecture seule) :
 **Aucune action entreprise sur cette base** — information consignée
 pour une décision future, comme demandé.
 
+## 6. Registres de conteneurs — surface distincte de `dnf`, IA-2
+
+Les onze dépôts ci-dessus (§ 4) sont tous des dépôts `dnf`. **Une
+surface d'approvisionnement d'une autre nature existe déjà sur ce
+poste, jamais nommée ici avant IA-2** (`docs/local-ai.md`) : les
+registres de conteneurs OCI, interrogés par `podman pull`/`skopeo`, pas
+par `dnf`. Nommée ici « au même titre que Terra et le COPR », comme
+demandé, avec le même traitement (ancrage de confiance explicite).
+
+| Registre | Provenance | Ancrage de confiance réel | Utilisé pour |
+|---|---|---|---|
+| Docker Hub (`docker.io`) | Docker, Inc. — infrastructure de registre publique | TLS vers `registry-1.docker.io` + **empreinte d'image épinglée** (`sha256:b88c73...`, `skopeo inspect`, jamais une étiquette mobile comme `:latest`) — `roles/local_ai/defaults/main.yml` | `docker.io/ollama/ollama` (D14) |
+
+**Différence avec Terra/COPR (§ 1, § 4)** : l'ancrage retenu ici n'est
+pas une clé de signature de paquet mais une **empreinte de contenu**
+(le modèle de confiance natif d'un registre OCI — un tag pointe vers un
+digest, le digest identifie le contenu de façon univoque). Pas de
+`gpgcheck`/`repo_gpgcheck` équivalent côté registre de conteneurs — la
+vérification d'intégrité TLS + digest épinglé au moment du tirage joue
+un rôle analogue, documentée dans `docs/local-ai.md` § 7.2 (comment
+l'empreinte a été établie et vérifiée avant écriture).
+
+**Récupération de modèles, distincte de l'image du serveur** : le
+registre de *modèles* Ollama (adressé par `ollama pull` à l'intérieur
+du conteneur, mécanisme distinct du registre OCI ci-dessus bien que du
+même écosystème) est une **troisième** surface, nommée mais non
+utilisée par ce dépôt — aucun modèle téléchargé (`docs/local-ai.md`
+§ 8.5, IA-2 §1) ; le confinement réseau appliqué en IA-2 la ferme
+délibérément par défaut, un chemin distinct resterait à établir pour
+un livrable qui télécharge réellement un modèle.
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — D10, D7 (COPR), D5
@@ -334,6 +365,9 @@ pour une décision future, comme demandé.
 - [`docs/gpu-containers.md`](gpu-containers.md) — D7, ancrage de
   confiance du COPR `@ai-ml`, même discipline de sourcing appliquée ici
   à Terra.
+- [`docs/local-ai.md`](local-ai.md) — D14, empreinte épinglée de
+  `docker.io/ollama/ollama`, confinement réseau du registre de modèles
+  (IA-2).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing, garde `--assumeno`
   sur les commandes touchant un dépôt à `gpgcheck` incertain.
 

@@ -15,7 +15,11 @@ galaxy_info:
     nvidia_uvm chargé), échec bruyant, réutilisent roles/gpu_cdi
     (tag verify-cdi-spec) sans le réimplémenter. Le service lui-même
     revérifie la spécification CDI à chaque démarrage
-    (ExecStartPre=), indépendamment de ce rôle. Ne télécharge aucun
+    (ExecStartPre=), indépendamment de ce rôle. Réseau Podman dédié,
+    interne (Quadlet .network, IA-2) plus OLLAMA_NO_CLOUD=1 en défense
+    en profondeur, contre les appels de recommandation non sollicités
+    et la fonctionnalité cloud activés par défaut par l'image
+    officielle (découverte IA-1, confinée IA-2). Ne télécharge aucun
     modèle — seule l'image du serveur (infrastructure) est tirée.
     Ne modifie jamais sudoers, gpu_mux_mode, dgpu_disable,
     kwinrulesrc, SELinux. Ne redémarre jamais, ne déconnecte jamais
