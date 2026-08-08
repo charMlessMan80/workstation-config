@@ -8,9 +8,16 @@ configuration d'un modèle IA local exécuté sur le GPU.
 
 La cible de production réelle de l'utilisateur est Ansible Automation
 Platform 2.6 sur RHEL 9 — **cette cible n'est pas gérée depuis ce dépôt**.
-Le contenu Ansible ici sert de banc d'édition et de test local (voir
-décision D3 dans [`docs/machine-facts.md`](docs/machine-facts.md)) ; il ne
-fait pas autorité pour la production.
+L'`ansible-core` système de cette machine fait autorité pour l'exécution et
+la vérification des rôles **de ce dépôt** (décision D3a,
+[`docs/ansible-chain.md`](docs/ansible-chain.md)) ; une chaîne distincte,
+différée, resterait à construire pour du contenu réellement destiné à AAP
+2.6 (D3b, non ouverte).
+
+**Pour savoir où en est ce dépôt aujourd'hui** — ce qui est prouvé, ce qui
+ne l'est pas encore, ce qui a été écarté et pourquoi — voir
+[`docs/status.md`](docs/status.md), une seule page, tenue à jour à la
+clôture de chaque série.
 
 ## Avertissements
 
@@ -37,8 +44,63 @@ fait pas autorité pour la production.
 
 ## Contenu
 
+**Sept rôles Ansible**, chacun ciblant `localhost`, chacun avec son propre
+`README.md` (« ce que ce rôle fait » / « ce que ce rôle ne fait jamais ») :
+
+| Rôle | Fait |
+|---|---|
+| [`roles/bootstrap/`](roles/bootstrap/) | `power-profiles-daemon`, dépôt `terra` (clé vérifiée hors ligne avant tout usage), règle `sudo` sans mot de passe — les trois préalables jusqu'ici manuels, désormais reconstructibles |
+| [`roles/recovery/`](roles/recovery/) | Chemin de retour SSH, préalable à toute bascule GPU risquée |
+| [`roles/gpu_cdi/`](roles/gpu_cdi/) | Rend la RTX 4090 utilisable depuis Podman rootless par CDI natif, SELinux `Enforcing` |
+| [`roles/gpu_mux/`](roles/gpu_mux/) | Bascule le MUX GPU (panneau câblé dGPU/iGPU) |
+| [`roles/local_ai/`](roles/local_ai/) | Infrastructure d'inférence locale : Ollama conteneurisé, réseau confiné |
+| [`roles/editor/`](roles/editor/) | Helix (terminal) et Kate (graphique), configurés sobrement |
+| [`roles/completion/`](roles/completion/) | `lsp-ai` compilé depuis les sources, câblé à Helix et Kate, même configuration pour les deux |
+
+**Un point d'entrée unique**, [`site.yml`](site.yml), qui enchaîne les sept
+rôles dans l'ordre de leurs dépendances réelles et s'arrête une seule fois,
+avant tout redémarrage — jamais déclenché par le playbook lui-même :
+
+```
+ansible-playbook --ask-become-pass site.yml   # première exécution, machine neuve
+ansible-playbook site.yml                     # exécutions suivantes
+ansible-playbook --check site.yml             # simulation complète
+ansible-playbook site.yml --tags gpu_mux      # un seul rôle
+```
+
+Détail complet de la séquence, des prérequis hors Ansible (Fedora, pilote
+NVIDIA, RPM Fusion), du point d'arrêt et de ce qui a été vérifié ou non :
+[`docs/orchestration.md`](docs/orchestration.md).
+
+**Documents de référence**, chacun couvrant une résolution complète, sourcée
+et datée :
+
+- [`docs/status.md`](docs/status.md) — état réel du dépôt aujourd'hui, en
+  une page, tout en renvoi.
 - [`CLAUDE.md`](CLAUDE.md) — règles persistantes pour les sessions d'agent
-  travaillant sur ce dépôt, chacune motivée.
+  travaillant sur ce dépôt, chacune motivée par un incident réel de ce
+  dépôt.
 - [`docs/machine-facts.md`](docs/machine-facts.md) — inventaire sourcé du
   poste : matériel, système, dépôts, GPU, stockage, affichage, conteneurs,
-  chaîne Ansible, décisions prises et points encore ouverts.
+  chaîne Ansible, vingt-deux décisions datées (D1-D22) et journal complet
+  de chaque série.
+- [`docs/orchestration.md`](docs/orchestration.md) — reconstruction
+  complète d'un poste neuf, séquence, point d'arrêt, ce qui reste hors
+  d'Ansible.
+- [`docs/repositories.md`](docs/repositories.md) — surfaces
+  d'approvisionnement logicielles activées, ancrage de confiance de
+  chacune.
+- [`docs/gpu-containers.md`](docs/gpu-containers.md),
+  [`docs/gpu-mux-recovery.md`](docs/gpu-mux-recovery.md),
+  [`docs/local-ai.md`](docs/local-ai.md),
+  [`docs/completion.md`](docs/completion.md),
+  [`docs/editor.md`](docs/editor.md),
+  [`docs/desktop.md`](docs/desktop.md),
+  [`docs/dgpu-power.md`](docs/dgpu-power.md),
+  [`docs/ansible-chain.md`](docs/ansible-chain.md) — résolutions
+  thématiques complètes, chacune citée depuis `docs/status.md` ou
+  `docs/machine-facts.md` au point où elle s'applique.
+- [`docs/review-2026-08.md`](docs/review-2026-08.md) — audit global en
+  lecture seule de l'ensemble (décisions, rôles, gardes, chaînes de
+  valeurs), chaque constat marqué d'un statut (traité, écarté, ou ouvert
+  avec sa priorité).

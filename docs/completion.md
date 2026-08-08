@@ -941,6 +941,32 @@ configuration qu'Helix (§ 2 ci-dessous). Aucun risque système engagé
 (rappel de cadrage de la demande) ; le résultat aurait été documenté
 tel quel s'il avait été négatif.
 
+**[Marquage le 2026-08-09, clôture de série] Nature de la preuve —
+mixte, pas du même niveau que Helix.** Pour Helix (§ 7-8), les deux
+moitiés de la démonstration sont **machine** : une session `tmux`
+détachée pilote le clavier, `hx -vv` produit le journal — bout en
+bout automatisé, rejouable sans intervention humaine. Pour Kate
+(§ 9.3-9.4 ci-dessous), **seule la lecture du journal LSP est une
+preuve directe** (machine, rejouable) ; **le déclenchement — clic puis
+Ctrl+Espace — relève de la classe « observation rapportée par
+l'opérateur »** (`CLAUDE.md` § Sourcing des faits — **[correction
+d'attribution]** ajoutée le 2026-08-05, pas en CMP-1 comme la demande
+de clôture le nommait ; `docs/machine-facts.md`, journal daté
+2026-08-05, `roles/gpu_mux/`, pas ce document) : plus faible qu'une
+trace complète, plus forte qu'une inférence, recevable
+ici parce qu'elle remplit les trois conditions posées par cette
+classe — **marquée** explicitement comme telle (cette note),
+**datée** (2026-08-08, § 9.3-9.4), **attribuée** (l'opérateur, via les
+échanges retranscrits § 9.3). Motif de cette distinction : sans elle,
+une session future lirait « Kate prouvé » et « Helix prouvé » comme
+équivalents, alors qu'une défaillance future de la voie Kate (Ctrl+Espace
+qui ne déclenche plus rien, par exemple) ne serait pas rejouable de la
+même façon qu'une défaillance Helix — il faudrait de nouveau un
+opérateur au clavier, pas seulement une session détachée relancée.
+Ce que la preuve établit reste entier (le journal montre une requête
+`textDocument/completion` réelle et sa réponse, § 9.4) — seule la
+**reproductibilité non assistée** diffère.
+
 ### 9.1 — Résolution avant configuration
 
 **Greffon déjà présent, aucune installation nécessaire.** `kate-plugins`
@@ -1055,6 +1081,9 @@ journal LSP (`journalctl --user _PID=<pid> -o cat`, équivalent Kate du
 `~/.cache/helix/helix.log` d'Helix — la sortie Qt/KDE de cette session
 n'est pas routée vers stdout/stderr hérité, confirmé par inspection de
 `/proc/<pid>/fd`) a été lu **après coup**, jamais une capture visuelle.
+**Nature exacte de la preuve, qualifiée en tête de § 9** : le clic et
+le Ctrl+Espace sont une observation rapportée par l'opérateur, pas une
+trace machine — la lecture du journal qui suit, elle, en est une.
 
 ### 9.4 — Résultats mesurés
 

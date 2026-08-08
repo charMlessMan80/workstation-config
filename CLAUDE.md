@@ -155,69 +155,15 @@ sans comprendre pourquoi elle a été posée.
   instant donné n'atteste que cet instant — la réutiliser comme « état
   juste avant » un événement plus tardif sans revérifier la date
   introduit une erreur silencieuse, même si la valeur elle-même a été lue
-  correctement. Motif : c'est le troisième mode d'échec distinct identifié
-  dans cette série, à consigner avec les deux autres parce qu'ils se
-  ressemblent — chacun **a l'apparence du sourcing** tout en portant sur
-  autre chose que l'objet examiné : la **commande substituée** (conclure
-  sur une commande en en exécutant une autre — `journalctl -b0 -g` sans
-  motif pour `journalctl -b0 -g 'drm\|amdgpu\|nvidia'`, `dnf repolist`
-  pour `dnf repolist enabled`, voir plus haut) ; la **transposition entre
-  interfaces** (attribuer à un chemin sysfs une propriété mesurée sur un
-  autre — la règle `pending_reboot` faussement transposée depuis
-  `asus-nb-wmi` vers `asus-armoury`, voir § Matériel spécifique) ; et la
-  **datation périmée** (présenter une mesure de l'inventaire du
+  correctement. Motif : présenter une mesure de l'inventaire du
   2026-08-04 comme l'état immédiatement antérieur à une écriture du
   2026-08-05 — chiffres VRAM/processus pré-bascule, corrigés dans
   `docs/machine-facts.md` § GPU à partir du fichier de trace horodaté
-  réellement pertinent).
-  **Quatrième mode, ajouté le 2026-08-08 (revue globale, confirmé
-  absent des trois ci-dessus)** : la **prémisse de garde périmée** —
-  une garde correcte au sens strict (bonne commande, bonne interface,
-  bonne date) devient fausse non par une erreur de conception mais
-  parce que le système qu'elle surveille a changé de régime, exactement
-  comme elle était censée le permettre. **Premier exemple** : la garde
-  VRAM de `roles/local_ai/` (IA-1) asserait qu'aucun modèle n'est jamais
-  chargé en VRAM — vraie tant que le service n'avait jamais servi de
-  complétion réelle, devenue fausse dès le premier usage conforme à
-  D20 (chargement à la demande, maintenu ensuite indéfiniment par D15).
-  Corrigée en IA-4 pour comparer un relevé pris avant l'exécution du
-  rôle à un relevé pris après, au lieu d'exiger un état vide dans
-  l'absolu (`docs/local-ai.md` § 10.3). **Second exemple, ajouté le
-  2026-08-08 (ORC-2)** : `local_ai_gpu_cdi_playbook`
-  (`roles/local_ai/defaults/main.yml`) résolvait un chemin via
-  `playbook_dir` — vrai tant que ce rôle n'était joué que seul
-  (`playbook_dir` vaut alors le répertoire du rôle, puisque son propre
-  playbook wrapper est le point d'entrée), devenu faux dès l'écriture
-  de `site.yml` (ORC-1), qui inclut ce rôle depuis un autre point
-  d'entrée — `playbook_dir` vaut alors la racine du dépôt. **Trouvé
-  dans la série même où le second contexte est apparu**, par le test
-  de `site.yml` plutôt que par une revue tardive — corrigée en
-  remplaçant `playbook_dir` par `role_path` (répertoire du rôle
-  propriétaire de la tâche, stable quel que soit l'appelant — établi
-  par lecture du code source d'Ansible, `docs/machine-facts.md` §
-  Décisions, journal ORC-2). **Corollaire commun aux deux exemples** :
-  un rôle validé isolément n'est pas validé dans une orchestration, et
-  l'inverse est vrai aussi — chaque contexte d'appel peut révéler une
-  prémisse que l'autre laissait passer sans jamais la mettre à
-  l'épreuve. **Parade** : une garde qui porte sur un état qui évolue
-  (état système, ou **contexte d'exécution** — les deux sont des
-  formes du même problème) doit revérifier sa prémisse quand ce qu'elle
-  surveille change de régime — pas seulement quand sa propre logique
-  interne est mise en cause (cas déjà couvert par la règle sur les
-  gardes modifiées, § Avant d'agir). **Recherche systématique menée en
-  ORC-2 sur ce second exemple précis** (toute construction de chemin
-  dépendant implicitement du point d'entrée d'exécution, dans tous les
-  rôles) : **rien trouvé au-delà de l'occurrence déjà corrigée** — pas
-  encore une série répétée comme `NOPASSWD`/`pending_reboot` (quatre
-  occurrences avant qu'une colonne dédiée devienne nécessaire, COR-1)
-  ou les décisions renumérotées (`roles/editor/`, même livrable). Une
-  seule occurrence connue à ce jour ne justifie pas encore une colonne
-  de validation obligatoire à chaque livrable — mais tout nouveau
-  chemin inter-rôles introduit devrait être exercé depuis `site.yml`
-  en plus du rôle joué seul avant d'être considéré validé (conséquence
-  directe du corollaire ci-dessus), sans qu'il soit nécessaire d'en
-  faire une case à cocher séparée tant qu'aucune deuxième occurrence
-  indépendante n'apparaît.
+  réellement pertinent. **[REGROUPÉ le 2026-08-09]** C'est un des
+  quatre modes d'échec qui imitent le sourcing, recensés au fil de
+  cette série — voir § Modes d'échec qui imitent le sourcing, plus bas,
+  pour la liste complète, chaque exemple réel et sa parade (déplacé
+  hors de ce paragraphe, qui portait jusqu'ici les quatre à la fois).
 - **Une règle vit à un seul endroit ; les documents y renvoient, ils ne la
   recopient pas.** `CLAUDE.md` porte les règles persistantes ; tout autre
   document qui a besoin d'une de ces règles la cite par renvoi
@@ -269,6 +215,101 @@ sans comprendre pourquoi elle a été posée.
   valeur n'existe plus nulle part) mais **corriger le dispositif qui
   aurait dû la capturer** — ce n'est pas la même correction, et confondre
   les deux fait chercher indéfiniment ce qui ne peut plus être trouvé.
+
+## Modes d'échec qui imitent le sourcing — bilan de la série (2026-08-09)
+
+Quatre modes distincts, trouvés à des dates différentes au fil de
+cette série (2026-08-04 → 2026-08-08), regroupés ici en un seul
+endroit plutôt que recopiés à chacun de leurs points d'usage — les
+règles ci-dessus et `§ Matériel spécifique` continuent d'y renvoyer
+plutôt que de reporter le détail complet. **Ce qu'ils ont en
+commun** : chacun **a l'apparence du sourcing** — une commande a été
+exécutée, elle a produit un code de retour, une trace, une sortie —
+mais **l'objet réellement examiné n'est pas celui qu'on croit**. Une
+affirmation non sourcée se repère d'un coup d'œil ; un de ces quatre
+modes ressemble, jusqu'à l'inspection, à une vérification en règle —
+c'est précisément ce qui les rend plus difficiles à repérer.
+
+1. **Commande substituée** — conclure sur une commande en en exécutant
+   une autre, apparentée mais différente. Exemples : `journalctl -b0
+   -g` sans motif pris pour `journalctl -b0 -g 'drm\|amdgpu\|nvidia'` ;
+   `dnf repolist` seul pris pour `dnf repolist enabled` — puis
+   `dnf repolist enabled` lui-même pris pour la forme qui fonctionne
+   réellement sur ce système (`dnf repolist --enabled`), un second cas
+   du même mode trouvé dans l'exemple qui illustrait le premier
+   (§ Sourcing des faits, règle « Reproduire une commande », pour le
+   détail complet des quatre occurrences). **Parade** : exécuter la
+   commande exacte annoncée — options de formatage et redirections
+   comprises — jamais une variante « équivalente », et revérifier les
+   exemples au même titre que les règles qu'ils illustrent.
+2. **Transposition entre interfaces** — attribuer à un chemin ou une
+   interface une propriété mesurée sur un autre, apparenté mais
+   distinct. Exemple : la règle `pending_reboot` transposée par
+   analogie depuis l'attribut déprécié `asus-nb-wmi` vers
+   `asus-armoury`, sans mesure sur le chemin réellement utilisé
+   (§ Matériel spécifique — GPU / MUX, pour le détail complet).
+   **Parade** : mesurer sur l'interface réellement utilisée, jamais
+   par analogie, même quand les deux exposent nominalement le même
+   attribut.
+3. **Datation périmée** — présenter une mesure ancienne comme l'état
+   immédiatement antérieur à un événement plus tardif, sans revérifier
+   la date. Exemple : les chiffres VRAM/processus de l'inventaire du
+   2026-08-04 présentés comme l'état juste avant une écriture du
+   2026-08-05, corrigés à partir du fichier de trace réellement
+   horodaté (§ Sourcing des faits, règle « Un fait mesuré porte sa
+   date », pour le détail complet). **Parade** : tout fait mesuré
+   porte sa date ; une mesure ancienne ne sert pas de ligne de base
+   pour un changement récent sans revérification explicite de cette
+   date.
+4. **Prémisse de garde périmée par évolution du système** — une garde
+   correcte au sens strict (bonne commande, bonne interface, bonne
+   date) devient fausse non par une erreur de conception mais parce
+   que le système qu'elle surveille a changé de régime, exactement
+   comme elle était censée le permettre. Deux exemples : la garde VRAM
+   de `roles/local_ai/` (IA-1), vraie tant qu'aucune complétion réelle
+   n'avait eu lieu, fausse dès le premier usage conforme à D20/D15 —
+   corrigée en IA-4 pour comparer un relevé avant/après plutôt que
+   d'exiger un état vide dans l'absolu ; `local_ai_gpu_cdi_playbook`
+   (`roles/local_ai/defaults/main.yml`), vrai tant que le rôle n'était
+   joué que seul, faux dès son inclusion depuis `site.yml`
+   (`playbook_dir` change de sens selon l'appelant) — corrigé en
+   `role_path`, stable quel que soit l'appelant (ORC-2, détail complet
+   toujours § Sourcing des faits, règle « Un fait mesuré porte sa
+   date »). **Parade** : une garde qui porte sur un état qui évolue
+   (état système ou **contexte d'exécution** — deux formes du même
+   problème) doit revérifier sa prémisse quand ce qu'elle surveille
+   change de régime, pas seulement quand sa propre logique interne est
+   mise en cause (cas distinct, déjà couvert par la règle sur les
+   gardes modifiées, § Avant d'agir).
+
+**Trois règles, initialement de simples principes, ont depuis reçu
+une étape de validation qui les rend vérifiables plutôt que
+seulement énoncées** — motif commun aux trois : un principe sans
+étape de vérification ne s'applique pas tout seul, et cette série l'a
+montré deux fois de suite avant que chacune ne soit corrigée.
+- **La colonne « tentative sans privilège : résultat »** (§ Avant
+  d'agir, règle sur l'élévation) — ajoutée après trois élévations par
+  réflexe en trois livrables consécutifs, restreinte à son domaine le
+  2026-08-09 après une quatrième occurrence (deux lapsus dans le même
+  tableau, KAT-1) qui a montré qu'une colonne rend visible sans
+  empêcher, et que la règle elle-même demandait l'impossible pour une
+  partie des commandes qu'elle visait.
+- **La recherche systématique sur toute décision amendée ou tout
+  mot-clé corrigé** (§ Avant d'agir, règle sur les commentaires
+  périmés) — ajoutée après une quatrième occurrence du même défaut
+  (`roles/gpu_cdi/README.md`), elle-même immédiatement suivie d'une
+  cinquième trouvée par cette recherche (`roles/editor/`, numéros de
+  décision pré-renumérotation) puis d'une sixième trouvée et corrigée
+  dans KAT-1 (le commentaire de `roles/editor/defaults/main.yml`
+  décrivant le greffon LSP de Kate comme « sans effet utile », périmé
+  dès D19/D20).
+- **L'exercice de tout nouveau chemin inter-rôles depuis `site.yml`**,
+  pas seulement depuis le rôle joué seul (§ Sourcing des faits, règle
+  « Un fait mesuré porte sa date », mode 4 ci-dessus) — ajoutée après
+  que `local_ai_gpu_cdi_playbook` a échoué uniquement en orchestration,
+  jamais en rôle isolé ; une seule occurrence à ce jour, pas encore une
+  colonne obligatoire, mais déjà une étape que tout nouveau chemin de
+  ce type doit traverser avant d'être considéré validé.
 
 ## Avant d'agir
 
@@ -354,6 +395,17 @@ sans comprendre pourquoi elle a été posée.
   suivie, avant de le clore, d'une recherche exhaustive de l'ancien
   numéro sur tous les fichiers que CE livrable touche — pas seulement sur
   le document de décisions qui l'enregistre.
+  **[SUITE le 2026-08-08/09]** La cinquième occurrence, corrigée dans
+  le livrable suivant (COR-2), diff vérifié comme ne touchant que des
+  commentaires et des chaînes de message. **Sixième occurrence, trouvée
+  et corrigée dans KAT-1** : `roles/editor/defaults/main.yml`
+  affirmait « Le greffon client LSP n'est PAS activé : D12 interdit
+  tout serveur de langage à lui connecter » — vrai tant qu'aucun
+  serveur LSP n'existait sur ce poste, périmé dès D19/D20 (`lsp-ai`
+  compilé depuis les sources, quelque chose à connecter). Sixième
+  occurrence du même défaut depuis le début de cette série — la
+  troisième dans `roles/editor/` seul, ce rôle concentre plus que sa
+  part.
 - **Une capacité découverte qui contredit une contrainte déjà établie se
   signale, elle ne s'exploite pas silencieusement.** Si une vérification de
   routine révèle qu'une action interdite ou supposée bloquée (élévation de
@@ -388,12 +440,26 @@ sans comprendre pourquoi elle a été posée.
   est désormais indiscernable d'une action non effectuée — avant D9,
   l'invite de mot de passe aurait trahi la différence ; ce n'est plus le
   cas.
-- **Toute élévation de privilège doit être précédée d'une tentative sans
-  privilège.** `sudo` ne se pose pas par réflexe avant d'avoir vérifié
-  que la commande l'exige réellement — essayer d'abord sans, constater
-  l'échec (ou son absence) avant d'élever. Motif : deux occurrences de
-  la même erreur, chacune constatée seulement après coup, jamais avant
-  — `sudo btrfs filesystem usage /` (IA-0, 2026-08-06) et
+- **[RESTREINTE le 2026-08-09] Toute élévation de privilège
+  plausiblement évitable doit être précédée d'une tentative sans
+  privilège — la règle s'applique à son domaine, pas au-delà.**
+  `sudo` ne se pose pas par réflexe avant d'avoir vérifié que la
+  commande l'exige réellement — essayer d'abord sans, constater
+  l'échec (ou son absence) avant d'élever, **quand une voie non
+  privilégiée est plausible** (lecture, requête de métadonnées,
+  inspection). **Pour une commande structurellement privilégiée**
+  (écriture sous `/etc/`, interrogation de la politique `sudo`
+  elle-même, service système root) — où aucune voie non privilégiée
+  n'existe par construction —, la colonne « tentative sans privilège :
+  résultat » du tableau porte la mention explicite « Non applicable —
+  <motif précis> » (ex. « écriture racine intrinsèque », « lecture de
+  `/etc/sudoers`, mode `0440`, aucune voie non privilégiée »,
+  « interroge la politique `sudo` elle-même » — patron établi en
+  SUD-1, `docs/machine-facts.md` § Décisions, D9, tableau des actions
+  privilégiées) plutôt qu'une case laissée vide ou une tentative
+  simulée qui n'aurait rien prouvé. Motif : deux occurrences de la même
+  erreur, chacune constatée seulement après coup, jamais avant —
+  `sudo btrfs filesystem usage /` (IA-0, 2026-08-06) et
   `sudo dnf install --assumeno nodejs22` (CMP-0, 2026-08-07), toutes
   deux superflues, la version sans privilège produisant le même
   résultat. Depuis D9 (`NOPASSWD`), `sudo` ne déclenche plus d'invite de
@@ -406,11 +472,21 @@ sans comprendre pourquoi elle a été posée.
   porte désormais une colonne dédiée, « tentative sans privilège :
   résultat » — la commande essayée sans élévation et ce qu'elle a
   répondu, pas seulement la conclusion. Motif : le principe seul n'a
-  pas suffi — trois élévations par réflexe en trois livrables
-  consécutifs, dont une quelques minutes après l'écriture de cette
-  règle elle-même. Une case vide dans un tableau se voit et appelle
+  pas suffi — quatre livrables distincts ont laissé passer au moins une
+  élévation sans tentative préalable (IA-0, CMP-0, CMP-1, KAT-1 —
+  ce dernier avec deux occurrences dans le même tableau, l'installation
+  et l'arrêt de `ydotool`, `docs/machine-facts.md` § Décisions, journal
+  daté 2026-08-08). Une case vide dans un tableau se voit et appelle
   une question ; un principe énoncé mais non tracé ne laisse personne
-  s'en apercevoir avant qu'il soit déjà contourné.
+  s'en apercevoir avant qu'il soit déjà contourné. **Mais la colonne
+  seule n'empêche rien** : elle rend chaque lapsus visible, elle ne
+  l'a jamais évité — **et pour `dnf install` en tête, aucune tentative
+  sans privilège n'aurait de sens à exécuter, la règle y demandait
+  l'impossible.** Restreinte ici à son domaine d'applicabilité, comme
+  déjà pratiqué sans être écrit en SUD-1 : une règle qui demande
+  l'impossible dans une fraction des cas s'érode dans tous — mieux vaut
+  une règle plus étroite et respectée qu'une règle large et contournée
+  quatre fois.
 
 ## Dépôt public (D4)
 

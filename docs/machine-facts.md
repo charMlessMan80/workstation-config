@@ -3105,3 +3105,78 @@ froid), non établi.
   fermé par ce livrable dans `docs/completion.md` § 2.1 (résolu, pas
   retiré par nettoyage) ; `docs/review-2026-08.md` § 5.4 marqué en
   conséquence.
+- **2026-08-09 — clôture de la série : état réel, revue soldée, bilan
+  de méthode.** Aucune modification de rôle, aucune modification
+  système — livrable documentaire seul, comme annoncé. Cinq
+  volets :
+  1. **Preuve Kate qualifiée** (`docs/completion.md` § 9) : la partie
+     opérateur (clic, Ctrl+Espace) relève de la classe « observation
+     rapportée par l'opérateur », la lecture du journal LSP reste une
+     preuve directe — distinction absente jusqu'ici, une session
+     future aurait pu lire les deux éditeurs comme prouvés au même
+     niveau. **Correction d'attribution faite au passage** : la classe
+     « observation rapportée par l'opérateur » a été ajoutée à
+     `CLAUDE.md` le 2026-08-05 (`roles/gpu_mux/`), pas en CMP-1
+     (2026-08-07) comme la demande de clôture le nommait — vérifié par
+     lecture directe du journal daté avant d'écrire la citation,
+     corrigé plutôt que recopié tel quel.
+  2. **Règle d'élévation restreinte à son domaine** (`CLAUDE.md` §
+     Avant d'agir) : tentative sans privilège exigée seulement quand
+     une voie non privilégiée est plausible ; pour une commande
+     structurellement privilégiée, la colonne porte désormais « Non
+     applicable — <motif> » (patron déjà pratiqué sans être écrit en
+     SUD-1). Motif de la restriction : quatre livrables distincts
+     (IA-0, CMP-0, CMP-1, KAT-1) ont laissé passer une élévation sans
+     tentative préalable malgré la règle et sa colonne — dont deux
+     occurrences dans KAT-1 pour des commandes (`dnf install`) où
+     aucune tentative sans privilège n'aurait eu de sens.
+  3. **`docs/status.md` créé** — une page, tout en renvoi : ce qui est
+     prouvé (avec preuve et document), ce qui ne l'est pas de bout en
+     bout (séquence complète sur machine neuve, combinaison des deux
+     redémarrages, suspension avec modèle en VRAM — chacun avec ce
+     qu'il faudrait pour vérifier), ce qui a été écarté et pourquoi
+     (npm, `ansible-navigator`, Zed, Cursor, dépôt NVIDIA officiel,
+     coexistence de deux modèles en VRAM), surfaces d'approvisionnement
+     en renvoi vers `docs/repositories.md`, points ouverts restants
+     avec priorité.
+  4. **`docs/review-2026-08.md` soldée** : chacun de ses constats
+     marqué d'un statut (traité/écarté/ouvert), aucun laissé sans
+     statut, aucun texte supprimé. **Écart de compte signalé, pas
+     masqué** : la demande citait « 34 constats », recompté ici par
+     unité structurelle (chaque section numérotée du document) à
+     vingt-six — écart expliqué dans le document lui-même
+     (`docs/review-2026-08.md` § Décompte des constats par statut),
+     pas ajusté rétroactivement pour atteindre 34 sans méthode
+     explicite. Neuf traités, onze écartés (dont deux délibérément —
+     numérotation redondante, hygiène git — la revue elle-même ne les
+     recommandait pas en priorité), six ouverts, tous de gravité basse
+     ou cosmétique.
+  5. **Bilan de méthode dans `CLAUDE.md`** : les quatre modes d'échec
+     qui imitent le sourcing (commande substituée, transposition entre
+     interfaces, datation périmée, prémisse de garde périmée par
+     évolution du système), jusqu'ici dispersés entre plusieurs règles,
+     regroupés en un seul endroit (§ Modes d'échec qui imitent le
+     sourcing) avec leur trait commun (chacun a l'apparence du
+     sourcing sans en être) et leur parade ; renvoi depuis les règles
+     d'origine plutôt que duplication. Trois règles devenues
+     opérationnelles en recevant une étape de validation résumées au
+     même endroit. **Sixième occurrence du défaut « commentaire périmé
+     après révision d'une décision »** trouvée en documentant ce
+     bilan : le commentaire de `roles/editor/defaults/main.yml` sur le
+     greffon LSP de Kate, déjà corrigé dans KAT-1, maintenant compté
+     dans l'historique consolidé de ce défaut.
+  **README.md mis à jour** : contenu réel (sept rôles, `site.yml`,
+  point d'arrêt unique), renvoi vers `docs/status.md` et
+  `docs/orchestration.md`, avertissement D4 conservé sans changement de
+  fond.
+  **Aucune action privilégiée.** Confirmé : `git status --short`
+  limité aux cinq fichiers du périmètre documentaire annoncé
+  (`CLAUDE.md`, `README.md`, `docs/completion.md`,
+  `docs/review-2026-08.md`, `docs/status.md` nouveau) plus ce fichier ;
+  `rpm -qa` non revérifié par snapshot différentiel dédié à ce
+  livrable (aucune commande `dnf`/`sudo` exécutée, vérifiable dans la
+  session elle-même) ; `gpu_mux_mode` `current_value=1` inchangé ;
+  `sudo visudo -c` : les deux fichiers `parsed OK`, inchangé ;
+  `terra.repo` présent, non touché ; `/etc/cdi/nvidia.yaml` même date
+  de modification qu'en fin de KAT-1 (`1785972042`) ; `uptime -s`
+  inchangé (`2026-08-07 12:19:47`) — aucun redémarrage.
