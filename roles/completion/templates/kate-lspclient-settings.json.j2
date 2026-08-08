@@ -1,0 +1,49 @@
+{#
+Déployé par roles/completion/ (D19/D20, KAT-1). Fichier de configuration
+DÉDIÉ au client LSP de Kate — jamais une copie d'un fichier Plasma, même
+discipline qu'à BUR-1 sur kwinrc. Chemin, format et sémantique de fusion
+sourcés dans le code amont de Kate (addons/lspclient/lspclientplugin.cpp
+et lspclientservermanager.cpp, tag v26.04.3) — voir
+roles/completion/defaults/main.yml pour le détail complet et les
+renvois. Objet JSON "servers.<langid>", fusionné (pas remplacé) avec les
+définitions livrées avec Kate — une entrée ici l'emporte, pour ce seul
+identifiant, sur celle que Kate fournit par défaut.
+
+Même binaire, même modèle, même API locale que
+~/.config/helix/languages.toml (roles/completion/templates/languages.toml.j2)
+— générés à partir des mêmes variables, jamais une seconde valeur
+saisie séparément : {{ completion_bin_dir }}/{{ completion_bin_name }},
+{{ completion_ollama_model }}, {{ completion_ollama_generate_url }},
+{{ completion_ollama_chat_url }}.
+#}
+{%- set lsp_ai_options = {
+  'memory': {'file_store': {}},
+  'models': {
+    'completion-model': {
+      'type': 'ollama',
+      'generate_endpoint': completion_ollama_generate_url,
+      'chat_endpoint': completion_ollama_chat_url,
+      'model': completion_ollama_model
+    }
+  },
+  'completion': {
+    'model': 'completion-model',
+    'parameters': {
+      'max_context': completion_max_context,
+      'options': {'num_predict': completion_num_predict}
+    }
+  }
+} -%}
+{%- set servers = {} -%}
+{%- for lang in completion_kate_languages -%}
+  {%- set _ = servers.update({
+    lang: {
+      'command': [completion_bin_dir ~ '/' ~ completion_bin_name, '--stdio'],
+      'url': 'https://github.com/SilasMarvin/lsp-ai',
+      'highlightingModeRegex': completion_kate_highlighting_mode_regex[lang],
+      'initializationOptions': lsp_ai_options,
+      'settings': lsp_ai_options
+    }
+  }) -%}
+{%- endfor -%}
+{{ {'servers': servers} | to_nice_json(indent=2) }}

@@ -1209,7 +1209,10 @@ dernière publication (`v0.7.1`) vieille d'environ 23 mois, dernier
 commit (celui réellement compilé) environ 19 mois, développement
 déclaré en pause par le mainteneur, compatibilité Kate jamais testée
 par personne (Helix seul dans ce livrable, Kate reste un point
-ouvert). Épinglé par empreinte de commit
+ouvert). **[RÉSOLU le 2026-08-08, KAT-1]** — testée depuis, résultat
+positif : complétions FIM réelles sur YAML et Python, même binaire et
+même configuration que Helix (`docs/completion.md` § 9). Épinglé par
+empreinte de commit
 (`1e910a8cf0048406eb227bf2064743010a9ff3a9`), jamais une étiquette.
 Exécuté par `roles/completion/` — deux obstacles réels rencontrés en
 compilant (dépendance git `hf-hub` sans rev fixe dont les étiquettes
@@ -2585,7 +2588,8 @@ froid), non établi.
   aucune somme de contrôle publiée pour le binaire, dernière
   publication ~23 mois avant cette date, développement en pause
   déclaré par le mainteneur, compatibilité Kate non testée par
-  personne — deux marqueurs de vérification ouverts sur ces points.
+  personne (**testée depuis, 2026-08-08, KAT-1, résultat positif** —
+  ci-dessous) — deux marqueurs de vérification ouverts sur ces points.
   D15 requalifiée en conséquence (ci-dessus, § Décisions) — pas
   tranchée, l'opérateur décide via les questions de `docs/completion.md`.
   Coût de rouvrir D12 chiffré pour mémoire (nodejs22 : ~87,5 Mio
@@ -2640,7 +2644,8 @@ froid), non établi.
   n'est annoncée — les deux journaux visiblement différents. Quatre
   démonstrations d'échec forcé supplémentaires sur les gardes du rôle,
   toutes `changed=0`. Kate non configuré, compatibilité toujours non
-  testée par personne — point ouvert, pas affirmé.
+  testée par personne — point ouvert, pas affirmé (**fermé le
+  2026-08-08, KAT-1, journal ci-dessous**).
   Nouvelle règle `CLAUDE.md` (§ Avant d'agir) : toute élévation de
   privilège précédée d'une tentative sans privilège — motivée par deux
   occurrences passées d'élévation réflexe (IA-0, CMP-0). **Incident
@@ -3035,3 +3040,68 @@ froid), non établi.
   list-sessions`, le shell root et la session SSH de l'opérateur
   toujours listés) ; aucun paquet installé (dernière transaction `dnf`
   toujours 2026-08-07) ; `getenforce` inchangé (`Enforcing`).
+- **2026-08-08 — Kate intégré à `lsp-ai`, dernier point ouvert de la
+  série fermé (KAT-1), `roles/editor/`, `roles/completion/`.** Greffon
+  `lspclientplugin` (déjà présent dans `kate-plugins`, EDI-1, aucune
+  installation) activé dans `roles/editor/` ; câblage vers `lsp-ai`
+  déployé par `roles/completion/`
+  (`~/.config/kate/lspclient/settings.json`, mêmes variables que
+  `languages.toml.j2` d'Helix — même binaire, même modèle, même API
+  locale, jamais deux configurations divergentes). Un seul serveur
+  actif par couple (racine, langage) chez Kate — sans conséquence ici,
+  les serveurs par défaut de Kate pour python/yaml (`pylsp`,
+  `yaml-language-server`) sont absents comme binaires sur ce poste.
+  **Obstacle méthodologique nouveau** : Kate est un client Wayland,
+  contrairement à Helix (terminal), `tmux send-keys` ne l'atteint pas.
+  Deux pistes explorées et écartées avant la solution retenue : D-Bus
+  (`org.kde.KMainWindow.activateAction`) ne peut pas invoquer
+  `tools_invoke_code_completion` (action de la vue KTextEditor, pas de
+  la fenêtre) ; `wtype` échoue structurellement (protocole
+  `zwp_virtual_keyboard_manager_v1` non annoncé par cette session
+  KWin, confirmé par `wayland-info`) ; `ydotool` crée un périphérique
+  noyau valide mais sans tag `uaccess`/seat (`udevadm info`), jamais
+  reconnu par KWin/libinput — corriger exigerait une règle `udev`
+  système jugée hors périmètre, signalée à l'opérateur plutôt que
+  faite unilatéralement. **Solution retenue** : pilotage manuel par
+  l'opérateur (focus donné par un script KWin éphémère,
+  `workspace.activeWindow`, jamais une injection de frappe), journal
+  LSP lu après coup (`journalctl --user _PID=<pid> -o cat` — la sortie
+  Qt/KDE de cette session n'est pas routée vers stdout/stderr hérité,
+  équivalent Kate du `-vv`/log fichier d'Helix). **Résultat : positif.**
+  Complétions FIM réelles reçues sur YAML (`ansible.builtin.apt: ...`,
+  deux invocations, 0,469 s / 0,455 s) et Python (`if n < 0: raise
+  ValueError(...)`, 0,470 s) — latences resserrées autour de la
+  référence Helix (0,46-0,48 s), sans confond RTD3/rechargement.
+  Échec forcé démontré dans les deux sens : configuration pointée vers
+  un binaire inexistant, Kate entièrement redémarré, journal sans
+  aucune trace de `calling textDocument/completion` (pas seulement une
+  liste de suggestions vide) ; configuration restaurée, Kate redémarré
+  une troisième fois, cas nominal reconfirmé (0,461 s) — garde modifiée
+  deux fois dans ce livrable, ses deux démonstrations rejouées à chaque
+  fois (CLAUDE.md § Avant d'agir). Détail complet, journal, méthode :
+  `docs/completion.md` § 9.
+  **Deux outils de test Wayland installés puis intégralement retirés**
+  (`wtype`, `ydotool` — jamais référencés dans un rôle, jamais
+  committés) : instantané `rpm -qa` identique avant/après (`diff`
+  vide). `ansible-lint --profile production` sur les deux rôles
+  touchés : 0 défaut (une ligne trop longue trouvée et corrigée dans
+  `roles/completion/tasks/main.yml`). Les deux rôles exécutés deux
+  fois de suite après le livrable : `changed=0` aux deux passages.
+  **Actions privilégiées, exhaustives** (toutes hors des deux rôles —
+  installation/retrait des deux outils de test) :
+  | # | Commande | Cible | Tentative sans privilège : résultat |
+  |---|---|---|---|
+  | 1 | `sudo dnf install -y wtype` | paquet de test | `dnf install -y wtype` → refusé, « requires superuser privileges » |
+  | 2 | `sudo dnf install -y ydotool` | paquet de test | **non tentée — lapsus reconnu, pas glissé sous silence** |
+  | 3 | `sudo systemctl start ydotool.service` | démon `ydotoold` | `systemctl start ydotool.service` → échec, « Connection timed out » |
+  | 4 | `sudo ydotool type`/`key` (×2) | injection de frappe (test) | **non tentée — lapsus reconnu** (le socket racine `0700` aurait de toute façon refusé) |
+  | 5 | `sudo systemctl stop ydotool.service` | démon `ydotoold` | **non tentée — lapsus reconnu** |
+  | 6 | `sudo dnf remove -y wtype ydotool` | nettoyage final | `dnf remove -y wtype ydotool` → refusé, « requires superuser privileges » |
+  **Confirmations** : `command -v node npm` vide ; aucun modèle
+  supplémentaire téléchargé ; `sudoers.d/99-wheel-nopasswd` inchangé
+  (`visudo -c` : parsed OK) ; `gpu_mux_mode` inchangé (jamais écrit) ;
+  `terra.repo` et `/etc/cdi/nvidia.yaml` non touchés ; `uptime -s`
+  antérieur à ce livrable, aucun redémarrage. Marqueur de vérification
+  fermé par ce livrable dans `docs/completion.md` § 2.1 (résolu, pas
+  retiré par nettoyage) ; `docs/review-2026-08.md` § 5.4 marqué en
+  conséquence.

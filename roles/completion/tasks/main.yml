@@ -482,6 +482,82 @@
       dans le fichier déployé, aucune mention d'API distante).
   when: not ansible_check_mode
 
+# --- Configuration Kate (KAT-1) — même binaire, même modèle, même API
+# locale que Helix ci-dessus, jamais une seconde valeur saisie
+# séparément. Fichier de configuration dédié au client LSP
+# (~/.config/kate/lspclient/settings.json), jamais une copie d'un
+# fichier Plasma — résolution complète, sources citées, dans
+# roles/completion/defaults/main.yml et docs/completion.md.
+# ---------------------------------------------------------------------
+
+- name: "Garde — vérifier que Kate est installé : {{ completion_kate_binary_name }}"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "command -v {{ completion_kate_binary_name }}"
+  register: completion_kate_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si Kate n'est pas installé (roles/editor/ ne semble jamais avoir tourné)"
+  ansible.builtin.assert:
+    that:
+      - completion_kate_check.rc == 0
+    fail_msg: >-
+      « {{ completion_kate_binary_name }} » introuvable sur le PATH — ce
+      rôle écrirait une configuration LSP pour un éditeur absent, un
+      succès silencieux qui ne serait remarqué qu'au premier lancement
+      réel de Kate. Ce rôle n'installe jamais Kate (roles/editor/ le
+      fait) : exécuter roles/editor/editor.yml, vérifier `command -v
+      {{ completion_kate_binary_name }}`, puis relancer ce rôle.
+    success_msg: "Kate trouvé sur le PATH : {{ completion_kate_check.stdout | trim }}"
+
+- name: "S'assurer que le répertoire de configuration du client LSP de Kate existe : {{ completion_kate_lspclient_settings_path | dirname }}"
+  ansible.builtin.file:
+    path: "{{ completion_kate_lspclient_settings_path | dirname }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer le fichier de configuration dédié du client LSP de Kate (KAT-1, révise D12/EDI-1 — même motif que languages.toml.j2)"
+  ansible.builtin.template:
+    src: kate-lspclient-settings.json.j2
+    dest: "{{ completion_kate_lspclient_settings_path }}"
+    mode: "0644"
+  register: completion_kate_settings_write
+  when: not ansible_check_mode
+
+- name: "Relire la configuration Kate déployée pour l'assertion suivante"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "cat {{ completion_kate_lspclient_settings_path }}"
+  register: completion_kate_settings_content
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si la configuration Kate ne pointe pas explicitement l'API locale (jamais une API distante)"
+  ansible.builtin.assert:
+    that:
+      - completion_ollama_generate_url_expected in completion_kate_settings_content.stdout
+      - completion_ollama_chat_url_expected in completion_kate_settings_content.stdout
+      - "'ollama.com' not in completion_kate_settings_content.stdout"
+      - (completion_kate_settings_content.stdout | from_json).servers.keys() | list | sort == completion_kate_languages | sort
+    fail_msg: >-
+      La configuration déployée ({{ completion_kate_lspclient_settings_path }})
+      ne pointe pas explicitement {{ completion_ollama_host }}:{{ completion_ollama_port }},
+      mentionne un hôte distant, ou ne couvre pas exactement
+      {{ completion_kate_languages | join(', ') }} — ce rôle s'arrête :
+      même exigence que pour Helix (§ 2.4 de la demande d'origine),
+      vérifié par relecture du fichier réellement écrit.
+    success_msg: >-
+      Configuration Kate confirmée : lsp-ai pointe exclusivement
+      {{ completion_ollama_host }}:{{ completion_ollama_port }} pour
+      {{ completion_kate_languages | join(', ') }} (relu dans le
+      fichier déployé, aucune mention d'API distante).
+  when: not ansible_check_mode
+
 # --- Rapport -----------------------------------------------------------
 
 - name: "Rapporter l'état (mode simulation --check)"
@@ -492,8 +568,10 @@
       serait cloné à l'empreinte {{ completion_lsp_ai_commit }} et
       compilé (cargo build --release --locked), le binaire installé
       sous {{ completion_bin_dir }}, languages.toml déployé sous
-      {{ completion_helix_config_dir }}, pointant {{ completion_ollama_model }}
-      (D21) — vérifié présent côté service, jamais chargé par ce rôle.
+      {{ completion_helix_config_dir }}, et
+      {{ completion_kate_lspclient_settings_path }} (KAT-1), pointant
+      {{ completion_ollama_model }} (D21) — vérifié présent côté
+      service, jamais chargé par ce rôle.
   when: ansible_check_mode
 
 - name: "Rapporter l'état (exécution réelle)"
@@ -505,6 +583,11 @@
       - "Empreinte du binaire produit : {{ completion_binary_sha256.stdout | default('non recalculée, idempotent') | trim }}"
       - "Binaire installé : {{ completion_bin_dir }}/{{ completion_bin_name }}, version rapportée : {{ completion_bin_version.stdout | default('') | trim }}"
       - "Configuration Helix déployée : {{ completion_helix_config_dir }}/languages.toml, langages : {{ completion_helix_languages | join(', ') }}"
+      - >-
+          Configuration Kate déployée (KAT-1) :
+          {{ completion_kate_lspclient_settings_path }}, langages :
+          {{ completion_kate_languages | join(', ') }}, même binaire et
+          même API locale que Helix.
       - >-
           Modèle de complétion (D21) : {{ completion_ollama_model }},
           vérifié présent côté service avant l'écriture de la

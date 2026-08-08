@@ -115,7 +115,7 @@
   changed_when: false
   check_mode: false
 
-- name: "Activer les greffons Kate nécessaires (outils externes, terminal intégré) — jamais le client LSP (D12, rien à lui connecter)"
+- name: "Activer les greffons Kate nécessaires (outils externes, terminal intégré, client LSP câblé par roles/completion/ — KAT-1)"
   ansible.builtin.command:
     argv:
       - kwriteconfig6

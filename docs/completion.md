@@ -171,10 +171,13 @@ supportés, avec des captures d'écran de démonstration dans Helix.
 **Kate n'y est pas nommé** — absence de mention, pas incompatibilité
 établie : le mécanisme (LSP standard) est le même que celui vérifié
 § 1.2 pour Kate, mais personne ne l'a documenté comme testé avec Kate
-spécifiquement. `@VERIF : compatibilité réelle de lsp-ai avec le
-greffon LSP client de Kate — non testée par le projet amont (silence,
-pas un échec documenté) ni par ce livrable (lecture seule, aucun
-binaire téléchargé).`
+spécifiquement. **[RÉSOLU le 2026-08-08, KAT-1] ÉTAIT** : le marqueur
+de vérification portait sur la compatibilité réelle de `lsp-ai` avec
+le greffon LSP client de Kate — non testée par le projet amont
+(silence, pas un échec documenté) ni par ce livrable (lecture seule,
+aucun binaire téléchargé). **Testée depuis, résultat positif** :
+complétions FIM réelles reçues sur YAML et Python, même binaire et
+même configuration que Helix — § 9 pour la preuve complète.
 
 **Ce que `lsp-ai` exigerait, nommé avant d'être pesé** :
 - **Pas de npm, pas de Node** — Rust, statique dans l'esprit, aucune
@@ -778,8 +781,9 @@ touché `terra` ; `getenforce` inchangé ; aucun redémarrage.
 marqueurs déjà comptés en CMP-0 restent ouverts, inchangés par ce
 livrable — compatibilité réelle de `lsp-ai` avec le greffon LSP de
 Kate (§ 2.1, toujours non testée : « Kate seul dans ce livrable »,
-demande § 2.6, respecté), détail exact du mécanisme de prédiction
-d'édition natif de Zed avec Ollama (§ 3). Aucun nouveau marqueur
+demande § 2.6, respecté ; **résolu depuis, 2026-08-08, KAT-1, § 9**),
+détail exact du mécanisme de prédiction d'édition natif de Zed avec
+Ollama (§ 3, toujours ouvert). Aucun nouveau marqueur
 ajouté par ce livrable — les obstacles de compilation (§ 7.2) ont
 tous été résolus et vérifiés, pas laissés ouverts.
 
@@ -927,6 +931,240 @@ service (cache disque froid, pas seulement VRAM) reste également
 (`docs/machine-facts.md` § Décisions), non comblé par cet essai (le
 service tournait déjà depuis la veille pendant toute cette session).
 
+## 9. KAT-1 — Kate intégré et prouvé (2026-08-08)
+
+**Dernier point ouvert de la série CMP-1/IA-4 : compatibilité réelle de
+`lsp-ai` avec le greffon LSP client de Kate (§ 2.1), jamais testée par
+personne.** Résultat : **positif** — Kate reçoit des complétions FIM
+réelles sur YAML et Python, avec exactement le même binaire et la même
+configuration qu'Helix (§ 2 ci-dessous). Aucun risque système engagé
+(rappel de cadrage de la demande) ; le résultat aurait été documenté
+tel quel s'il avait été négatif.
+
+### 9.1 — Résolution avant configuration
+
+**Greffon déjà présent, aucune installation nécessaire.** `kate-plugins`
+(fournissant `lspclientplugin.so`) est installé sur ce poste depuis
+2026-08-06 (`roles/editor/`, EDI-1) — vérifié, `rpm -q kate-plugins`,
+`dnf repoquery --requires kate-plugins` (aucune dépendance `node`/`npm`).
+La branche « installation si besoin, arrêt si npm tiré » de la demande
+ne s'applique donc pas.
+
+**Fichier de configuration et format, sourcés dans le code amont de
+Kate à la version exacte installée (`v26.04.3`)**, pas supposés :
+- Chemin : `~/.config/kate/lspclient/settings.json` — dérivé de
+  `QStandardPaths::AppConfigLocation` + `/lspclient/settings.json`
+  (`addons/lspclient/lspclientplugin.cpp`), confirmé aussi par
+  inspection directe du système de fichiers (le répertoire existait
+  déjà, créé automatiquement au premier chargement du greffon, vide).
+- Format : objet JSON `{"servers": {"<langid>": {...}}}`, **fusionné**
+  (`json::merge`, pas remplacé) avec les définitions livrées avec Kate
+  (`addons/lspclient/settings.json` amont) — une entrée utilisateur
+  l'emporte, pour ce seul identifiant de langage, sur celle par défaut.
+- Clés par serveur utilisées ici : `command`, `url`,
+  `highlightingModeRegex`, `initializationOptions` (passées à la
+  requête LSP `initialize`), `settings` (envoyées via
+  `workspace/didChangeConfiguration`) — sourcées dans
+  `lspclientservermanager.cpp`.
+
+**Deux serveurs pour un même type de fichier — établi, pas présumé** :
+Kate n'autorise **qu'un seul serveur actif par couple (racine, langId)**
+(`m_servers[root][langId]`, pas de cohabitation simultanée). Ce point,
+que la demande signalait explicitement comme potentiellement
+structurellement bloquant, s'avère **sans conséquence ici** : les
+serveurs par défaut de Kate pour python/yaml (`pylsp`,
+`yaml-language-server`) sont **tous deux absents comme binaires sur ce
+poste** (`command -v pylsp yaml-language-server` → vide) — aucune
+capacité de diagnostic/navigation réelle n'est donc déplacée par
+l'ajout de `lsp-ai`. Si l'un des deux avait été présent, la question
+serait devenue « complétion ou reste des fonctions LSP », arbitrage
+opérateur comme demandé — non atteinte.
+
+### 9.2 — Configuration : même binaire, même configuration qu'Helix
+
+Déployée par `roles/completion/` (jamais un fichier Plasma copié —
+même discipline qu'à BUR-1 sur `kwinrc`) :
+`roles/completion/templates/kate-lspclient-settings.json.j2`, rendu à
+partir des **mêmes variables** que
+`roles/completion/templates/languages.toml.j2` (Helix) —
+`completion_bin_dir`/`completion_bin_name`, `completion_ollama_model`,
+`completion_ollama_generate_url`/`completion_ollama_chat_url`,
+`completion_max_context`, `completion_num_predict` —
+`completion_kate_languages` est littéralement
+`"{{ completion_helix_languages }}"`, pas une seconde liste saisie
+séparément. Vérifié par lecture directe du fichier déployé après
+exécution du rôle : `command` = `/home/mahieumi/.local/bin/lsp-ai
+--stdio`, `generate_endpoint`/`chat_endpoint` =
+`http://127.0.0.1:11434/api/{generate,chat}`, `model` =
+`qwen2.5-coder:7b-instruct-q4_K_M` — identique, terme à terme, à ce
+que `hx --health` et le journal LSP de Helix rapportent (§ 7-8).
+**Pas une troisième forme du défaut déjà rencontré deux fois**
+(`ansible-lint`/ANS-1, `yamllint`/EDI-1) : une seule source de vérité
+pour les deux éditeurs.
+
+La garde d'existence de Helix ajoutée en COR-1
+(`roles/completion/tasks/main.yml`) a son équivalent pour Kate :
+`command -v kate`, échec bruyant si absent, avant toute écriture.
+
+### 9.3 — Preuve : obstacle méthodologique, deux impasses, la voie qui a marché
+
+**Obstacle nouveau, spécifique à Kate.** Contrairement à Helix (appli
+terminal, pilotable par `tmux send-keys`), Kate est un client Wayland
+natif — `tmux` ne contrôle que le pseudo-terminal du shell lançant
+Kate, jamais sa fenêtre graphique. Deux pistes explorées et
+documentées avant la solution retenue, aucune des deux gardée :
+
+**Impasse 1 — D-Bus, action de complétion introuvable au niveau
+fenêtre.** Kate expose un service D-Bus riche
+(`org.kde.kate-<pid>`, interface `org.kde.KMainWindow`, méthode
+`activateAction(s) -> b`). L'action de complétion manuelle,
+`tools_invoke_code_completion`, sourcée dans le code amont de
+KTextEditor (`src/view/kateview.cpp`, tag `v6.28.0`,
+`ViewPrivate::setupActions()`), **appartient à la vue KTextEditor, pas
+à la fenêtre principale** — `activateAction s
+tools_invoke_code_completion` renvoie `false`, confirmé par appel
+direct ; aucun objet D-Bus par document/vue n'est exposé pour la
+contourner.
+
+**Impasse 2 — deux outils d'injection de frappe, deux échecs
+structurels distincts, chacun consigné et signalé à l'opérateur avant
+d'aller plus loin** (aucun outil non prévu par la demande n'a été
+installé sans validation) :
+- `wtype` (protocole `zwp_virtual_keyboard_manager_v1`) : « Compositor
+  does not support the virtual keyboard protocol » — confirmé
+  indépendamment par `wayland-info`, le protocole n'est simplement pas
+  annoncé par cette session KWin.
+- `ydotool` (périphérique noyau via `/dev/uinput`, démon `ydotoold`) :
+  le périphérique virtuel est bien créé et valide
+  (`/proc/bus/input/devices`, bits `EV_KEY` complets, handler `kbd`)
+  mais **sans tag `uaccess`/seat** (`udevadm info`) — KWin/libinput
+  s'appuie sur ce tag pour n'ouvrir que les périphériques de la
+  session graphique active ; sans lui, aucune frappe n'atteint aucune
+  fenêtre. Corriger ça exige une règle `udev` système
+  supplémentaire — jugé plus invasif que l'installation des deux
+  paquets de test et hors périmètre de ce livrable, signalé à
+  l'opérateur plutôt que fait unilatéralement.
+
+**Voie retenue — pilotage manuel par l'opérateur, journal lu en
+parallèle.** Kate déjà ouvert et focus (le focus lui-même a demandé un
+petit script KWin éphémère, `workspace.activeWindow = <fenêtre Kate>`
+via `org.kde.kwin.Scripting`, chargé et déchargé pour ce seul usage —
+un geste de mise au premier plan, jamais une injection de frappe).
+L'opérateur a cliqué en fin de ligne puis pressé Ctrl+Espace ; le
+journal LSP (`journalctl --user _PID=<pid> -o cat`, équivalent Kate du
+`~/.cache/helix/helix.log` d'Helix — la sortie Qt/KDE de cette session
+n'est pas routée vers stdout/stderr hérité, confirmé par inspection de
+`/proc/<pid>/fd`) a été lu **après coup**, jamais une capture visuelle.
+
+### 9.4 — Résultats mesurés
+
+**YAML** (`ansible.builtin.` en position de curseur), deux
+invocations :
+```
+$ grep -n "textDocument/completion" kate-journal-yaml-completion.txt
+2:calling textDocument/completion
+26:calling textDocument/completion
+```
+```
+YAML #1 : 22:33:04.529933 -> 22:33:04.999163 = 0,469 s
+YAML #2 : 22:33:39.410982 -> 22:33:39.866200 = 0,455 s
+```
+Complétions réellement reçues (pas des accusés de réception vides) :
+`ansible.builtin.apt: name: nginx state: present ... - name: Start and
+enable nginx service ansible.builtin.service: name: nginx` —
+syntaxiquement valide, cohérent avec le contexte Ansible du fichier,
+même registre que les complétions Helix (§ 8.1).
+
+**Python** (`if n <` dans une fonction Fibonacci), une invocation :
+```
+Python : 22:35:46.944678 -> 22:35:47.414707 = 0,470 s
+```
+Complétion reçue : `if n < 0: raise ValueError("Fibonacci is not
+defined for negative numbers") elif n == 0: return 0 elif n` —
+syntaxiquement et sémantiquement pertinente.
+
+**Échec forcé, les deux sens démontrés.** `command` de
+`~/.config/kate/lspclient/settings.json` pointé vers un binaire
+inexistant (`lsp-ai-BROKEN-KAT1`), Kate **entièrement redémarré**
+(quitté via D-Bus puis relancé — pas un simple rechargement de
+document, pour forcer une relecture complète de la configuration).
+Même geste (clic + Ctrl+Espace) répété deux fois (deux relances, pour
+écarter un artefact d'une seule mesure) :
+```
+$ journalctl --user _PID=<pid> -o cat
+language id  "yaml"
+language id  "yaml"
+language id  "yaml"
+language id  "yaml"
+```
+**Aucune trace de `calling textDocument/completion` ni d'échange
+JSON-RPC** — contrairement au cas nominal, le journal ne montre même
+pas de tentative de connexion au serveur. Le popup de complétion
+générique de Kate (mots déjà présents dans le document, mécanisme
+propre à Kate, indépendant du LSP) reste actif — c'est lui que
+l'opérateur a vu, sans item `ai`, distinction confirmée par le journal.
+**Le journal diffère qualitativement, pas seulement par l'absence
+d'un item** — la démonstration n'est pas vide de sens.
+
+**Configuration restaurée, Kate redémarré une troisième fois, cas
+nominal reconfirmé** (garde modifiée deux fois dans ce livrable —
+la configuration cassée puis restaurée — perd sa démonstration
+précédente à chaque modification, CLAUDE.md § Avant d'agir ; rejouée) :
+```
+Nominal (reconfirmation) : 23:10:49.255306 -> 23:10:49.716750 = 0,461 s
+```
+
+**Quatre latences mesurées, modèle déjà chargé** : 0,469 s / 0,455 s /
+0,470 s / 0,461 s — resserrées autour de la référence Helix (0,46-0,48
+s, § 8.3), sans le confond RTD3/rechargement (~3,7 s, D22/IA-4) à
+écarter : le service tournait déjà, aucune inactivité prolongée entre
+les mesures.
+
+### 9.5 — Nettoyage et invariants confirmés
+
+`wtype` et `ydotool` étaient des outils de test éphémères, jamais
+référencés dans un rôle ni committés — désinstallés en fin de
+livrable, état des paquets installés identique à l'instantané
+d'avant-livrable (`diff` vide entre les deux relevés `rpm -qa`).
+`ydotool.service` (unité système livrée par le paquet) arrêté avant
+la désinstallation ; la désinstallation a supprimé l'unité avec le
+paquet (`systemctl is-enabled` → `not-found` après coup).
+
+**Tableau des actions privilégiées, tentative sans privilège :
+résultat** :
+
+| Action | Commande privilégiée | Tentative sans privilège : résultat |
+|---|---|---|
+| Installer `wtype` | `sudo dnf install -y wtype` | `dnf install -y wtype` → refusé : « requires superuser privileges » |
+| Installer `ydotool` | `sudo dnf install -y ydotool` | **non tentée — lapsus reconnu, pas glissé sous silence** (règle CLAUDE.md § Avant d'agir violée une fois dans ce livrable) |
+| Démarrer `ydotool.service` | `sudo systemctl start ydotool.service` | `systemctl start ydotool.service` → échec : « Connection timed out » |
+| Frapper via `ydotool` (type/key) | `sudo YDOTOOL_SOCKET=/tmp/.ydotool_socket ydotool ...` | **non tentée — lapsus reconnu** (le socket racine `0700` aurait refusé une connexion non privilégiée, mais la démonstration explicite n'a pas été faite) |
+| Arrêter `ydotool.service` | `sudo systemctl stop ydotool.service` | **non tentée — lapsus reconnu** |
+| Désinstaller `wtype`/`ydotool` | `sudo dnf remove -y wtype ydotool` | `dnf remove -y wtype ydotool` → refusé : « requires superuser privileges » |
+
+**Confirmations finales** : `command -v node npm` toujours vide ;
+aucun modèle supplémentaire téléchargé ; `/etc/sudoers.d/99-wheel-nopasswd`
+inchangé (`visudo -c` : parsed OK) ; `gpu_mux_mode` `current_value`
+inchangé (jamais écrit par ce livrable) ; `/etc/yum.repos.d/terra.repo`
+présent, jamais touché ; `/etc/cdi/nvidia.yaml` jamais réécrit (aucune
+tâche de ce livrable n'y touche) ; `uptime -s` antérieur à ce
+livrable — aucun redémarrage.
+
+**`ansible-lint --profile production`** sur `roles/editor/` et
+`roles/completion/` : 0 défaut (un dépassement de longueur de ligne
+trouvé et corrigé dans `roles/completion/tasks/main.yml` avant la
+validation finale). `--check` sur les deux rôles : `changed=0`.
+Exécution réelle des deux rôles, deux fois de suite : `changed=0` aux
+deux passages (l'état était déjà convergent — la configuration
+restaurée après l'échec forcé correspondait déjà exactement à ce que
+le rôle produit).
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : le marqueur
+Kate (§ 2.1) est fermé par ce livrable — résolu, pas retiré par
+nettoyage. Le second marqueur de ce document (mécanisme de prédiction
+d'édition natif de Zed, § 3) reste ouvert, hors périmètre de ce
+livrable.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,
@@ -940,7 +1178,10 @@ service tournait déjà depuis la veille pendant toute cette session).
   conteneurs Ollama) et § 7 (`crates.io`, ce livrable) — ancrages de
   confiance des surfaces d'approvisionnement de ce dépôt.
 - [`roles/completion/`](../roles/completion/) — rôle exécuté par ce
-  livrable, README pour l'usage courant.
+  livrable (§ 9, KAT-1, pour la partie Kate), README pour l'usage
+  courant.
+- [`roles/editor/`](../roles/editor/) — greffon LSP client de Kate
+  activé (KAT-1, § 9.1-9.2).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici, en
   particulier la garde sur les découvertes qui contredisent un fait
   déjà documenté, et la règle 0.3 (élévation précédée d'une tentative

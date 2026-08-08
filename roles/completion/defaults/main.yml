@@ -197,3 +197,54 @@ completion_num_predict: 32
 # -e completion_ollama_url_check=http://127.0.0.1:1/api/tags
 completion_service_wait_retries: 3
 completion_service_wait_delay: 2
+
+# --- Configuration Kate (KAT-1) -------------------------------------------
+# Résolution avant configuration (demande § 1) : greffon `lspclientplugin`
+# (paquet `kate-plugins`, déjà installé — `roles/editor/`, EDI-1, vérifié
+# de nouveau ici, aucune installation requise par ce livrable). Fichier de
+# configuration dédié (jamais une copie d'un fichier Plasma) — chemin
+# sourcé dans `lspclientplugin.cpp`, tag v26.04.3 :
+# `QStandardPaths::AppConfigLocation` (`~/.config/kate`) + `/lspclient/
+# settings.json` — confirmé empiriquement (le répertoire
+# `~/.config/kate/lspclient/` existe déjà, auto-créé au premier chargement
+# du greffon, vide). Format sourcé dans `lspclientservermanager.cpp` (même
+# tag) : objet JSON `servers.<langid>`, fusionné (`json::merge`, pas
+# remplacé) avec les définitions livrées avec Kate (`addons/lspclient/
+# settings.json` amont) — une entrée utilisateur pour "python"/"yaml"
+# l'emporte sur celle livrée avec Kate pour ce même identifiant.
+# **Un seul serveur actif par (racine, identifiant de langage)** — pas de
+# cohabitation possible (`m_servers[root][langId]`, sourcé) : sans
+# conséquence ici, les serveurs par défaut de Kate pour ces langages
+# (`pylsp`, `yaml-language-server`) sont absents de ce poste (vérifié,
+# `command -v`) — aucune fonction de diagnostic/navigation n'est
+# déplacée, l'arbitrage évoqué par la demande § 1 (« complétion ou reste
+# des fonctions LSP ») ne se pose pas dans les faits sur cette machine.
+completion_kate_config_dir: "{{ ansible_facts.env.HOME }}/.config/kate"
+completion_kate_lspclient_settings_path: "{{ completion_kate_config_dir }}/lspclient/settings.json"
+
+# Même binaire, même modèle, même API locale que Helix — jamais une
+# seconde configuration divergente (motif de la demande § 2 : le défaut
+# déjà rencontré pour `ansible-lint`/ANS-1 et `yamllint`/EDI-1, sous une
+# troisième forme). Réutilise les variables déjà posées pour Helix
+# ci-dessus (`completion_bin_dir`/`completion_bin_name`,
+# `completion_ollama_generate_url`/`completion_ollama_chat_url`,
+# `completion_ollama_model`, `completion_max_context`/`completion_num_predict`)
+# — jamais une seconde copie de valeur.
+completion_kate_languages: "{{ completion_helix_languages }}"
+
+# Nom sur le PATH (pas un chemin en dur) — même discipline que
+# completion_helix_binary_name : garde dédiée avant d'écrire la
+# configuration Kate, substituable pour la démonstration d'échec forcé
+# sans jamais désinstaller Kate :
+# -e completion_kate_binary_name=kate-binaire-inexistant-garanti
+completion_kate_binary_name: kate
+
+# Correspondance exacte des modes de coloration Kate par langage — sourcée
+# dans le fichier `settings.json` livré avec Kate (`addons/lspclient/
+# settings.json`, tag v26.04.3), pas supposée : `"^YAML$"` pour yaml,
+# `"^Python$"` pour python. Reprise à l'identique pour que l'entrée
+# utilisateur corresponde exactement au même critère que celle qu'elle
+# remplace par fusion.
+completion_kate_highlighting_mode_regex:
+  yaml: "^YAML$"
+  python: "^Python$"

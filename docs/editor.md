@@ -377,21 +377,30 @@ discipline qu'à BUR-1 sur `kwinrulesrc`), avec relecture préalable de
 chaque clé pour l'idempotence (`kwriteconfig6` ne rapporte jamais
 lui-même s'il a changé quelque chose).
 
-- **Greffons activés** : `externaltoolsplugin`, `katekonsoleplugin` —
-  groupe `[Kate Plugins]` de `~/.config/katerc`. Ni le groupe ni les
-  greffons n'existent par défaut après installation : vérifié en
-  ouvrant Kate une première fois sans aucune configuration
-  (`~/.config/katerc` ne contenait alors aucun groupe `[Kate
-  Plugins]`) — `kate-plugins` (paquet) ne les active pas lui-même.
-  Groupe et clé sourcés dans le code amont, pas supposés :
-  `apps/lib/katepluginmanager.cpp`, tag `v26.04.3` (version installée
-  exacte) — groupe littéral `"Kate Plugins"`, clé =
-  `KatePluginInfo::saveName()` = nom de base du fichier `.so` du
-  greffon (confirmé par lecture directe de
+- **Greffons activés** : `externaltoolsplugin`, `katekonsoleplugin`,
+  **[CORRIGÉ le 2026-08-08, KAT-1] `lspclientplugin`** — groupe
+  `[Kate Plugins]` de `~/.config/katerc`. Ni le groupe ni les greffons
+  n'existent par défaut après installation : vérifié en ouvrant Kate
+  une première fois sans aucune configuration (`~/.config/katerc` ne
+  contenait alors aucun groupe `[Kate Plugins]`) — `kate-plugins`
+  (paquet) ne les active pas lui-même. Groupe et clé sourcés dans le
+  code amont, pas supposés : `apps/lib/katepluginmanager.cpp`, tag
+  `v26.04.3` (version installée exacte) — groupe littéral `"Kate
+  Plugins"`, clé = `KatePluginInfo::saveName()` = nom de base du
+  fichier `.so` du greffon (confirmé par lecture directe de
   `/usr/lib64/qt6/plugins/kf6/ktexteditor/*.so`, chaîne `library=`
-  intégrée). Le greffon client LSP n'est **pas** activé : D12 interdit
-  tout serveur de langage à lui connecter, l'activer sans rien à lui
-  connecter n'aurait aucun effet utile.
+  intégrée). **ÉTAIT** : « Le greffon client LSP n'est **pas** activé :
+  D12 interdit tout serveur de langage à lui connecter, l'activer sans
+  rien à lui connecter n'aurait aucun effet utile » — vrai tant
+  qu'aucun serveur LSP n'existait sur ce poste (D12 ferme `npm`, pas
+  `lsp-ai`, un binaire compilé depuis les sources, D19/D20). Depuis
+  CMP-1, `lsp-ai` est quelque chose à lui connecter — le greffon est
+  activé, câblé par `roles/completion/`
+  (`~/.config/kate/lspclient/settings.json`, jamais ce fichier-ci,
+  jamais une copie de fichier Plasma — même discipline qu'à BUR-1),
+  complétion FIM réelle confirmée sur YAML et Python
+  (`docs/completion.md` § 9, KAT-1). D12 reste en vigueur : aucun
+  serveur `npm` n'est ouvert par ce changement.
 - **Outils externes** déployés dans `~/.config/kate/externaltools/`
   (un fichier par outil, groupe `[General]`) : `ansible-lint-d3a` et
   `yamllint-d3a`, chacun pointant explicitement
@@ -630,6 +639,38 @@ répété ici) ; `kwinrulesrc` non touché (seul `katerc` et
 KWin) ; `sudoers`, `/etc/cdi/`, `kwinrc`, `gpu_mux_mode` non touchés ;
 aucune déconnexion de session ; aucun redémarrage.
 
+## Validation — KAT-1 (greffon LSP de Kate, 2026-08-08)
+
+**Périmètre de ce document pour KAT-1** : l'activation du greffon
+`lspclientplugin` (§ 2, ci-dessus) — le câblage vers `lsp-ai`, la
+preuve de complétion réelle et le décompte complet des actions
+privilégiées de ce livrable (installation puis retrait de deux outils
+de test Wayland, `wtype`/`ydotool`) vivent dans
+[`docs/completion.md`](completion.md) § 9, pas ici (une règle ne se
+recopie pas à deux endroits — même principe appliqué au contenu d'un
+livrable qui touche deux documents).
+
+**Validation Ansible, `roles/editor/`** :
+```
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/editor/
+Passed: 0 failure(s), 0 warning(s) — profil production
+$ ansible-playbook --check roles/editor/editor.yml   # changed=0
+$ ansible-playbook roles/editor/editor.yml           # changed=0 (état déjà convergent)
+$ ansible-playbook roles/editor/editor.yml           # changed=0 (idempotence reconfirmée)
+```
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : inchangé
+par ce livrable — les deux marqueurs actionnables de EDI-1 restent
+ouverts (mécanisme de récupération du serveur YAML par Zed § 1.4,
+texte exact des conditions Marketplace Microsoft § 1.3), hors
+périmètre de KAT-1. Le marqueur fermé par ce livrable (compatibilité
+Kate/`lsp-ai`) vivait dans `docs/completion.md`, pas ici.
+
+**Confirmations finales** : `sudoers`, `/etc/cdi/`, `kwinrc`,
+`kwinrulesrc`, `gpu_mux_mode`, `terra.repo` non touchés ; aucun
+redémarrage — détail complet des actions privilégiées et de leurs
+tentatives sans privilège dans `docs/completion.md` § 9.5.
+
 ## Voir aussi
 
 - [`docs/desktop.md`](desktop.md) — `kitty`, déjà installé, méthode de
@@ -640,6 +681,9 @@ aucune déconnexion de session ; aucun redémarrage.
 - [`docs/ansible-chain.md`](ansible-chain.md) — D3a, le binaire
   `ansible-lint` que tout candidat devrait réutiliser plutôt que
   dupliquer.
+- [`docs/completion.md`](completion.md) § 9 — intégration complète du
+  greffon LSP de Kate à `lsp-ai` (KAT-1), preuve, méthode, tableau des
+  actions privilégiées.
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici.
 - [`roles/editor/`](../roles/editor/) — rôle Ansible déployant Helix et
   Kate (§ 2), détails d'exécution dans son propre `README.md`.

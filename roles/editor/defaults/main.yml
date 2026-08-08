@@ -54,17 +54,24 @@ editor_kate_externaltools_dir: "{{ editor_kate_config_dir }}/externaltools"
 # .so du greffon (QFileInfo(metaData.fileName()).baseName()) ; vérifié
 # par lecture directe des bibliothèques installées
 # (/usr/lib64/qt6/plugins/kf6/ktexteditor/*.so — chaîne `library=` dans
-# le fichier .rc intégré de katekonsoleplugin, confirmée). Deux
+# le fichier .rc intégré de katekonsoleplugin, confirmée). Trois
 # greffons activés : outils externes (nécessaire pour appeler
 # ansible-lint/yamllint sans serveur de langage, § D12) et terminal
 # intégré (cité comme motif de choix de Kate en D13 — sans l'activer,
-# ce motif ne serait pas vrai). Le greffon client LSP n'est PAS activé
-# : D12 interdit tout serveur de langage à lui connecter, l'activer
-# sans rien à connecter n'aurait aucun effet utile (sobriété — pas
-# d'option sans motif).
+# ce motif ne serait pas vrai). **[CORRIGÉ le 2026-08-08, KAT-1] ÉTAIT** :
+# « Le greffon client LSP n'est PAS activé : D12 interdit tout serveur
+# de langage à lui connecter, l'activer sans rien à connecter n'aurait
+# aucun effet utile » — vrai tant qu'aucun serveur LSP n'existait sur ce
+# poste (D12 ferme npm, pas `lsp-ai`). Depuis D19/D20 (CMP-1), `lsp-ai`
+# est quelque chose à lui connecter — activé ici (`lspclientplugin`,
+# nom de base sourcé de la même façon), câblé par `roles/completion/`
+# (`~/.config/kate/lspclient/settings.json`, jamais ce fichier) — D12
+# reste en vigueur, aucun serveur `npm` n'est ouvert par ce changement.
+editor_kate_lspclient_plugin: lspclientplugin
 editor_kate_plugins:
   - externaltoolsplugin
   - katekonsoleplugin
+  - "{{ editor_kate_lspclient_plugin }}"
 
 # Outils externes Kate — un fichier par outil sous
 # editor_kate_externaltools_dir, groupe [General], clés sourcées dans
