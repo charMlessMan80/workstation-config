@@ -85,18 +85,25 @@ argumenté, voir `docs/gpu-containers.md` § Péremption.
 ## Utilisation
 
 Toute exécution réelle écrit dans `/etc/` et exige une élévation de
-privilège. Ce compte n'a pas de règle `NOPASSWD` :
+privilège. **[CORRIGÉ le 2026-08-08, COR-1]** Ce compte porte une règle
+`NOPASSWD` depuis D9 (2026-08-05, `docs/machine-facts.md` § Décisions) —
+`sudo` n'invite plus de mot de passe, `--ask-become-pass` n'est plus
+nécessaire. **ÉTAIT** : « Ce compte n'a pas de règle `NOPASSWD` », avec
+`--ask-become-pass` dans les deux commandes ci-dessous — faux depuis D9,
+jamais corrigé ici bien que `gpu_cdi.yml` porte le commentaire correct
+depuis cette date ; trouvé par la revue globale du 2026-08-08
+(`docs/review-2026-08.md` § 2.2).
 
 ```
 ansible-playbook --syntax-check roles/gpu_cdi/gpu_cdi.yml
 ansible-playbook --check roles/gpu_cdi/gpu_cdi.yml
-ansible-playbook --ask-become-pass roles/gpu_cdi/gpu_cdi.yml   # écriture réelle
+ansible-playbook roles/gpu_cdi/gpu_cdi.yml                     # écriture réelle
 
 # Après une mise à jour du pilote NVIDIA — vérification seule (jamais d'écriture) :
 ansible-playbook --tags verify-cdi-spec roles/gpu_cdi/gpu_cdi.yml
 
 # Régénère seulement si la vérification ci-dessus a cassé (sinon changed=0) :
-ansible-playbook --ask-become-pass --tags regen-cdi-spec roles/gpu_cdi/gpu_cdi.yml
+ansible-playbook --tags regen-cdi-spec roles/gpu_cdi/gpu_cdi.yml
 ```
 
 ## Variables

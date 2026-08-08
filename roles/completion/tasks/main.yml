@@ -406,6 +406,39 @@
     success_msg: "Binaire installé, version rapportée : {{ completion_bin_version.stdout | trim }}"
   when: not ansible_check_mode
 
+# --- Garde 4/4bis — Helix installé avant d'écrire sa configuration ---------
+# Motif (docs/review-2026-08.md § 4.2, COR-1) : sans cette garde, ce rôle
+# écrivait languages.toml pour un éditeur potentiellement absent — succès
+# silencieux, aucune erreur, si exécuté avant roles/editor/ (ou sur une
+# machine où editor n'a jamais tourné). roles/editor/ installe Helix ;
+# aucune dépendance de rôle ne relie les deux (cf. § Chaînes de valeurs,
+# même revue) — cette garde constate l'état réel, elle ne rejoue pas
+# editor.
+
+- name: "Garde 4/4bis — vérifier que Helix est installé : {{ completion_helix_binary_name }}"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "command -v {{ completion_helix_binary_name }}"
+  register: completion_helix_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si Helix n'est pas installé (roles/editor/ ne semble jamais avoir tourné)"
+  ansible.builtin.assert:
+    that:
+      - completion_helix_check.rc == 0
+    fail_msg: >-
+      « {{ completion_helix_binary_name }} » introuvable sur le PATH — ce
+      rôle écrirait une configuration pour un éditeur absent, un succès
+      silencieux qui ne serait remarqué qu'au premier lancement réel
+      d'Helix. Ce rôle n'installe jamais Helix (roles/editor/ le fait) :
+      exécuter roles/editor/editor.yml, vérifier `command -v
+      {{ completion_helix_binary_name }}`, puis relancer ce rôle.
+    success_msg: "Helix trouvé sur le PATH : {{ completion_helix_check.stdout | trim }}"
+
 # --- Configuration Helix : révise D12/EDI-1, motif dans le template --------
 
 - name: "S'assurer que le répertoire de configuration Helix existe : {{ completion_helix_config_dir }}"

@@ -26,6 +26,33 @@ gpu_mux_pending_reboot_path: "{{ gpu_mux_attributes_dir }}/pending_reboot"
 # garde casse avant toute écriture.
 # gpu_mux_force_dgpu_disable_value: (indéfinie par défaut)
 
+# --- Garde 0 : chemin de retour SSH réellement opérationnel MAINTENANT ---
+# Motif (revue globale, docs/review-2026-08.md § 4.1, COR-1) : roles/recovery/
+# prépare ce chemin, mais l'avoir exécuté un jour ne prouve rien sur l'état
+# actuel — sshd a pu être arrêté depuis, une clé retirée. Cette garde relit
+# l'état réel au moment de CETTE exécution, jamais un souvenir d'un rôle
+# précédent. Échec bruyant, aucune correction automatique : ce rôle
+# n'active jamais sshd ni n'écrit dans authorized_keys — c'est le mandat de
+# roles/recovery/, pas de celui-ci (voir tasks/main.yml et
+# docs/gpu-mux-recovery.md). Mêmes valeurs que
+# roles/recovery/defaults/main.yml — reprise délibérée, pas un import
+# inter-rôles (ce dépôt n'en a pas) : si l'un des deux change, l'autre doit
+# être mis à jour à la main, même limite déjà disclosed pour
+# roles/local_ai/roles/completion (docs/review-2026-08.md § 4.3).
+gpu_mux_recovery_ssh_service: sshd
+gpu_mux_recovery_authorized_keys_path: "{{ ansible_facts.env.HOME }}/.ssh/authorized_keys"
+gpu_mux_recovery_firewall_service: ssh
+
+# Substituables pour la démonstration d'échec forcé (c), jamais en usage
+# réel — même patron que gpu_mux_force_dgpu_disable_value ci-dessus : la
+# valeur réelle n'est jamais modifiée, seule la valeur LUE par la garde
+# est remplacée pour prouver qu'elle casse avant toute écriture.
+# -e gpu_mux_force_sshd_active=false
+# -e gpu_mux_force_sshd_enabled=false
+# -e gpu_mux_force_authorized_keys_count=0
+# -e gpu_mux_force_firewall_ssh_allowed=false
+# (indéfinies par défaut)
+
 # Répertoire de trace — contient un instantané de l'état juste avant
 # bascule (non versionné, voir .gitignore).
 gpu_mux_trace_dir: "{{ role_path }}/trace"

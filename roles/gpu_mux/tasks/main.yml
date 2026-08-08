@@ -5,10 +5,144 @@
 # redémarrage déclenché manuellement, hors de ce rôle : voir
 # docs/gpu-mux-recovery.md.
 
+# --- Garde 0 : chemin de retour SSH réellement opérationnel MAINTENANT --
+# Motif (docs/review-2026-08.md § 4.1, COR-1) : une bascule ratée suivie
+# d'un redémarrage qui tourne mal doit pouvoir compter sur un accès de
+# secours — la seule garantie qui vaille est l'état constaté à cet
+# instant, pas le souvenir qu'un rôle de préparation a tourné un jour.
+# Trois vérifications, toutes en lecture seule : ce rôle n'active jamais
+# sshd, n'écrit jamais dans authorized_keys, ne touche jamais firewalld —
+# corriger une dérive détectée ici est le mandat de roles/recovery/, pas
+# de celui-ci (CLAUDE.md § éviter la réparation automatique qui masque une
+# dérive : cette garde échoue bruyamment, elle ne rejoue jamais recovery).
+
+- name: "Garde 0a — relever l'état réel de sshd (actif, activé au démarrage)"
+  ansible.builtin.service_facts:
+
+- name: >-
+    Déterminer l'état effectif de sshd (réel, ou forcé pour la
+    démonstration d'échec (c) — jamais modifié, seulement lu/simulé)
+  ansible.builtin.set_fact:
+    gpu_mux_sshd_active: >-
+      {{ gpu_mux_force_sshd_active
+         if gpu_mux_force_sshd_active is defined
+         else (ansible_facts.services[gpu_mux_recovery_ssh_service + '.service'].state | default('absent') == 'running') }}
+    gpu_mux_sshd_enabled: >-
+      {{ gpu_mux_force_sshd_enabled
+         if gpu_mux_force_sshd_enabled is defined
+         else (ansible_facts.services[gpu_mux_recovery_ssh_service + '.service'].status | default('absent') == 'enabled') }}
+
+- name: >-
+    Échouer bruyamment si sshd n'est pas actif ET activé au démarrage,
+    MAINTENANT (ou si l'état a été substitué pour la démonstration)
+  ansible.builtin.assert:
+    that:
+      - gpu_mux_sshd_active | bool
+      - gpu_mux_sshd_enabled | bool
+    fail_msg: >-
+      sshd n'est pas prêt à servir de chemin de retour MAINTENANT — actif :
+      {{ gpu_mux_sshd_active }}, activé au démarrage : {{ gpu_mux_sshd_enabled }}.
+      Ce rôle ne démarre ni n'active jamais sshd lui-même (ce n'est pas son
+      mandat) : exécuter roles/recovery/recovery.yml, vérifier qu'il
+      corrige réellement l'état, puis relancer ce rôle — ne PAS basculer
+      le MUX tant que ce chemin de retour n'est pas confirmé opérationnel.
+    success_msg: "sshd actif et activé au démarrage, confirmé maintenant."
+
+- name: "Garde 0b — vérifier la présence du fichier authorized_keys sur ce poste"
+  ansible.builtin.stat:
+    path: "{{ gpu_mux_recovery_authorized_keys_path }}"
+  register: gpu_mux_authorized_keys_stat
+  # Toujours exécutée, même quand une valeur est forcée pour la
+  # démonstration (c) : une lecture stat seule, sans condition à
+  # court-circuiter — même patron que roles/recovery/tasks/main.yml, qui
+  # ne la conditionne pas non plus.
+
+- name: >-
+    Compter les clés publiques présentes (lignes non vides, non
+    commentées — jamais leur contenu)
+  ansible.builtin.command:
+    cmd: >-
+      grep -Ecv '^[[:space:]]*(#.*)?$' {{ gpu_mux_recovery_authorized_keys_path | ansible.builtin.quote }}
+  register: gpu_mux_authorized_keys_count_raw
+  changed_when: false
+  failed_when: false
+  check_mode: false  # lecture seule : mêmes raisons que roles/recovery/tasks/main.yml
+  # Une seule expression Jinja (court-circuit garanti), pas une liste de
+  # conditions : évite de déréférencer .stat.exists quand la variable
+  # forcée dispense déjà de lire le fichier réel.
+  when: >-
+    gpu_mux_force_authorized_keys_count is not defined
+    and gpu_mux_authorized_keys_stat.stat.exists
+
+- name: >-
+    Déterminer le nombre effectif de clés (réel, ou forcé pour la
+    démonstration d'échec (c) — jamais écrit, seulement lu/simulé)
+  ansible.builtin.set_fact:
+    gpu_mux_authorized_keys_count: >-
+      {{ gpu_mux_force_authorized_keys_count
+         if gpu_mux_force_authorized_keys_count is defined
+         else (gpu_mux_authorized_keys_count_raw.stdout | default('0')) }}
+
+- name: >-
+    Échouer bruyamment si aucune clé publique n'est présente MAINTENANT
+    dans authorized_keys (ou si le compte a été substitué pour la
+    démonstration)
+  ansible.builtin.assert:
+    that:
+      - (gpu_mux_authorized_keys_count | int) > 0
+    fail_msg: >-
+      Aucune clé publique utilisable trouvée maintenant dans
+      {{ gpu_mux_recovery_authorized_keys_path }} ({{ gpu_mux_authorized_keys_count }}
+      trouvée(s)). Le chemin de retour SSH ne peut pas fonctionner sans
+      clé autorisée sur CE poste — ajouter la clé publique de la machine
+      distante (roles/recovery/, docs/gpu-mux-recovery.md), vérifier,
+      puis relancer ce rôle. Ne PAS basculer le MUX sans cette clé.
+    success_msg: >-
+      {{ gpu_mux_authorized_keys_count }} clé(s) publique(s) confirmée(s)
+      maintenant dans {{ gpu_mux_recovery_authorized_keys_path }}.
+
+- name: "Garde 0c — relever l'état réel de la règle firewalld pour SSH (lecture seule)"
+  ansible.builtin.command:
+    cmd: "firewall-cmd --query-service={{ gpu_mux_recovery_firewall_service }}"
+  register: gpu_mux_firewall_ssh_raw
+  changed_when: false
+  check_mode: false
+  failed_when: gpu_mux_firewall_ssh_raw.rc not in [0, 1]
+  when: gpu_mux_force_firewall_ssh_allowed is not defined
+  # noqa: command-instead-of-module — même motif que roles/recovery/tasks/main.yml :
+  # aucun module ansible.builtin ne couvre firewalld, community.general non installé.
+
+- name: >-
+    Déterminer si firewalld autorise SSH sur la zone active (réel, ou
+    forcé pour la démonstration d'échec (c) — jamais modifié, seulement
+    lu/simulé)
+  ansible.builtin.set_fact:
+    gpu_mux_firewall_ssh_allowed: >-
+      {{ gpu_mux_force_firewall_ssh_allowed
+         if gpu_mux_force_firewall_ssh_allowed is defined
+         else (gpu_mux_firewall_ssh_raw.rc | default(1) == 0) }}
+
+- name: >-
+    Échouer bruyamment si firewalld n'autorise pas SSH sur la zone active
+    MAINTENANT (ou si l'état a été substitué pour la démonstration)
+  ansible.builtin.assert:
+    that:
+      - gpu_mux_firewall_ssh_allowed | bool
+    fail_msg: >-
+      firewalld n'autorise pas le service « {{ gpu_mux_recovery_firewall_service }} »
+      sur la zone active, maintenant. Le chemin de retour SSH serait
+      bloqué par le pare-feu — corriger (hors de ce rôle, qui ne modifie
+      jamais firewalld), vérifier avec `firewall-cmd --query-service=
+      {{ gpu_mux_recovery_firewall_service }}`, puis relancer.
+    success_msg: >-
+      firewalld autorise « {{ gpu_mux_recovery_firewall_service }} » sur
+      la zone active, confirmé maintenant.
+
 # --- Garde 1 : dgpu_disable doit valoir 0 -----------------------------
-# Le pilote refuse la commutation MUX si la dGPU est désactivée. Lue en
-# premier et vérifiée avant toute autre action : voir CLAUDE.md § Matériel
-# spécifique — GPU / MUX.
+# Le pilote refuse la commutation MUX si la dGPU est désactivée. Première
+# garde matérielle (après la garde 0, sur le chemin de retour humain, qui
+# la précède désormais — COR-1) et vérifiée avant toute écriture : voir
+# CLAUDE.md § Matériel spécifique — GPU / MUX.
 
 - name: Relever dgpu_disable réel (sauf si une valeur est forcée pour test)
   ansible.builtin.command:

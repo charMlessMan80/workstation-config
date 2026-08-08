@@ -156,6 +156,15 @@ completion_helix_languages:
 
 completion_helix_config_dir: "{{ ansible_facts.env.HOME }}/.config/helix"
 
+# Garde COR-1 (docs/review-2026-08.md § 4.2) : ce rôle écrit languages.toml
+# sans jamais vérifier que Helix est installé — c'est roles/editor/ qui
+# l'installe, aucun lien de dépendance déclaré entre les deux rôles.
+# Nom sur le PATH, pas un chemin en dur (même discipline que
+# completion_forbidden_binaries ci-dessus) — substituable pour la
+# démonstration d'échec forcé sans jamais désinstaller Helix :
+# -e completion_helix_binary_name=hx-binaire-inexistant-garanti
+completion_helix_binary_name: hx
+
 # [CORRIGÉ, IA-4] ÉTAIT `completion_model_placeholder:
 # "aucun-modele-charge-D20"` — nom délibérément non résolvable, motivé
 # par CMP-1 quand aucun modèle n'existait encore (« pour que la

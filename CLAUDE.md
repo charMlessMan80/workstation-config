@@ -85,6 +85,24 @@ sans comprendre pourquoi elle a été posée.
   — `git show ... --numstat` ne doit plus servir de preuve de contrôle
   sans être immédiatement suivi d'une vérification équivalente à
   celle-ci.
+  **Quatrième cas de la série (2026-08-08, revue globale)** : `dnf
+  repolist enabled`, citée juste au-dessus comme LA forme correcte par
+  contraste avec `dnf repolist` seul, **échoue elle-même silencieusement**
+  sur ce système — dnf5 (`5.4.2.1`) traite l'argument positionnel
+  `enabled` comme un motif de nom de dépôt (aucun dépôt ne s'appelle
+  ainsi), pas comme le mot-clé de filtrage `dnf4` : sortie vide, code
+  de retour `0`. Forme qui fonctionne réellement :
+  ```
+  dnf repolist --enabled
+  ```
+  **Leçon distincte du défaut lui-même** : les exemples qui illustrent
+  une règle doivent être vérifiés au même titre que la règle — on relit
+  une règle avant de l'appliquer, presque jamais l'exemple qui
+  l'accompagne, en confiance qu'il a été vérifié une fois pour toutes.
+  Celui-ci ne l'avait pas été, ou l'a été sur une version de `dnf`
+  antérieure sans être revérifié depuis ; il est resté faux dans ce
+  fichier sans que personne ne le remarque jusqu'à ce que la revue
+  globale du 2026-08-08 le reproduise (`docs/review-2026-08.md` § 2.3).
 - **Arbitrage entre reproduction fidèle et vérification de passivité,
   quand une commande a un effet de bord déjà documenté.** La
   reproduction fidèle prime pour le diagnostic — mais une commande dont
@@ -152,6 +170,23 @@ sans comprendre pourquoi elle a été posée.
   2026-08-05 — chiffres VRAM/processus pré-bascule, corrigés dans
   `docs/machine-facts.md` § GPU à partir du fichier de trace horodaté
   réellement pertinent).
+  **Quatrième mode, ajouté le 2026-08-08 (revue globale, confirmé
+  absent des trois ci-dessus)** : la **prémisse de garde périmée** —
+  une garde correcte au sens strict (bonne commande, bonne interface,
+  bonne date) devient fausse non par une erreur de conception mais
+  parce que le système qu'elle surveille a changé de régime, exactement
+  comme elle était censée le permettre. Exemple : la garde VRAM de
+  `roles/local_ai/` (IA-1) asserait qu'aucun modèle n'est jamais chargé
+  en VRAM — vraie tant que le service n'avait jamais servi de
+  complétion réelle, devenue fausse dès le premier usage conforme à
+  D20 (chargement à la demande, maintenu ensuite indéfiniment par D15).
+  Corrigée en IA-4 pour comparer un relevé pris avant l'exécution du
+  rôle à un relevé pris après, au lieu d'exiger un état vide dans
+  l'absolu (`docs/local-ai.md` § 10.3). **Parade** : une garde qui
+  porte sur un état qui évolue doit revérifier sa prémisse quand le
+  système qu'elle surveille change de régime — pas seulement quand sa
+  propre logique interne est mise en cause (cas déjà couvert par la
+  règle sur les gardes modifiées, § Avant d'agir).
 - **Une règle vit à un seul endroit ; les documents y renvoient, ils ne la
   recopient pas.** `CLAUDE.md` porte les règles persistantes ; tout autre
   document qui a besoin d'une de ces règles la cite par renvoi
@@ -162,6 +197,21 @@ sans comprendre pourquoi elle a été posée.
   fois, mais le défaut est structurel : la copie périmée reste lisible
   comme si elle faisait autorité jusqu'à ce que quelqu'un remarque
   l'écart. Rattrapé cette fois, pas nécessairement la prochaine.
+- **Amender une décision que `CLAUDE.md` cite nommément impose de
+  relire, et si besoin corriger, le passage qui la cite — dans le même
+  geste, pas dans un livrable séparé.** Une décision vit à deux
+  endroits sans être dupliquée pour autant : le fait daté dans
+  `docs/machine-facts.md`, la règle qui en découle ici — ce n'est pas
+  le cas que couvre la règle ci-dessus (qui interdit de *recopier*),
+  c'est le cas où l'un *renvoie* correctement à l'autre mais où
+  l'autre a changé sans que le renvoi soit revérifié. Motif : la
+  scission de D3 en D3a/D3b (2026-08-06, `docs/machine-facts.md` §
+  Décisions) a corrigé le fait sans que la règle « Chaîne Ansible » de
+  ce fichier, qui citait D3 nommément, soit relue — cette règle est
+  restée sur le motif inversé pendant plus de dix jours, contredite
+  par la pratique de chaque livrable, jusqu'à ce que la revue globale
+  du 2026-08-08 la trouve (`docs/review-2026-08.md` § 2.1). Un renvoi
+  correct au moment où il est écrit ne le reste pas tout seul.
 - **`~/.bash_history` atteste une intention, pas un résultat ; il ne
   fonde pas un fait à lui seul.** L'historique shell enregistre ce qui a
   été tapé, pas ce qui a été observé, et sans horodatage par défaut — il
@@ -251,7 +301,28 @@ sans comprendre pourquoi elle a été posée.
   le passage à `Apply initially` (§ 6.4, corrigé le 2026-08-06). Un
   commentaire périmé ne se contente pas d'être inutile : il se lit comme
   s'il faisait encore autorité, et contredit silencieusement le code
-  juste en dessous.
+  juste en dessous. **Rendue opérationnelle (2026-08-08, COR-1)** :
+  corriger une occurrence de ce défaut impose une **recherche
+  systématique** de l'ensemble des occurrences des termes concernés
+  (numéro de décision, mot-clé amendé) dans tous les `README.md`,
+  commentaires de tâches et `defaults/` du dépôt — pas seulement dans le
+  fichier où l'occurrence a été trouvée — et la consignation du résultat,
+  même négatif. Motif : une quatrième occurrence (`roles/gpu_cdi/README.md`,
+  `NOPASSWD`) a déclenché cette recherche, qui en a trouvé une cinquième
+  plus étendue — `roles/editor/tasks/main.yml`, `defaults/main.yml`,
+  `meta/main.yml` et `editor.yml` citent encore les numéros attribués
+  avant la renumérotation d'EDI-1 (npm fermé = **D11** dans ces quatre
+  fichiers, en réalité **D12** ; choix d'éditeur = **D12** dans ces
+  mêmes fichiers, en réalité **D13** — `docs/machine-facts.md` §
+  Décisions) alors que `docs/editor.md` et `roles/editor/README.md`, eux,
+  portent les numéros corrects. Quatre fichiers d'un même rôle, jamais
+  mis à jour au moment de la renumérotation, trouvés seulement par cette
+  recherche systématique — non corrigés ici (hors périmètre de ce
+  livrable, `roles/editor/` n'y figure pas), signalés pour le prochain.
+  Corollaire : une renumérotation décidée en cours de livrable doit être
+  suivie, avant de le clore, d'une recherche exhaustive de l'ancien
+  numéro sur tous les fichiers que CE livrable touche — pas seulement sur
+  le document de décisions qui l'enregistre.
 - **Une capacité découverte qui contredit une contrainte déjà établie se
   signale, elle ne s'exploite pas silencieusement.** Si une vérification de
   routine révèle qu'une action interdite ou supposée bloquée (élévation de
@@ -403,7 +474,19 @@ sans comprendre pourquoi elle a été posée.
 
 ## Chaîne Ansible
 
-- L'`ansible-core` système sert à l'édition, pas à l'exécution ni à la
-  vérification — voir décision D3 dans `docs/machine-facts.md`. Ne pas
-  valider une construction Ansible comme correcte simplement parce que
-  l'`ansible-core` local (plus récent que la cible AAP 2.6) l'accepte.
+- **[CORRIGÉE le 2026-08-08] L'`ansible-core` système fait autorité pour
+  exécuter et vérifier les rôles de ce dépôt — voir décision D3a dans
+  `docs/machine-facts.md`, § Décisions et § Chaîne Ansible.** La cible
+  de ce dépôt est cette machine elle-même, pas AAP 2.6/RHEL 9 (préambule
+  ci-dessus) : l'`ansible-core` système est celui qui exécute réellement
+  ses rôles, il ne sert donc pas qu'à l'édition. Une chaîne EE-first
+  distincte reste pertinente pour du contenu *destiné* à AAP 2.6 — voir
+  décision D3b, différée, non ouverte. **ÉTAIT** : « L'`ansible-core`
+  système sert à l'édition, pas à l'exécution ni à la vérification —
+  voir décision D3... Ne pas valider une construction Ansible comme
+  correcte simplement parce que l'`ansible-core` local (plus récent que
+  la cible AAP 2.6) l'accepte. » — motif inversé, corrigé par l'opérateur
+  le 2026-08-06 (scission de D3 en D3a/D3b) mais jamais répercuté ici ;
+  trouvé par la revue globale du 2026-08-08 (`docs/review-2026-08.md`
+  § 2.1). Voir la règle ajoutée § Sourcing des faits sur la relecture
+  d'une règle quand la décision qu'elle cite est amendée.

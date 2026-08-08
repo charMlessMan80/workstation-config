@@ -2697,3 +2697,46 @@ froid), non établi.
   `getenforce` inchangé (`Enforcing`), aucun refus AVC (deux méthodes,
   une privilégiée déjà précédentée, une non) ; aucun redémarrage
   déclenché par cette session.
+- **2026-08-08 — corrections courtes issues de la revue globale (COR-1),
+  `CLAUDE.md`/`roles/gpu_mux/`/`roles/completion/`/`roles/gpu_cdi/README.md`.**
+  Six constats de `docs/review-2026-08.md` traités, marqués sur place
+  sans suppression de texte : § 2.1 (`CLAUDE.md` § Chaîne Ansible
+  réécrite conformément à D3a, renvoi corrigé, plus une règle imposant
+  de relire une règle quand la décision qu'elle cite est amendée) ;
+  § 2.2 (`roles/gpu_cdi/README.md`, affirmation périmée sur l'absence de
+  `NOPASSWD`, fausse depuis D9, corrigée) ; § 2.3 (exemple `dnf repolist
+  enabled` de `CLAUDE.md`, silencieusement vide sur dnf5, remplacé par
+  `dnf repolist --enabled`) ; § 3.1 (quatrième mode d'échec ajouté à
+  `CLAUDE.md` : la prémisse de garde périmée par l'évolution normale du
+  système surveillé, distincte des trois déjà recensés) ; § 4.1 (garde
+  ajoutée à `roles/gpu_mux/`, vérifiant l'état réel de `sshd`/
+  `authorized_keys`/`firewalld` au moment de l'exécution, jamais le fait
+  que `roles/recovery/` ait tourné un jour — échec bruyant, aucune
+  correction automatique) ; § 4.2 (garde ajoutée à `roles/completion/`,
+  vérifiant que Helix est installé avant d'écrire sa configuration).
+  **Recherche systématique du § 2.2, résultat consigné même négatif** :
+  aucune autre occurrence périmée de `NOPASSWD`/`pending_reboot`/
+  `Force`/`EE-first` trouvée. **Une trouvée pour `npm`, non anticipée** :
+  `roles/editor/tasks/main.yml`, `defaults/main.yml`, `meta/main.yml` et
+  `editor.yml` citent encore les numéros pré-renumérotation d'EDI-1
+  (« D11 » pour npm fermé, en réalité D12 ; « D12 » pour le choix
+  Helix/Kate, en réalité D13) — `docs/editor.md` et
+  `roles/editor/README.md`, eux, sont corrects. **Non corrigée ici**
+  (`roles/editor/` hors du périmètre strict de ce livrable) — signalée
+  dans `docs/review-2026-08.md` § Suivi et dans `CLAUDE.md` pour le
+  prochain livrable de corrections.
+  **`gpu_mux` non exécuté réellement**, conformément à la consigne — ses
+  deux nouvelles gardes démontrées uniquement en `--check` (nominal, et
+  trois échecs forcés : `sshd` inactif, `authorized_keys` vide, firewalld
+  refusant `ssh`), `gpu_mux_mode` inchangé (`current_value=1`, relu, pas
+  écrit). `roles/completion/` exécuté réellement (`changed=0`, état déjà
+  nominal), garde Helix démontrée dans les deux sens.
+  Une action privilégiée, disclosed : lecture de `/etc/sudoers`
+  (`sudo -n sed -n '108,112p'`) pour confirmer la règle `NOPASSWD`
+  inchangée — aucune alternative non privilégiée n'existe pour ce
+  fichier (mode `0440`), même limite déjà rencontrée pour `ausearch`
+  (IA-1/IA-4). Aucun paquet installé (`dnf history list`, dernière
+  transaction : 2026-08-07) ; `terra.repo`/`/etc/cdi/nvidia.yaml`
+  inchangés (dates de modification vérifiées) ; `sudoers` intact ;
+  `getenforce` inchangé (`Enforcing`) ; aucun rôle `bootstrap`, aucun
+  playbook d'orchestration écrit ; aucun redémarrage.
