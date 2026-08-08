@@ -80,12 +80,17 @@ ansible-playbook roles/completion/completion.yml \
   -e completion_rust_check_binaries='["cargo_absent_garanti"]'
 ansible-playbook roles/completion/completion.yml \
   -e completion_ollama_url_check=http://127.0.0.1:1/api/tags
+ansible-playbook roles/completion/completion.yml \
+  -e completion_ollama_model_expected=absent-garanti
 ```
 
 ## Après ce rôle
 
 `lsp-ai` est compilé, installé et rattaché à Helix pour
-`{{ completion_helix_languages }}` (voir `defaults/main.yml`) — mais
-**aucun modèle n'est chargé** (D17/D20) : la complétion ne produira
-aucun résultat utile tant qu'un modèle n'est pas chargé délibérément
-dans Ollama, à la demande. Attendu, pas un échec de ce rôle.
+`{{ completion_helix_languages }}` (voir `defaults/main.yml`),
+configuré pour le modèle réel `{{ completion_ollama_model }}` (D21,
+`roles/local_ai/`) — vérifié présent côté service avant l'écriture de
+la configuration. **Aucun modèle n'est chargé par ce rôle lui-même**
+(D20/D22) : le premier appel de complétion paie le chargement (ou une
+bascule si un autre modèle est déjà chargé, IA-3 § 9.3/9.4), pas un
+échec de ce rôle.

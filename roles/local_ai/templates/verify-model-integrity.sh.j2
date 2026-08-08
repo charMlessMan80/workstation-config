@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Déployé par roles/local_ai/ (D21, IA-4) — vérification d'intégrité
+# des poids de modèles Ollama AU REPOS, pas seulement en transit.
+#
+# Motif (docs/local-ai.md § 9.2, IA-3) : `ollama pull` vérifie le
+# contenu qu'il reçoit du réseau (« verifying sha256 digest »), mais
+# ne détecte ni ne répare un blob déjà présent localement, corrompu
+# après coup sous son nom attendu — démontré par corruption
+# délibérée. Sur un btrfs `Data,single` réparti sur deux NVMe (D1),
+# ce n'est pas théorique. Ce script recalcule l'empreinte de chaque
+# blob référencé par chaque manifeste et la compare au nom du fichier
+# (qui EST son empreinte attendue, convention Ollama) — la même
+# vérification qu'un `ollama pull` ne referait pas de lui-même sur un
+# blob déjà présent.
+#
+# Utilisable seul, sans Ansible ni aucun rôle de ce dépôt — lecture
+# seule stricte (aucune écriture, aucune suppression, aucun réseau) :
+#   ~/.local/bin/{{ local_ai_verify_integrity_script_name }}
+#
+# Échec bruyant : code de sortie non nul et détail sur stdout dès
+# qu'un écart est trouvé — jamais un exit 0 silencieux sur un blob
+# manquant ou corrompu.
+
+set -euo pipefail
+
+VOLUME_NAME="systemd-{{ local_ai_volume_name }}"
+FAILURES="$(mktemp)"
+trap 'rm -f "$FAILURES"' EXIT
+
+if ! command -v podman >/dev/null 2>&1; then
+  echo "podman introuvable — ce script en dépend pour localiser le volume." >&2
+  exit 2
+fi
+
+VOLUME_MOUNTPOINT="$(podman volume inspect "$VOLUME_NAME" --format '{{ "{{.Mountpoint}}" }}' 2>/dev/null || true)"
+if [ -z "$VOLUME_MOUNTPOINT" ] || [ ! -d "$VOLUME_MOUNTPOINT" ]; then
+  echo "Volume $VOLUME_NAME introuvable ou point de montage absent — rien à vérifier." >&2
+  exit 2
+fi
+
+MANIFESTS_DIR="$VOLUME_MOUNTPOINT/models/manifests"
+BLOBS_DIR="$VOLUME_MOUNTPOINT/models/blobs"
+
+if [ ! -d "$MANIFESTS_DIR" ]; then
+  echo "Aucun manifeste sous $MANIFESTS_DIR — aucun modèle tiré, rien à vérifier." >&2
+  exit 0
+fi
+
+count_ok=0
+count_total=0
+
+while IFS= read -r -d '' manifest; do
+  # Chaque manifeste référence un digest de config et zéro ou
+  # plusieurs digests de couches (poids, gabarit, licence, params) —
+  # format registre de distribution OCI/Docker, docs/repositories.md § 8.
+  digests="$(jq -r '[.config.digest] + ([.layers[]?.digest]) | .[]' "$manifest" 2>/dev/null || true)"
+  if [ -z "$digests" ]; then
+    echo "MANIFESTE ILLISIBLE $manifest (jq n'a rien extrait)" >> "$FAILURES"
+    continue
+  fi
+  while IFS= read -r digest; do
+    [ -z "$digest" ] && continue
+    count_total=$((count_total + 1))
+    hash="${digest#sha256:}"
+    blob="$BLOBS_DIR/sha256-$hash"
+    if [ ! -f "$blob" ]; then
+      echo "MANQUANT $manifest -> $digest (fichier absent : $blob)" >> "$FAILURES"
+      continue
+    fi
+    actual="$(sha256sum "$blob" | cut -d' ' -f1)"
+    if [ "$actual" != "$hash" ]; then
+      echo "CORROMPU $manifest -> $digest (empreinte réelle : sha256:$actual)" >> "$FAILURES"
+    else
+      count_ok=$((count_ok + 1))
+    fi
+  done <<EOF
+$digests
+EOF
+done < <(find "$MANIFESTS_DIR" -type f -print0)
+
+if [ -s "$FAILURES" ]; then
+  echo "ÉCHEC — écart(s) d'intégrité trouvé(s) ($count_ok/$count_total blobs corrects) :"
+  cat "$FAILURES"
+  exit 1
+fi
+
+echo "OK — $count_ok/$count_total blobs vérifiés, tous conformes à l'empreinte de leur manifeste."
+exit 0

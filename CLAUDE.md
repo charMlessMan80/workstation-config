@@ -70,6 +70,21 @@ sans comprendre pourquoi elle a été posée.
   faux. Un `-o cat` qui supprime `-- No entries --`, ou un pipe qui
   substitue le code de retour du dernier maillon à celui de la commande
   qu'on croit observer, sont la même erreur sous une autre forme.
+  **Troisième cas de la série (2026-08-08)** : `git show HEAD --numstat`,
+  prescrite comme preuve d'additivité pendant une dizaine de livrables,
+  mélange les données qu'elle est censée contrôler (le `--numstat`) avec
+  des métadonnées sans rapport (le message de commit, inclus par
+  défaut par `git show`) — une ligne de prose se parsant par hasard en
+  trois champs (`docs/repositories.md § 8.`) a produit un faux positif
+  (`RÉDUIT: 8.`) que rien ne distinguait d'un vrai. **Forme correcte,
+  qui isole les données du `diff` sans les métadonnées du commit :**
+  ```
+  git diff --numstat HEAD^ HEAD | awk '$2>$1 {print "RÉDUIT: " $3}'
+  ```
+  À utiliser désormais partout où une preuve d'additivité est demandée
+  — `git show ... --numstat` ne doit plus servir de preuve de contrôle
+  sans être immédiatement suivi d'une vérification équivalente à
+  celle-ci.
 - **Arbitrage entre reproduction fidèle et vérification de passivité,
   quand une commande a un effet de bord déjà documenté.** La
   reproduction fidèle prime pour le diagnostic — mais une commande dont
@@ -284,7 +299,16 @@ sans comprendre pourquoi elle a été posée.
   friction qui aurait naturellement fait demander « ai-je vraiment
   besoin de ça ? » a disparu côté système ; rien ne la remplace sauf
   cette discipline, posée explicitement parce qu'elle ne l'est plus
-  ailleurs.
+  ailleurs. **Rendue opérationnelle (2026-08-08)** : le tableau
+  d'énumération des actions privilégiées d'un rapport de livrable
+  porte désormais une colonne dédiée, « tentative sans privilège :
+  résultat » — la commande essayée sans élévation et ce qu'elle a
+  répondu, pas seulement la conclusion. Motif : le principe seul n'a
+  pas suffi — trois élévations par réflexe en trois livrables
+  consécutifs, dont une quelques minutes après l'écriture de cette
+  règle elle-même. Une case vide dans un tableau se voit et appelle
+  une question ; un principe énoncé mais non tracé ne laisse personne
+  s'en apercevoir avant qu'il soit déjà contourné.
 
 ## Dépôt public (D4)
 

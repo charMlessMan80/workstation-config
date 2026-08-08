@@ -179,3 +179,50 @@ local_ai_podman_rootless_expected: "true"
 # CUDA) avant que le serveur n'écoute.
 local_ai_api_wait_retries: 60
 local_ai_api_wait_delay: 10
+
+# --- IA-4 § 2 : intégrité des blobs au repos --------------------------
+# Motif complet : docs/local-ai.md § 9.2 (IA-3) — `ollama pull` vérifie
+# ce qu'il reçoit du réseau, jamais un blob déjà présent localement,
+# corrompu après coup. Script autonome (aucune dépendance à Ansible ni
+# à ce rôle une fois déployé), lecture seule stricte — voir
+# roles/local_ai/templates/verify-model-integrity.sh.j2 pour le motif
+# détaillé et la garantie de non-écriture. Domaine utilisateur
+# uniquement, même répertoire que le binaire compilé par
+# roles/completion/ (~/.local/bin), pas /usr/local/.
+local_ai_verify_integrity_script_name: verify-model-integrity.sh
+local_ai_verify_integrity_dest: "{{ ansible_facts.env.HOME }}/.local/bin/{{ local_ai_verify_integrity_script_name }}"
+
+# --- IA-4 § 3 : déclencheurs de la vérification CDI --------------------
+# Le mécanisme (verify-cdi-spec, roles/gpu_cdi) existait déjà depuis
+# IA-1 sans rien qui le déclenche, hors du seul ExecStartPre du service
+# lui-même (roles/local_ai/templates/ollama.container.j2) — qui ne
+# couvre que le (re)démarrage du service, pas une mise à jour de pilote
+# survenant PENDANT qu'il tourne déjà (le service est conçu pour rester
+# actif indéfiniment, D15/D20 : keep_alive infini côté modèle,
+# ExecStartPre ne se rejoue qu'à un (re)démarrage qui peut ne jamais
+# survenir). Second levier : minuterie systemd --user périodique,
+# indépendante du service, plus unité de notification visible
+# (OnFailure=) — une vérification périodique dont l'échec ne se voit
+# nulle part équivaut à une vérification qui n'existe pas (demande § 3).
+local_ai_cdi_timer_base_name: local-ai-cdi-verify
+local_ai_cdi_notify_service_name: "{{ local_ai_cdi_timer_base_name }}-notify"
+
+# Fréquence : aucun dnf-automatic actif sur ce poste (vérifié,
+# `systemctl list-unit-files` ne montre aucune unité dnf-automatic-*) —
+# les mises à jour du pilote NVIDIA sont déclenchées manuellement
+# (`sudo dnf upgrade`), pas en continu. Horaire (avec `Persistent=true`
+# pour rattraper une exécution manquée après veille/suspension) donne
+# une marge confortable entre une mise à jour manuelle et sa détection,
+# pour un coût négligeable (une invocation `ansible-playbook`, quelques
+# centaines de ms, par heure).
+local_ai_cdi_timer_oncalendar: hourly
+
+# Notification visible en cas d'échec — notify-send (libnotify, déjà
+# présent, vérifié `rpm -q libnotify`), sur le bus D-Bus de la session
+# graphique réelle (systemd --user partage cette session, pas un bus
+# isolé). Pas de dépendance nouvelle : aucun paquet à installer.
+local_ai_cdi_notify_urgency: critical
+
+# Unités systemd --user PLATES (pas Quadlet — aucun conteneur ici),
+# emplacement standard, distinct de local_ai_quadlet_dir.
+local_ai_systemd_user_dir: "{{ ansible_facts.env.HOME }}/.config/systemd/user"

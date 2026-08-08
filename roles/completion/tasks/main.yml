@@ -176,6 +176,41 @@
       d'un problème de configuration.
     success_msg: "Service d'inférence local joignable : {{ completion_ollama_url_check }}"
 
+# --- Garde 3/4bis — le modèle de complétion référencé existe réellement
+# côté service --------------------------------------------------------
+# Motif (demande § 1, IA-4) : un nom de modèle absent produit une
+# erreur côté serveur que l'éditeur affiche mal ou pas du tout —
+# exactement le mode d'échec silencieux qu'une garde doit rendre
+# bruyant. Constaté en IA-3 avec le placeholder de CMP-1
+# (« model 'aucun-modele-charge-D20' not found », visible seulement
+# dans le journal LSP de Helix, pas dans l'interface). Substituable
+# pour la démonstration d'échec forcé sans jamais changer le modèle
+# réellement configuré : -e completion_ollama_model_expected=absent-garanti
+
+- name: "Relever les modèles présents côté service (vérifiés contre : {{ completion_ollama_model }})"
+  ansible.builtin.uri:
+    url: "{{ completion_ollama_url_check }}"
+    return_content: true
+  register: completion_models_check
+  changed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si le modèle de complétion référencé n'existe pas côté service (ou si l'attendu a été substitué pour la démonstration)"
+  ansible.builtin.assert:
+    that:
+      - >-
+        completion_ollama_model_expected
+        in (completion_models_check.json.models | default([]) | map(attribute='name') | list)
+    fail_msg: >-
+      Le modèle « {{ completion_ollama_model_expected }} » n'existe pas
+      côté service — modèles présents :
+      {{ completion_models_check.json.models | default([]) | map(attribute='name') | list }}.
+      Ce rôle s'arrête : configurer lsp-ai sur un modèle absent
+      produirait une erreur côté Ollama que l'éditeur affiche mal ou
+      pas du tout (IA-3 § 9.5) — le récupérer est le rôle de
+      roles/local_ai/ (--tags pull-models), pas de celui-ci.
+    success_msg: "Modèle de complétion confirmé présent côté service : {{ completion_ollama_model_expected }}."
+
 # --- Clonage à l'empreinte de commit épinglée, hors du dépôt ---------------
 
 - name: "S'assurer que le répertoire de travail existe, hors du dépôt : {{ completion_build_dir | dirname }}"
@@ -424,7 +459,8 @@
       serait cloné à l'empreinte {{ completion_lsp_ai_commit }} et
       compilé (cargo build --release --locked), le binaire installé
       sous {{ completion_bin_dir }}, languages.toml déployé sous
-      {{ completion_helix_config_dir }} — aucun modèle chargé ni choisi.
+      {{ completion_helix_config_dir }}, pointant {{ completion_ollama_model }}
+      (D21) — vérifié présent côté service, jamais chargé par ce rôle.
   when: ansible_check_mode
 
 - name: "Rapporter l'état (exécution réelle)"
@@ -437,8 +473,8 @@
       - "Binaire installé : {{ completion_bin_dir }}/{{ completion_bin_name }}, version rapportée : {{ completion_bin_version.stdout | default('') | trim }}"
       - "Configuration Helix déployée : {{ completion_helix_config_dir }}/languages.toml, langages : {{ completion_helix_languages | join(', ') }}"
       - >-
-          Aucun modèle chargé ni choisi (D17/D20) — la complétion ne
-          produira aucun résultat utile tant qu'aucun modèle n'est
-          chargé, attendu et documenté (docs/completion.md § 3), pas
-          un échec de ce rôle.
+          Modèle de complétion (D21) : {{ completion_ollama_model }},
+          vérifié présent côté service avant l'écriture de la
+          configuration — à la demande (D20/D22), pas chargé par ce
+          rôle.
   when: not ansible_check_mode

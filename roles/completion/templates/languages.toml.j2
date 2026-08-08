@@ -34,10 +34,10 @@ args = ["--stdio"]
 type = "ollama"
 generate_endpoint = "{{ completion_ollama_generate_url }}"
 chat_endpoint = "{{ completion_ollama_chat_url }}"
-# Aucun modèle chargé, aucun modèle choisi (D17/D20) — nom placeholder
-# délibérément non résolvable, pour que la complétion échoue de façon
-# visible plutôt que de sembler fonctionner par coïncidence de nommage.
-model = "{{ completion_model_placeholder }}"
+# D21 (IA-3) : modèle de complétion réellement récupéré par
+# roles/local_ai/ — vérifié exister côté service avant que ce fichier
+# ne soit écrit (garde dédiée, tasks/main.yml), pas seulement posé ici.
+model = "{{ completion_ollama_model }}"
 
 [language-server.lsp-ai.config.completion]
 model = "completion-model"

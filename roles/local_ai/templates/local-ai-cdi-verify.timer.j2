@@ -1,0 +1,18 @@
+# Déployé par roles/local_ai/ (IA-4) — voir local-ai-cdi-verify.service.j2
+# pour le motif complet du mécanisme et local_ai_cdi_timer_oncalendar
+# (defaults/main.yml) pour le motif de la fréquence retenue.
+#
+# Persistent=true : rattrape une échéance manquée pendant une veille ou
+# une session fermée (systemd exécute l'unité au réveil si l'échéance
+# est déjà passée) — sans quoi une machine régulièrement éteinte ou en
+# veille ne déclencherait quasiment jamais cette vérification.
+
+[Unit]
+Description=Minuterie — vérification périodique de la péremption CDI (IA-4)
+
+[Timer]
+OnCalendar={{ local_ai_cdi_timer_oncalendar }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

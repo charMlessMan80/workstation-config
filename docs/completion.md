@@ -523,6 +523,96 @@ norme de langage, appliquée uniquement à la compilation C déclenchée
 par ce rôle (variable d'environnement du seul processus `cargo
 build`), sans toucher au compilateur système ni à aucun autre paquet.
 
+**7.2.4 — Reconstructibilité D1 : `cargo vendor` évalué, écarté en
+bloc, mitigation ciblée retenue (IA-4, § 4 de la demande).** §7.2.1
+établit que l'intégrité n'est pas menacée (`Cargo.lock` porte
+l'empreinte du commit `hf-hub` retenu, `cargo build --locked` échoue
+plutôt que de dériver silencieusement) — mais que la **disponibilité**
+l'est : le dépôt amont `hf-hub` a déjà retiré ses étiquettes 0.3.x, rien
+n'empêche un retrait ou une réécriture d'historique qui rendrait le
+commit épinglé (`6303587...`) inatteignable. Un même risque, moins
+documenté jusqu'ici, touche le dépôt `lsp-ai` lui-même
+(`completion_lsp_ai_commit`, épinglé de la même façon).
+
+**`cargo vendor`, chiffré réellement, pas supposé** — exécuté dans le
+répertoire de travail à l'empreinte épinglée :
+```
+$ cd ~/.cache/completion-build/lsp-ai && cargo vendor vendor-eval-tmp
+   Vendoring [...] (422 crates)
+$ du -sh vendor-eval-tmp
+710M    vendor-eval-tmp
+$ tar --zstd -cf lsp-ai-vendor-eval.tar.zst vendor-eval-tmp && du -sh lsp-ai-vendor-eval.tar.zst
+71M     lsp-ai-vendor-eval.tar.zst
+```
+**710 Mio bruts, 71 Mio compressés (zstd), 422 crates** — comparé aux
+**2,8 Mio** du `.git` de ce dépôt dans son état actuel (`du -sh .git`) :
+un facteur ~25 même compressé. **Écarté en bloc** : disproportionné, et
+mal ciblé — la quasi-totalité des 422 crates vendorées viennent de
+crates.io, dont le modèle de distribution ne partage pas, à ma
+connaissance, le risque de `hf-hub`/`lsp-ai` (une version publiée peut
+être « yankée » — retirée de la résolution pour de *nouveaux* projets —
+mais resterait téléchargeable pour ce qui la référence déjà, à
+distinguer d'un retrait de tag ou d'une réécriture d'historique Git,
+qui rend un commit précis potentiellement inatteignable) — comportement
+exact non lu directement dans la documentation de crates.io au cours de
+cette session, marqué `@VERIF` plus bas plutôt qu'affirmé sans réserve.
+Vendorer les 420 crates crates.io pour protéger les 2 dépendances git
+reviendrait à corriger un risque
+localisé par une dépense généralisée.
+
+**Mitigation ciblée retenue à la place** : une archive compressée de
+chaque dépôt git à sa **seule empreinte épinglée** (pas tout
+l'historique disponible, pas les 420 crates sans rapport), conservée
+**hors dépôt** (répertoire personnel, pas ce dépôt Git — même principe
+que le stockage des poids de modèle, `docs/local-ai.md` § 5 : la
+recette est versionnée, l'artefact volumineux ne l'est pas), avec son
+empreinte consignée ici pour que sa présence ou son absence soit
+vérifiable :
+```
+$ mkdir -p ~/.local/share/completion-build-archives
+$ cd ~/.cargo/git/checkouts/hf-hub-3c7263c594854a05/6303587
+$ tar --zstd -cf ~/.local/share/completion-build-archives/hf-hub-6303587576f8a1ce9f91f8274265a153b89afb6e.tar.zst .git
+$ sha256sum ~/.local/share/completion-build-archives/hf-hub-6303587576f8a1ce9f91f8274265a153b89afb6e.tar.zst
+1613af4f530f38621013bf87e2fc4bfa2cc12b84bfe199ef4d0ed6d188ec846e  hf-hub-6303587576f8a1ce9f91f8274265a153b89afb6e.tar.zst
+$ du -sh hf-hub-6303587576f8a1ce9f91f8274265a153b89afb6e.tar.zst
+88K     hf-hub-6303587576f8a1ce9f91f8274265a153b89afb6e.tar.zst
+```
+**88 Kio** — l'archive ne contient que `.git` (objets + historique,
+pas un arbre de travail extrait), **vérifié fonctionnelle, pas
+seulement créée** : extraite dans un répertoire vide, `git log -1`
+rapporte exactement `6303587576f8a1ce9f91f8274265a153b89afb6e`, `git
+rev-parse HEAD` concorde. `lsp-ai` lui-même n'a **volontairement** pas
+reçu d'archive équivalente ici : son clonage à l'empreinte épinglée
+(`completion_lsp_ai_commit`) est la toute première action de ce rôle,
+rejouée à **chaque exécution** — si ce commit devenait inatteignable en
+amont, ce rôle échouerait bruyamment dès sa première tâche, sans
+attendre une reconstruction complète. C'est un canari vivant, revérifié
+à chaque exécution, préférable à une archive statique qui pourrait se
+périmer sans que personne ne le remarque — `hf-hub` n'a pas cette
+propriété (dépendance résolue par Cargo *pendant* la compilation, pas
+clonée explicitement par une tâche de ce rôle), d'où l'archive ciblée
+sur ce seul dépôt.
+
+**Régénération** (si l'archive venait à manquer ou si l'empreinte
+épinglée changeait) :
+```
+$ ansible-playbook roles/completion/completion.yml   # peuple ~/.cargo/git/checkouts
+$ tar --zstd -cf ~/.local/share/completion-build-archives/hf-hub-<commit>.tar.zst \
+    -C ~/.cargo/git/checkouts/hf-hub-*/<commit-court> .git
+```
+**Risque résiduel assumé, nommé plutôt que corrigé** : cette archive
+vit hors dépôt, sur cette seule machine — sa propre disponibilité
+dépend de ce poste (D1 ne l'exige pas ailleurs : ce dépôt Git reste la
+seule source de vérité versionnée, l'archive est un filet local, pas
+un second dépôt).
+
+@VERIF : politique exacte de rétention de crates.io pour une version
+« yankée » (une version yankée reste-t-elle indéfiniment
+téléchargeable pour qui la référence déjà, ou existe-t-il une voie de
+suppression complète ?) — le motif d'exclusion des 420 crates
+crates.io ci-dessus en dépend partiellement, à confirmer par lecture de
+la documentation crates.io elle-même avant de le considérer clos.
+
 ### 7.3 — Rôle exécuté, résultat
 
 ```
@@ -692,6 +782,150 @@ demande § 2.6, respecté), détail exact du mécanisme de prédiction
 d'édition natif de Zed avec Ollama (§ 3). Aucun nouveau marqueur
 ajouté par ce livrable — les obstacles de compilation (§ 7.2) ont
 tous été résolus et vérifiés, pas laissés ouverts.
+
+## 8. IA-4 — complétion réelle bout-en-bout, mesurée
+
+**Troisième cause du blocage, isolée avant ce test (demande IA-4 § 1)** :
+ni `lsp-ai` (poignée de main LSP prouvée, § 7.4) ni RTD3 (déjà mesuré
+neutralisé par la résidence du modèle, D15) — le nom de modèle
+placeholder de CMP-1 (`aucun-modele-charge-D20`), resté en place dans
+`languages.toml` après que D21 (IA-3) a choisi et récupéré un modèle
+réel, causait `"model 'aucun-modele-charge-D20' not found"` côté
+serveur (visible seulement dans le journal LSP, jamais dans
+l'interface — exactement le mode d'échec silencieux que la nouvelle
+garde de `roles/completion/tasks/main.yml` rend désormais bruyant,
+avant même l'écriture de la configuration). Corrigé (§ défauts/main.yml,
+`completion_ollama_model`), démontré ci-dessous.
+
+**Méthode** : identique à § 7.4 (`hx -vv`, session `tmux` détachée,
+lecture du journal après coup, aucune capture visuelle) — avec, cette
+fois, un modèle réel chargé et une complétion réellement demandée.
+
+**Écart initial avec IA-3, résolu avant de conclure, pas laissé en
+l'état.** `docs/machine-facts.md` (D21) rapporte l'envoi automatique de
+requêtes de complétion pendant la frappe (`triggerKind:1`, observé deux
+fois). Mes premiers essais, une **frappe isolée** (un seul caractère)
+suivie d'une attente de 20-30 s, n'ont **jamais** déclenché de requête
+automatique malgré un `textDocument/didChange` bien émis — en
+contradiction apparente avec ce fait déjà documenté et daté
+(CLAUDE.md § une découverte qui contredit un fait déjà documenté se
+signale, ne se tranche pas à la première lecture). **Reproduit avant de
+conclure à un écart réel** : une séquence de frappe plus naturelle
+(plusieurs caractères tapés à la suite, ~150 ms d'écart, comme une
+vraie frappe) déclenche bien la requête automatique, ~250 ms après le
+dernier caractère (`idle-timeout` par défaut de Helix) — confirmé,
+cohérent avec IA-3. **Pas de contradiction réelle** : la frappe isolée
+et unique ne déclenche pas de façon fiable (`@VERIF : condition exacte`
+— non expliqué avec certitude, hypothèse la plus probable : un artefact
+du pilotage `tmux` sur une frappe unique, pas un changement de
+comportement de Helix ou de la configuration entre IA-3 et ce
+livrable), mais la frappe réelle, multiple, le fait de façon
+reproductible. Sans conséquence sur les mesures ci-dessous : le
+déclenchement **manuel** (`Ctrl-x` en mode insertion, lié par défaut)
+produit exactement la même requête `textDocument/completion` — retenu
+pour le reste de cet essai pour un contrôle précis du moment de la
+requête, condition nécessaire à une mesure de latence propre.
+
+### 8.1 — YAML et Python, modèle déjà chargé
+
+Fichier YAML (contexte Ansible, `ansible.builtin.` en position de
+curseur), fichier Python (`if n <` dans une fonction Fibonacci) —
+horodatages du journal, requête → réponse :
+```
+YAML #1 : 13:58:55.571 -> 13:59:00.285  = 4,714 s
+Python  : 14:00:04.798 -> 14:00:05.276  = 0,478 s
+YAML #2 : 14:02:54.716 -> 14:02:55.180  = 0,464 s
+```
+**Complétions réellement reçues, pas des accusés de réception vides** —
+YAML : `ansible.builtin.synchronize:` avec des paramètres cohérents
+(`src`, `dest`, `mode: pull`) ; Python : garde `if n < 0: raise
+ValueError(...)` suivie du cas de base `elif n == 0: return 0` —
+suggestions syntaxiquement valides et sémantiquement pertinentes au
+contexte, pas un texte générique.
+
+**YAML #1 anormalement lente par rapport à YAML #2 et Python, mêmes
+conditions (modèle déjà résident, aucune bascule)** — écart nommé, pas
+lissé : YAML #1 était la **première génération réelle** demandée à ce
+modèle depuis un moment (les précédentes exécutions de ce rôle et de
+`roles/local_ai/` n'avaient fait que vérifier la présence du modèle,
+`/api/ps`, jamais généré). YAML #2, déclenchée quelques minutes plus
+tard sur le même modèle entre-temps sollicité, retombe à 0,464 s —
+cohérent avec un coût de réchauffement (allocation de cache KV,
+première passe) payé une fois puis amorti, pas avec une latence
+normale du chemin complet. Retenu pour "modèle déjà chargé, état
+régulier" : **0,46-0,48 s**, pas la valeur du tout premier appel.
+
+### 8.2 — Bascule depuis le modèle de chat (D22), mesurée en conditions réelles
+
+**Écart méthodologique corrigé avant de conclure** : un premier essai
+(`/api/generate` sur `mistral-nemo` sans `num_ctx` explicite, défaut
+Ollama 4096) a laissé les **deux modèles chargés simultanément**
+(`/api/ps` : qwen 4,75 Gio + mistral 7,88 Gio = 12,66 Gio sur 16,38 Gio
+— tient dans l'enveloppe). Résultat trompeur : la mesure IA-3 qui fonde
+D22 (16 984 Mio requis) porte sur le **contexte réellement visé par
+D21 pour le modèle de chat/agent — 32 K**, pas le défaut Ollama. Rejoué
+avec `num_ctx=32768` explicite : `mistral-nemo` seul occupe alors
+**12 611 548 609 octets (~12 027 Mio) de VRAM à lui seul**, `qwen`
+évincé automatiquement (`/api/ps` : un seul modèle listé après coup) —
+**confirme D22 dans ses propres termes**, le premier essai ne le
+contredisait pas, il mesurait une configuration différente de celle
+réellement déployée. Signalé plutôt que tranché à la première lecture
+(CLAUDE.md § une découverte qui contredit une contrainte établie se
+signale) — l'écart s'est résolu en écart de méthode, pas en fait
+nouveau, mais seulement après l'avoir creusé.
+
+**Bascule mesurée, chat → complétion, conditions réelles** (`mistral-nemo`
+chargé à 32 K de contexte, comme ci-dessus, puis une complétion Python
+réellement demandée) :
+```
+14:01:49.415 -> 14:01:53.141  = 3,727 s
+```
+`/api/ps` après coup : seul `qwen2.5-coder` chargé, `mistral-nemo`
+évincé — la bascule a bien eu lieu, pas une coïncidence de timing.
+Complétion reçue cohérente (`is_prime`, garde `n < 2: return False`
+suivie d'une boucle de test de divisibilité). **Dans la fourchette
+citée par l'opérateur (3,4-4,1 s)** — mesurée ici, pas seulement
+retenue par confiance dans la mesure précédente.
+
+### 8.2bis — Démonstration de la nouvelle garde (§ 1 de la demande), les deux sens
+
+**Échec forcé** — le nom de modèle réellement configuré (`completion_ollama_model`)
+n'est jamais substitué, seul l'attendu que la garde relit l'est (même
+patron que les gardes existantes) :
+```
+$ ansible-playbook roles/completion/completion.yml -e completion_ollama_model_expected=absent-garanti
+fatal: [...] "Le modèle « absent-garanti » n'existe pas côté service — modèles
+  présents : ['qwen2.5-coder:7b-instruct-q4_K_M', 'mistral-nemo:12b-instruct-2407-q4_K_M'].
+  [...]" changed=0
+```
+**Nominal, rejoué juste après** : `ansible-playbook roles/completion/completion.yml`
+→ `changed=0`, `languages.toml` toujours `model = "qwen2.5-coder:7b-instruct-q4_K_M"`
+— confirmé par relecture directe du fichier déployé, pas seulement par
+l'absence d'erreur.
+
+### 8.3 — Verdict
+
+**Utilisable au quotidien** : 0,46-0,48 s en régime établi (modèle déjà
+résident, cas dominant si la complétion est l'usage principal en
+cours), 3,7 s lors d'une bascule depuis le modèle de chat — perceptible
+mais du même ordre qu'un correcteur/analyseur lourd qui se relance,
+pas une rupture du flux de travail. Le chargement séquentiel (D22)
+reste vivable : le coût mesuré est celui d'une bascule occasionnelle
+(changer d'activité, pas chaque frappe), jamais celui du régime normal
+de la complétion elle-même.
+
+**Non résolu par ce test, nommé plutôt que passé sous silence** :
+le déclenchement automatique par une **frappe isolée unique** reste
+`@VERIF` (§ méthode ci-dessus — reproduit et confirmé fiable pour une
+frappe réelle, multiple ; jamais reproduit pour une frappe unique).
+Sans conséquence sur le verdict ci-dessus (l'ergonomie normale d'écriture
+tape plusieurs caractères à la suite, jamais un caractère isolé suivi
+d'une longue pause volontaire — le cas qui échoue dans ce test n'est
+pas le cas d'usage réel). Le premier chargement après démarrage du
+service (cache disque froid, pas seulement VRAM) reste également
+`@VERIF` — écart déjà nommé dans la décision D22 elle-même
+(`docs/machine-facts.md` § Décisions), non comblé par cet essai (le
+service tournait déjà depuis la veille pendant toute cette session).
 
 ## Voir aussi
 

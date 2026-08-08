@@ -1,0 +1,29 @@
+# Déployé par roles/local_ai/ (IA-4) — déclenché exclusivement par
+# OnFailure=local-ai-cdi-verify-notify.service dans
+# local-ai-cdi-verify.service.j2, jamais lancé directement dans le
+# fonctionnement normal. Rend visible un échec qui resterait sinon
+# silencieux dans le seul journal (demande § 3 : « une vérification
+# périodique dont l'échec ne se voit nulle part est une vérification
+# qui n'existe pas »).
+#
+# notify-send (libnotify, déjà présent — vérifié `rpm -q libnotify`,
+# aucune dépendance nouvelle) : ce service systemd --user partage le
+# bus D-Bus de la session graphique réelle, pas un bus isolé — vérifié
+# en écrivant ce rôle (`notify-send` exécuté hors de toute unité,
+# `echo $DBUS_SESSION_BUS_ADDRESS` identique à celui de la session
+# `loginctl` active).
+#
+# --urgency=critical : ne disparaît pas tout seul dans Plasma
+# (comportement des urgences « critical » côté serveur de notification,
+# par opposition à « normal »/« low ») — une notification qui s'efface
+# avant d'être vue équivaudrait au même silence que l'absence de
+# notification.
+
+[Unit]
+Description=Notification visible — échec de la vérification périodique CDI (IA-4)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/notify-send --urgency={{ local_ai_cdi_notify_urgency }} \
+  "Vérification CDI en échec (local_ai)" \
+  "La spécification CDI a échoué à la vérification périodique. Détail : journalctl --user -u {{ local_ai_cdi_timer_base_name }}.service"

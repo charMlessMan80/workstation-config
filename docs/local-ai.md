@@ -1902,6 +1902,133 @@ comportement runtime ROCm sans périphérique, sémantique des variables
 Ollama non documentées, sémantique de la valeur `2` de
 `NVreg_PreserveVideoMemoryAllocations`.
 
+## 10. IA-4 — déclencheurs CDI, intégrité des poids, garde VRAM corrigée (2026-08-08)
+
+**10.1 — Intégrité des blobs au repos** (§ 9.2 ci-dessus, motif complet).
+Script autonome déployé (`roles/local_ai/templates/verify-model-integrity.sh.j2`
+→ `~/.local/bin/verify-model-integrity.sh`, domaine utilisateur, lecture
+seule stricte — aucune dépendance à Ansible une fois déployé). Recalcule
+l'empreinte de chaque blob référencé par chaque manifeste et la compare
+au nom du fichier. **Démontré dans les deux sens, sur ce poste, pas en
+abstrait** : nominal, `OK — 10/10 blobs vérifiés` ; un octet d'un blob
+réel corrompu délibérément (même méthode qu'IA-3, offset 1000, `dd`) →
+`ÉCHEC — écart(s) d'intégrité trouvé(s) (9/10 blobs corrects) : CORROMPU
+<manifeste> -> <digest attendu> (empreinte réelle : <digest réel>)`,
+code de sortie 1 ; restauré (suppression du blob puis nouveau tirage —
+la seule voie qui force `ollama pull` à revérifier, établi § 9.2) ;
+`OK — 10/10` de nouveau, empreinte du fichier restauré identique à
+l'originale.
+
+**10.2 — Déclencheurs de `verify-cdi-spec`** (§ 2.4, IA-1 : le
+mécanisme existait sans rien qui le déclenche hors du redémarrage du
+service). Second levier ajouté : unités systemd --user **plates**
+(pas Quadlet, aucun conteneur) — `local-ai-cdi-verify.service`
+(`ExecStart=ansible-playbook … --tags verify-cdi-spec`), `.timer`
+(`OnCalendar=hourly`, `Persistent=true`), `OnFailure=` chaîné vers
+`local-ai-cdi-verify-notify.service` (`notify-send --urgency=critical`,
+libnotify déjà présent). Fréquence horaire justifiée par l'absence de
+`dnf-automatic` sur ce poste (vérifié, `systemctl list-unit-files`) —
+les mises à jour de pilote sont manuelles, pas continues.
+
+**Démontré dans les deux sens, unité réelle, pas simulée** : nominal
+(`systemctl --user start local-ai-cdi-verify.service`) → succès,
+`Spécification à jour : version 610.43.03 == version chargée
+610.43.03` ; échec forcé (unité **déployée** temporairement patchée
+avec `-e gpu_cdi_verify_spec_path=/tmp/spec-invalide-garantie.yaml`,
+jamais le gabarit source) → `Job … failed`, code 2, message exact
+(« /tmp/spec-invalide-garantie.yaml n'existe pas »), et **la chaîne
+`OnFailure=` confirmée déclenchée** (`systemd[…]: … Triggering
+OnFailure= dependencies`, `local-ai-cdi-verify-notify.service` :
+`status=0/SUCCESS` sur le bus D-Bus réel de la session graphique).
+Unité restaurée identique (`diff` vide), rejeu du rôle `changed=0`.
+**Limite honnête** : `notify-send` a retourné 0 sur le bus de session
+réel — le rendu visuel effectif de la bannière n'a pas été confirmé
+autrement (pas de capture visuelle, cohérent avec la méthode déjà
+établie pour `lsp-ai`/Helix, mais sans journal équivalent ici pour
+attester le rendu à l'écran lui-même).
+
+**10.3 — Défaut trouvé et corrigé en écrivant ce livrable, pas
+anticipé** : la garde post-démarrage héritée d'IA-1
+(`local_ai_ps_check.json.models == []`) supposait qu'aucun modèle ne
+serait jamais chargé en VRAM au moment où ce rôle s'exécute — vrai par
+coïncidence tant que le service n'avait jamais servi de complétion
+réelle (IA-1 à IA-3). Le premier usage réel de ce livrable
+(`docs/completion.md` § 8) charge un modèle qui reste résident
+indéfiniment (D15 — le comportement voulu, pas une anomalie) : rejouer
+ce rôle après un usage normal du service **échouait** sur cette garde
+(constaté en rejouant le rôle après les essais de complétion, pas
+anticipé en écrivant le rôle). **Corrigé** : la garde compare désormais
+un relevé `/api/ps` pris **avant** toute action de ce rôle à un relevé
+pris **après** — elle échoue seulement si CE rôle a fait apparaître un
+modèle qui n'y était pas avant, plus jamais si un modèle est
+simplement déjà résident par usage normal. **Les deux démonstrations
+rejouées avec la logique corrigée** (CLAUDE.md § une garde modifiée
+perd la démonstration qui la validait) : nominal (modèle déjà résident
+par usage réel de ce livrable) → succès ; échec forcé (une tâche
+temporaire, retirée juste après, charge délibérément un second modèle
+entre le relevé « avant » et le relevé « après », simulant ce qu'un bug
+de ce rôle ferait) → `Modèle(s) apparu(s) en VRAM pendant l'exécution
+de ce rôle, qui n'y étaient pas avant : ['mistral-nemo:…']`, `changed=0`
+dans les deux cas ; état réel restauré (modèle de démonstration
+déchargé, `keep_alive:0`) et rejeu confirmé `changed=0`.
+
+## Validation — IA-4 (2026-08-08)
+
+**Actions privilégiées, exhaustives** :
+
+| # | Commande | Cible | Motif | Tentative sans privilège : résultat |
+|---|---|---|---|---|
+| 1 | `ansible.builtin.template` (`become: true`, rôle, D16, **pré-existante, inchangée par ce livrable**) | `/etc/modprobe.d/local-ai-nvidia-power-management.conf` | seule écriture système du rôle, fichier fournisseur jamais touché (`rpm -Vf` identique avant/après) | Non applicable — écriture racine intrinsèque (`/etc/modprobe.d/`), aucune voie non privilégiée n'existe pour ce fichier |
+| 2 | `sudo -n ausearch -m avc -ts recent` (manuel, hors rôle, validation SELinux) | journal d'audit | recherche de refus AVC | Oui — `journalctl -k -g 'avc:'` (non privilégié) essayé en parallèle, même résultat (aucun refus), les deux méthodes rapportées |
+
+Toutes les autres actions de ce livrable (script d'intégrité,
+minuterie CDI, service de notification, redémarrage du service
+utilisateur, corruption/restauration délibérée d'un blob) s'exécutent
+dans le domaine utilisateur, sans `become`, sans `sudo`.
+
+**Validation Ansible**, `roles/completion/` et `roles/local_ai/` :
+```
+$ ansible-playbook --syntax-check roles/local_ai/local_ai.yml      # succès
+$ ansible-playbook --check roles/local_ai/local_ai.yml             # succès, changed=0
+$ ansible-playbook roles/local_ai/local_ai.yml                     # succès, changed=0 (état déjà nominal)
+$ ansible-playbook roles/local_ai/local_ai.yml                     # succès, changed=0 (deuxième exécution)
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/local_ai/
+Passed: 0 failure(s), 0 warning(s) — profil production
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/completion/
+Passed: 0 failure(s), 0 warning(s) — profil production
+```
+**Bug trouvé et corrigé en écrivant ce livrable** (§ 10.3) : la garde
+VRAM héritée d'IA-1, cassée par le premier usage réel du service — les
+deux démonstrations rejouées avec la logique corrigée, `changed=0`
+dans les deux cas, état réel restauré après la démonstration d'échec
+forcé.
+
+**SELinux** :
+```
+$ getenforce   # Enforcing, avant et après ce livrable
+$ sudo -n ausearch -m avc -ts recent   # aucun refus (précédent : docs/gpu-containers.md § 8.6/8.7)
+$ journalctl -k -g 'avc:'              # aucun refus (méthode non privilégiée, même résultat)
+```
+
+**Confirmations finales** : aucun modèle supplémentaire téléchargé
+(seuls les deux modèles déjà présents depuis IA-3 ont servi aux essais
+de complétion et à la démonstration de bascule, `docs/completion.md`
+§ 8) ; `/usr/lib/modprobe.d/nvidia-power-management.conf` intact
+(`rpm -Vf` identique avant/après, comme à chaque livrable de cette
+série) ; aucun nouveau dépôt ; `getenforce` inchangé ; aucun
+redémarrage déclenché par cette session (le paramètre pilote D16 est
+passé à `1` entre-temps — constaté par lecture, pas déclenché ici).
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu**
+(`grep -c '@VERIF'`) : `docs/completion.md` = 7 occurrences (2
+pré-existantes CMP-0/CMP-1, 5 nouvelles ou reformulées par ce
+livrable — dont deux paires « annoncé puis marqueur », même patron que
+le reste de ce dépôt) ; `docs/local-ai.md` = 4 occurrences, toutes
+pré-existantes, inchangées par ce livrable ; `docs/machine-facts.md` =
+7 occurrences (6 pré-existantes + 1 nouvelle, D22 : le facteur de
+ralentissement du premier chargement à cache disque froid) ;
+`docs/gpu-containers.md` = 0, fichier non touché par ce livrable.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanismes RTD3, méthode

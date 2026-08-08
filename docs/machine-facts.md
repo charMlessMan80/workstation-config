@@ -1226,6 +1226,26 @@ correspond à aucun modèle réel, erreur Ollama immédiate et claire.
 Correction hors du périmètre de ce livrable (`roles/completion/` non
 touché) — signalée, pas corrigée.
 
+**D22 (2026-08-08, IA-4) — chargement séquentiel des modèles.** Ollama
+décharge l'un pour charger l'autre ; les deux cohabitent sur disque,
+jamais en VRAM. Motif : seul levier chiffré parmi les trois nommés par
+D21 (`OLLAMA_KV_CACHE_TYPE=q8_0`, contexte réduit à 16 K, bascule
+séquentielle) dont le coût est **mesuré** (3,4-4,1 s par bascule, cache
+disque chaud) plutôt que supposé, et seul à ne défaire aucune décision
+antérieure — `q8_0` dégraderait la précision du cache d'une quantité
+non chiffrée, réduire à 16 K annulerait le contexte choisi
+délibérément pour le chat/agent (D21). **Mesuré en conditions réelles**
+(`docs/completion.md` § 8.2) : bascule chat → complétion, 3,727 s,
+dans la fourchette annoncée ; complétion en régime établi (modèle déjà
+résident), 0,46-0,48 s — verdict : vivable au quotidien
+(`docs/completion.md` § 8.3).
+
+**Écart résiduel, non comblé par IA-4** : les temps de bascule sont
+mesurés à cache disque **chaud** (service actif sans interruption
+depuis un précédent livrable) — `@VERIF` le facteur de ralentissement
+du **premier** chargement après démarrage du service (cache disque
+froid), non établi.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -2614,3 +2634,66 @@ touché) — signalée, pas corrigée.
   service connecté à un réseau externe ; `getenforce` inchangé
   (`Enforcing`), aucun refus AVC ; aucun `node`/`npm` ; aucun nouveau
   dépôt système ; aucun redémarrage.
+- **2026-08-08 — boucle la chaîne d'inférence : complétion débloquée,
+  intégrité des poids, déclencheurs CDI, D22 (IA-4).** Constat
+  préalable : le paramètre pilote D16 est passé à `1` entre-temps (un
+  redémarrage a eu lieu hors de cette session — constaté par lecture,
+  `/proc/driver/nvidia/params`, pas déclenché ici).
+  **Complétion débloquée** : le nom de modèle placeholder de CMP-1
+  (`roles/completion/`), cause exacte diagnostiquée en IA-3, remplacé
+  par le modèle réel (D21), en variable, avec une garde dédiée
+  (existence côté service, avant l'écriture de la configuration) —
+  démontrée dans les deux sens.
+  **Complétion réelle testée bout-en-bout** (`docs/completion.md` § 8) :
+  YAML et Python, complétions syntaxiquement et sémantiquement
+  cohérentes reçues. Latence en régime établi (modèle déjà résident) :
+  0,46-0,48 s. Bascule chat → complétion (D22, conditions réelles,
+  contexte 32 K) : 3,727 s, dans la fourchette annoncée. Verdict :
+  utilisable au quotidien. Écart initial avec le fait daté d'IA-3
+  (déclenchement automatique à la frappe) reproduit et expliqué : une
+  frappe isolée unique ne déclenche pas fiablement, une frappe réelle
+  multiple si — pas de contradiction retenue, résolu avant de conclure.
+  **Intégrité des poids au repos** (`roles/local_ai/`) : script autonome
+  déployé (domaine utilisateur, lecture seule stricte), recalcule les
+  empreintes des blobs contre leurs manifestes. Démontré dans les deux
+  sens : corruption délibérée d'un octet détectée et nommée (blob et
+  manifeste identifiés), blob restauré par suppression puis nouveau
+  tirage (la seule voie qui force `ollama pull` à revérifier, établi en
+  IA-3), script de nouveau `OK` après restauration.
+  **Déclencheurs CDI** (`roles/local_ai/`) : le mécanisme
+  `verify-cdi-spec` (IA-1) restait sans rien qui le déclenche hors du
+  (re)démarrage du service. Deuxième levier ajouté : minuterie systemd
+  --user horaire, indépendante, chaînée (`OnFailure=`) vers un service
+  de notification visible (`notify-send`, déjà présent). Démontré dans
+  les deux sens : spécification valide → succès silencieux ;
+  spécification simulée périmée (unité patchée temporairement, jamais
+  le gabarit) → refus avec le message attendu, notification déclenchée
+  et confirmée (`Triggering OnFailure= dependencies`, service de
+  notification `status=0/SUCCESS` sur le bus D-Bus réel de la session) ;
+  unité restaurée à l'identique après coup, rejeu confirmé `changed=0`.
+  **`cargo vendor` évalué, écarté en bloc** (`docs/completion.md` § 7.2.4) :
+  chiffré réellement — 710 Mio bruts, 71 Mio compressés, 422 crates —
+  disproportionné (~25× la taille actuelle du `.git` de ce dépôt) et
+  mal ciblé (la quasi-totalité des crates vendorées viennent de
+  crates.io, dont le risque de disponibilité diffère de celui des deux
+  dépendances git réellement concernées). Mitigation ciblée retenue à
+  la place : archive de `hf-hub` à son empreinte épinglée seule
+  (88 Kio compressés), hors dépôt, empreinte consignée, vérifiée
+  fonctionnelle (extraction + `git log` concordant) ; `lsp-ai`
+  lui-même volontairement sans archive équivalente — son clonage à
+  l'empreinte épinglée, rejoué à chaque exécution du rôle, sert déjà de
+  canari vivant.
+  **D22 consignée** (ci-dessus) : chargement séquentiel, seul levier
+  mesuré et non régressif parmi les trois nommés par D21.
+  **Deux corrections d'outillage** (`CLAUDE.md`) : la preuve
+  d'additivité `git show HEAD --numstat` remplacée par
+  `git diff --numstat HEAD^ HEAD | awk '$2>$1 {print "RÉDUIT: " $3}'`
+  (la première mélangeait message de commit et données) ; le tableau
+  d'énumération des actions privilégiées porte désormais une colonne
+  « tentative sans privilège : résultat », appliquée dans ce livrable.
+  Aucune action privilégiée dans ce livrable au-delà du `become: true`
+  pré-existant (D16, inchangé, `rpm -Vf` identique avant/après) ; aucun
+  modèle supplémentaire téléchargé ; `/usr/lib/modprobe.d/` intact ;
+  `getenforce` inchangé (`Enforcing`), aucun refus AVC (deux méthodes,
+  une privilégiée déjà précédentée, une non) ; aucun redémarrage
+  déclenché par cette session.

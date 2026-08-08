@@ -7,6 +7,13 @@
 #         contrôle publiée, ancrage de confiance plus faible que npm).
 #   D20 — modèle de complétion à la demande, pas résident (requalifie
 #         D15) — ce rôle ne charge ni ne choisit aucun modèle.
+#   D21 — modèle de complétion retenu : qwen2.5-coder:7b-instruct-q4_K_M
+#         (IA-3, docs/machine-facts.md § Décisions) — récupéré par
+#         roles/local_ai/, jamais téléchargé par ce rôle.
+#   D22 — chargement séquentiel (IA-4) : conséquence pour ce rôle,
+#         aucune — la bascule est gérée par Ollama lui-même (le
+#         serveur décharge/recharge selon la demande), ce rôle ne fait
+#         que pointer le bon nom de modèle et vérifier qu'il existe.
 
 # --- D19 : dépôt amont, épinglé par empreinte de commit, pas une étiquette ---
 # Étiquette la plus récente au moment de la résolution (docs/completion.md
@@ -141,17 +148,34 @@ completion_ollama_chat_url_expected: "{{ completion_ollama_chat_url }}"
 # Langages auxquels lsp-ai est rattaché (demande § 2.5) — yaml d'abord :
 # le plus directement pertinent à ce dépôt (Ansible), et celui dont
 # l'absence de serveur était déjà nommée par D12/EDI-1
-# (`hx --health yaml` : "not found in $PATH").
+# (`hx --health yaml` : "not found in $PATH"). python ajouté en IA-4
+# (demande § 1 : complétion réelle testée sur les deux).
 completion_helix_languages:
   - yaml
+  - python
 
 completion_helix_config_dir: "{{ ansible_facts.env.HOME }}/.config/helix"
 
-# Nom de modèle placeholder — AUCUN modèle n'est chargé par ce rôle
-# (D17, toujours en vigueur) ni choisi (D20). Nommé explicitement pour
-# qu'une complétion vide ne soit jamais confondue avec un succès
-# (demande § 3 : « à ne pas maquiller en succès »).
-completion_model_placeholder: "aucun-modele-charge-D20"
+# [CORRIGÉ, IA-4] ÉTAIT `completion_model_placeholder:
+# "aucun-modele-charge-D20"` — nom délibérément non résolvable, motivé
+# par CMP-1 quand aucun modèle n'existait encore (« pour que la
+# complétion échoue de façon visible plutôt que de sembler fonctionner
+# par coïncidence »). D21 (IA-3) a depuis choisi et récupéré un modèle
+# de complétion réel — le placeholder est resté en place jusqu'à ce
+# livrable, causant l'échec exact que le point 5 d'IA-3 a diagnostiqué
+# (« model 'aucun-modele-charge-D20' not found », ni lsp-ai ni RTD3en
+# cause). Remplacé par le nom réel, en variable — jamais en dur dans le
+# gabarit — et vérifié par une garde dédiée (existence côté service,
+# pas seulement posé) avant d'écrire la configuration Helix.
+completion_ollama_model: "qwen2.5-coder:7b-instruct-q4_K_M"
+
+# Valeur ATTENDUE par la garde d'existence du modèle — distincte de la
+# valeur ci-dessus qui pilote ce qui est réellement écrit dans
+# languages.toml, même patron que completion_ollama_generate_url_expected
+# plus bas. Substituable par -e sans jamais changer le modèle
+# réellement configuré :
+# -e completion_ollama_model_expected=absent-garanti
+completion_ollama_model_expected: "{{ completion_ollama_model }}"
 
 # Contexte/paramètres de complétion — valeurs de départ documentées par
 # le projet amont (docs/completion.md § 2, exemple de configuration

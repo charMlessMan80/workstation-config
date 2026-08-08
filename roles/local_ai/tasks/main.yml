@@ -149,6 +149,25 @@
       (rpm -V identique avant/après : rc={{ local_ai_provider_verify_after.rc }}).
   when: not ansible_check_mode
 
+# [CORRIGÉ, IA-4] Relevé AVANT toute action de ce rôle sur le service —
+# ÉTAIT : la garde plus bas asserait `/api/ps == []` sans condition,
+# prémisse qui n'a tenu que par coïncidence tant que le service n'avait
+# jamais servi une complétion réelle (IA-1 à IA-3). Dès qu'un modèle est
+# effectivement utilisé (D20 : chargement à la demande, D15 : maintenu
+# indéfiniment une fois chargé — exactement le comportement voulu), ce
+# modèle reste résident d'une exécution de ce rôle à l'autre, sans que
+# CE rôle l'ait chargé — la garde plus bas doit constater que ce rôle
+# n'a rien AJOUTÉ à la VRAM, pas que la VRAM est vide dans l'absolu.
+# Tolérant à l'absence de service (tout premier déploiement, API pas
+# encore joignable) — défaut à liste vide plutôt qu'échec.
+- name: "Relever les modèles déjà chargés en VRAM AVANT toute action de ce rôle (tolérant : service potentiellement pas encore démarré)"
+  ansible.builtin.uri:
+    url: "http://{{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}/api/ps"
+    return_content: true
+  register: local_ai_ps_before
+  failed_when: false
+  when: not ansible_check_mode
+
 # --- Volume et service Ollama, par Quadlet Podman (D14) -----------------
 # Podman 5.8.4 fournit nativement le générateur Quadlet utilisateur —
 # fichiers déclaratifs, pas d'unité .service écrite à la main.
@@ -184,6 +203,46 @@
   register: local_ai_container_write
   when: not ansible_check_mode
 
+# --- IA-4 § 3 : second levier de déclenchement de verify-cdi-spec ------
+# Unités systemd --user plates (pas Quadlet, aucun conteneur ici) —
+# déployées ici, AVANT le daemon-reload de la tâche d'activation
+# ci-dessous, pour être prises en compte par ce même daemon-reload
+# (systemd recharge toutes les unités utilisateur, pas seulement celles
+# du service Ollama) plutôt que d'en déclencher un second. Voir
+# defaults/main.yml pour le motif complet du mécanisme et de la
+# fréquence retenue.
+
+- name: "S'assurer que le répertoire des unités systemd --user existe : {{ local_ai_systemd_user_dir }}"
+  ansible.builtin.file:
+    path: "{{ local_ai_systemd_user_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer le service de vérification périodique CDI : {{ local_ai_cdi_timer_base_name ~ '.service' }}"
+  ansible.builtin.template:
+    src: local-ai-cdi-verify.service.j2
+    dest: "{{ local_ai_systemd_user_dir }}/{{ local_ai_cdi_timer_base_name }}.service"
+    mode: "0644"
+  register: local_ai_cdi_verify_service_write
+  when: not ansible_check_mode
+
+- name: "Déployer la minuterie de vérification périodique CDI : {{ local_ai_cdi_timer_base_name ~ '.timer' }}"
+  ansible.builtin.template:
+    src: local-ai-cdi-verify.timer.j2
+    dest: "{{ local_ai_systemd_user_dir }}/{{ local_ai_cdi_timer_base_name }}.timer"
+    mode: "0644"
+  register: local_ai_cdi_verify_timer_write
+  when: not ansible_check_mode
+
+- name: "Déployer le service de notification visible en cas d'échec : {{ local_ai_cdi_notify_service_name ~ '.service' }}"
+  ansible.builtin.template:
+    src: local-ai-cdi-verify-notify.service.j2
+    dest: "{{ local_ai_systemd_user_dir }}/{{ local_ai_cdi_notify_service_name }}.service"
+    mode: "0644"
+  register: local_ai_cdi_notify_service_write
+  when: not ansible_check_mode
+
 # --- Activation : daemon-reload (fait matérialiser les unités générées
 # par Quadlet à partir des fichiers ci-dessus), puis démarrage ---------
 
@@ -205,6 +264,21 @@
          or (local_ai_container_write.changed | default(false))
          else 'started' }}
   register: local_ai_service_state
+  when: not ansible_check_mode
+
+# La minuterie est activée et démarrée ; le service qu'elle déclenche
+# (local-ai-cdi-verify.service) et le service de notification ne le
+# sont jamais directement — Type=oneshot, lancés uniquement par la
+# minuterie ou par OnFailure=, jamais par [Install]/enabled (aucun des
+# deux n'en porte). daemon_reload déjà fait par la tâche précédente
+# (systemd recharge toutes les unités utilisateur, pas une seule) — pas
+# rejoué ici.
+- name: "Activer et démarrer la minuterie de vérification périodique CDI : {{ local_ai_cdi_timer_base_name ~ '.timer' }}"
+  ansible.builtin.systemd:
+    name: "{{ local_ai_cdi_timer_base_name }}.timer"
+    scope: user
+    enabled: true
+    state: started
   when: not ansible_check_mode
 
 # --- Vérifications post-démarrage ---------------------------------------
@@ -229,6 +303,18 @@
 # garantie-là. Corrigé, pas effacé : c'est le même principe que la
 # règle CLAUDE.md sur les gardes qui perdent leur démonstration —
 # celle-ci a changé de sens, pas seulement d'implémentation.
+#
+# [CORRIGÉ à nouveau, IA-4] ÉTAIT (jusqu'à ce livrable) : la garde
+# ci-dessous asserait `/api/ps == []` sans condition — vrai par
+# coïncidence tant que le service n'avait jamais servi de complétion
+# réelle. Le premier usage réel (§ 8, `docs/completion.md`) charge un
+# modèle qui reste résident indéfiniment (D15) — exactement le
+# comportement voulu, pas une anomalie — et casse cette assertion à
+# chaque exécution suivante du rôle, sur un système qui fonctionne
+# normalement. Le fait garanti par CE rôle n'a jamais été « la VRAM est
+# vide », mais « ce rôle n'a rien ajouté à la VRAM » — comparé
+# maintenant à un relevé pris AVANT toute action de ce rôle
+# (local_ai_ps_before, ci-dessus), pas à une liste vide fixe.
 - name: "Relever les modèles actuellement chargés en VRAM (/api/ps, distinct de /api/tags)"
   ansible.builtin.uri:
     url: "http://{{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}/api/ps"
@@ -236,16 +322,27 @@
   register: local_ai_ps_check
   when: not ansible_check_mode
 
-- name: "Échouer bruyamment si un modèle est chargé en VRAM (ce rôle ne charge jamais de modèle lui-même)"
+- name: "Échouer bruyamment si ce rôle a lui-même fait apparaître un nouveau modèle en VRAM"
   ansible.builtin.assert:
     that:
-      - (local_ai_ps_check.json.models | default(['non-vide'])) == []
+      - >-
+        (local_ai_ps_check.json.models | default([]) | map(attribute='name') | list)
+        | difference(local_ai_ps_before.json.models | default([]) | map(attribute='name') | list)
+        == []
     fail_msg: >-
-      Un ou plusieurs modèles sont chargés en VRAM :
-      {{ local_ai_ps_check.json.models | default('absent du JSON') }} —
-      ce rôle ne charge jamais de modèle lui-même (le chargement est à
-      la demande, D20).
-    success_msg: "Aucun modèle chargé en VRAM, confirmé (/api/ps vide)."
+      Modèle(s) apparu(s) en VRAM pendant l'exécution de ce rôle, qui
+      n'y étaient pas avant :
+      {{ (local_ai_ps_check.json.models | default([]) | map(attribute='name') | list)
+         | difference(local_ai_ps_before.json.models | default([]) | map(attribute='name') | list) }}
+      — avant : {{ local_ai_ps_before.json.models | default([]) | map(attribute='name') | list }},
+      après : {{ local_ai_ps_check.json.models | default([]) | map(attribute='name') | list }}.
+      Ce rôle ne charge jamais de modèle lui-même (le chargement est à
+      la demande, D20) — si cette liste n'est pas vide, ce rôle est en
+      cause, pas un usage normal du service.
+    success_msg: >-
+      Aucun modèle nouvellement chargé par ce rôle (avant :
+      {{ local_ai_ps_before.json.models | default([]) | map(attribute='name') | list }},
+      après : {{ local_ai_ps_check.json.models | default([]) | map(attribute='name') | list }}).
   when: not ansible_check_mode
 
 - name: "Vérifier que l'API n'écoute QUE sur l'adresse locale attendue (pas 0.0.0.0/*, pas d'interface externe)"
@@ -372,6 +469,50 @@
       Ollama a lui-même annoncé le cloud désactivé
       (attendu={{ local_ai_cloud_disabled_expected }}), confirmé dans
       son propre journal.
+  when: not ansible_check_mode
+
+# --- IA-4 § 2 : vérification d'intégrité des blobs au repos ------------
+# Déployé, jamais exécuté par ce rôle lui-même — utilisable seul, sans
+# Ansible (motif complet : defaults/main.yml et l'en-tête du script).
+# ansible.builtin.template est nativement idempotent (comparaison de
+# contenu), aucune garde manuelle de type read-before-write nécessaire
+# ici — contrairement à kwriteconfig6 ailleurs dans ce dépôt.
+
+- name: "S'assurer que le répertoire utilisateur des binaires existe : {{ local_ai_verify_integrity_dest | dirname }}"
+  ansible.builtin.file:
+    path: "{{ local_ai_verify_integrity_dest | dirname }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer le script de vérification d'intégrité des blobs : {{ local_ai_verify_integrity_dest }}"
+  ansible.builtin.template:
+    src: verify-model-integrity.sh.j2
+    dest: "{{ local_ai_verify_integrity_dest }}"
+    mode: "0755"
+  register: local_ai_verify_integrity_write
+  when: not ansible_check_mode
+
+- name: "Garde a posteriori — le script déployé s'exécute et rapporte un état nominal (lecture seule stricte)"
+  ansible.builtin.command:
+    cmd: "{{ local_ai_verify_integrity_dest }}"
+  register: local_ai_verify_integrity_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si le script déployé rapporte un écart d'intégrité"
+  ansible.builtin.assert:
+    that:
+      - local_ai_verify_integrity_check.rc == 0
+    fail_msg: >-
+      {{ local_ai_verify_integrity_dest }} rapporte un écart
+      d'intégrité (code {{ local_ai_verify_integrity_check.rc }}) :
+      {{ local_ai_verify_integrity_check.stdout }}. Ce rôle s'arrête :
+      un blob corrompu au repos ne doit jamais passer inaperçu (motif
+      complet, docs/local-ai.md § 9.2).
+    success_msg: "{{ local_ai_verify_integrity_check.stdout | trim }}"
   when: not ansible_check_mode
 
 # --- D21 : récupération des modèles par conteneur éphémère distinct ------
@@ -543,7 +684,8 @@
       seraient revérifiées, l'écrasement modprobe.d et les unités
       Quadlet (réseau interne dédié, volume, conteneur) seraient
       déployés, le service serait démarré — aucun modèle ne serait
-      chargé.
+      chargé. Le script de vérification d'intégrité et la minuterie
+      CDI (IA-4) seraient déployés et activés.
   when: ansible_check_mode
 
 - name: "Rapporter l'état (exécution réelle)"
@@ -564,9 +706,12 @@
           {{ local_ai_ollama_bind_address }}:{{ local_ai_ollama_port }}
           uniquement.
       - >-
-          Aucun modèle chargé en VRAM par ce rôle (/api/ps vide,
-          confirmé — distinct des modèles présents sur disque depuis
-          D21) — GPU visible depuis l'intérieur du conteneur, confirmé.
+          Aucun modèle nouvellement chargé en VRAM par ce rôle (avant :
+          {{ local_ai_ps_before.json.models | default([]) | map(attribute='name') | list }},
+          après : {{ local_ai_ps_check.json.models | default([]) | map(attribute='name') | list }}
+          — des modèles déjà résidents avant ce rôle, dus à un usage réel,
+          sont attendus et distincts d'un chargement par ce rôle lui-même,
+          D20) — GPU visible depuis l'intérieur du conteneur, confirmé.
       - >-
           Modèles présents sur disque (D21, informatif, pas une garde) :
           {{ local_ai_tags_final.json.models | default([]) | map(attribute='name') | list | join(', ') | default('aucun', true) }}
@@ -575,4 +720,13 @@
           Réseau dédié interne confirmé (Internal={{ local_ai_guard_network.stdout | default('?') | trim }}) —
           OLLAMA_NO_CLOUD={{ local_ai_ollama_no_cloud }}, confirmé dans le
           propre journal du serveur (« Ollama cloud disabled: {{ local_ai_cloud_disabled_expected }} »).
+      - >-
+          Script d'intégrité des blobs déployé et exécuté (IA-4 § 2) :
+          {{ local_ai_verify_integrity_check.stdout | default('') | trim }}
+      - >-
+          Minuterie {{ local_ai_cdi_timer_base_name }}.timer active
+          (utilisateur), déclenche verify-cdi-spec
+          ({{ local_ai_cdi_timer_oncalendar }}, Persistent=true) —
+          échec chaîné vers {{ local_ai_cdi_notify_service_name }}.service
+          (notify-send, IA-4 § 3).
   when: not ansible_check_mode

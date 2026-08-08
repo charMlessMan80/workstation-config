@@ -1,0 +1,27 @@
+# Déployé par roles/local_ai/ (IA-4) — unité systemd --user PLATE,
+# jamais une unité Quadlet : ce service n'exécute pas de conteneur, la
+# justification Quadlet de ollama.container/.volume/.network (D14, « ce
+# que l'outil gère déjà ») ne s'applique pas ici — CLAUDE.md § avant
+# d'agir, appliqué dans l'autre sens : ne pas imposer un mécanisme dont
+# le problème ne relève pas.
+#
+# Deuxième levier de déclenchement de verify-cdi-spec (docs/local-ai.md
+# § 2.4/IA-4 § 3), indépendant de l'ExecStartPre de ollama.container.j2
+# (qui ne se rejoue qu'à un (re)démarrage du service) — couvre le cas
+# d'une mise à jour de pilote survenant PENDANT que le service tourne
+# déjà, potentiellement pendant plusieurs jours (D15 : keep_alive
+# infini). Déclenché par local-ai-cdi-verify.timer.
+#
+# OnFailure= : un échec de ce service reste silencieux dans le journal
+# tant que personne ne le consulte activement — la demande (§ 3) exige
+# une notification visible, pas seulement un enregistrement. Chaînée
+# vers local-ai-cdi-verify-notify.service, jamais implémentée en
+# doublon ici.
+
+[Unit]
+Description=Vérification périodique de la péremption de la spécification CDI (IA-4, roles/local_ai/)
+OnFailure={{ local_ai_cdi_notify_service_name }}.service
+
+[Service]
+Type=oneshot
+ExecStart={{ local_ai_ansible_playbook_bin }} {{ local_ai_gpu_cdi_playbook }} --tags verify-cdi-spec
