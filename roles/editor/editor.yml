@@ -7,7 +7,7 @@
 # non. Ce compte porte une règle NOPASSWD depuis le 2026-08-05 (D9,
 # docs/machine-facts.md § Décisions) — les tâches become: true de ce
 # rôle s'exécutent donc sans invite.
-- name: Editor — Helix et Kate, sans serveur de langage npm (D11, D12)
+- name: Editor — Helix et Kate, sans serveur de langage npm (D12, D13)
   hosts: localhost
   connection: local
   gather_facts: true

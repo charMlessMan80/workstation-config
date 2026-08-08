@@ -1,0 +1,15 @@
+---
+# Playbook d'exécution/test du rôle bootstrap, ciblant localhost.
+# `role: "{{ playbook_dir }}"` charge ce répertoire lui-même comme rôle —
+# même patron que roles/recovery/recovery.yml.
+#
+# Amorçage (D9 pas encore en place) : `ansible-playbook
+# --ask-become-pass roles/bootstrap/bootstrap.yml`. Une fois D9 migrée
+# (tag bootstrap-sudoers), `become` fonctionne sans invite — mêmes
+# commandes, sans `--ask-become-pass`.
+- name: Bootstrap — D6, D9, D10 reconstructibles
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - role: "{{ playbook_dir }}"

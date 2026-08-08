@@ -1,8 +1,9 @@
 ---
-# Choix de l'opérateur (D12, docs/machine-facts.md § Décisions — voir
-# la note de renumérotation dans le rapport de ce livrable, la demande
-# désignait ce choix « D12 » mais ce numéro était déjà pris) : Helix en
-# terminal, Kate en graphique. Motif complet : docs/editor.md § D12 —
+# [CORRIGÉ le 2026-08-08, COR-2] Choix de l'opérateur (D13,
+# docs/machine-facts.md § Décisions — voir la note de renumérotation
+# dans le rapport de ce livrable, la demande désignait ce choix « D12 »
+# mais ce numéro était déjà pris, renumérotée D13) : Helix en
+# terminal, Kate en graphique. Motif complet : docs/editor.md § D13 —
 # résumé ici, Helix embarque coloration tree-sitter et configuration
 # complète sans gestionnaire de greffons (contrairement à Neovim, dont
 # l'intérêt réel suppose des greffons récupérés hors dépôts) ; Kate est
@@ -12,8 +13,10 @@
 editor_helix_package: helix
 editor_kate_package: kate
 
-# D11 renumérotée (docs/machine-facts.md § Décisions) : npm n'est pas
-# ouvert comme surface d'approvisionnement. Ni yaml-language-server, ni
+# [CORRIGÉ le 2026-08-08, COR-2] ÉTAIT « D11 renumérotée » — D12
+# (docs/machine-facts.md § Décisions ; demande d'origine « D11 », déjà
+# pris par le placement de fenêtre KWin, renumérotée D12) : npm n'est
+# pas ouvert comme surface d'approvisionnement. Ni yaml-language-server, ni
 # ansible-language-server, ni aucun serveur de langage récupéré par ce
 # canal — aucun des deux n'est empaqueté dans les onze dépôts (constaté
 # en EDI-0, docs/editor.md § 1.2), les installer supposerait node/npm
@@ -53,10 +56,10 @@ editor_kate_externaltools_dir: "{{ editor_kate_config_dir }}/externaltools"
 # (/usr/lib64/qt6/plugins/kf6/ktexteditor/*.so — chaîne `library=` dans
 # le fichier .rc intégré de katekonsoleplugin, confirmée). Deux
 # greffons activés : outils externes (nécessaire pour appeler
-# ansible-lint/yamllint sans serveur de langage, § D11) et terminal
-# intégré (cité comme motif de choix de Kate en D12 — sans l'activer,
+# ansible-lint/yamllint sans serveur de langage, § D12) et terminal
+# intégré (cité comme motif de choix de Kate en D13 — sans l'activer,
 # ce motif ne serait pas vrai). Le greffon client LSP n'est PAS activé
-# : D11 interdit tout serveur de langage à lui connecter, l'activer
+# : D12 interdit tout serveur de langage à lui connecter, l'activer
 # sans rien à connecter n'aurait aucun effet utile (sobriété — pas
 # d'option sans motif).
 editor_kate_plugins:

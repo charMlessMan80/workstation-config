@@ -1,9 +1,11 @@
 ---
 # Rôle editor — installe et configure Helix (terminal) et Kate
-# (graphique), choix de l'opérateur D12 (docs/editor.md,
-# docs/machine-facts.md § Décisions). N'installe jamais node/npm ni
-# aucun serveur de langage (D11) — garde explicite ci-dessous. N'écrit
-# aucune configuration Kate par copie de fichier brute (clés nommées,
+# (graphique), choix de l'opérateur D13 (docs/editor.md,
+# docs/machine-facts.md § Décisions). [CORRIGÉ le 2026-08-08, COR-2]
+# ÉTAIT D12 ici — voir la note de renumérotation EDI-1, D12/D13.
+# N'installe jamais node/npm ni aucun serveur de langage (D12) — garde
+# explicite ci-dessous. N'écrit aucune configuration Kate par copie de
+# fichier brute (clés nommées,
 # kwriteconfig6) — même discipline qu'à BUR-1 sur kwinrulesrc.
 # N'installe rien depuis terra. Ne touche jamais sudoers, /etc/cdi/,
 # kwinrc, kwinrulesrc, gpu_mux_mode.
@@ -26,13 +28,15 @@
   register: editor_install
   when: not ansible_check_mode
 
-# --- Garde D11 : aucun node/npm sur le système, dans les deux sens ---------
-# Vérifie le PATH réel (command -v), pas seulement l'absence d'un
-# paquet rpm nommé « nodejs » — un binaire node/npm pourrait provenir
-# d'ailleurs (pip, un binaire déposé à la main). C'est délibérément un
-# test d'exécution, pas une lecture de base rpm.
+# --- Garde D12 : aucun node/npm sur le système, dans les deux sens ---------
+# [CORRIGÉ le 2026-08-08, COR-2] ÉTAIT « Garde D11 » ici — voir la note
+# de renumérotation EDI-1, D12/D13. Vérifie le PATH réel (command -v),
+# pas seulement l'absence d'un paquet rpm nommé « nodejs » — un binaire
+# node/npm pourrait provenir d'ailleurs (pip, un binaire déposé à la
+# main). C'est délibérément un test d'exécution, pas une lecture de
+# base rpm.
 
-- name: "Garde D11 — vérifier qu'aucun des binaires interdits n'est sur le PATH : {{ editor_forbidden_binaries | join(', ') }}"
+- name: "Garde D12 — vérifier qu'aucun des binaires interdits n'est sur le PATH : {{ editor_forbidden_binaries | join(', ') }}"
   # "||", pas "&&" : on veut détecter la présence de N'IMPORTE LEQUEL
   # des binaires interdits (rc=0 dès que l'un est trouvé). Un "&&"
   # court-circuiterait sur le premier binaire absent sans jamais tester
@@ -47,19 +51,19 @@
   failed_when: false
   check_mode: false
 
-- name: "Échouer bruyamment si un binaire interdit par D11 est présent (npm n'est pas une surface d'approvisionnement ouverte)"
+- name: "Échouer bruyamment si un binaire interdit par D12 est présent (npm n'est pas une surface d'approvisionnement ouverte)"
   ansible.builtin.assert:
     that:
       - editor_forbidden_check.rc != 0
     fail_msg: >-
       Un binaire parmi {{ editor_forbidden_binaries | join(', ') }} est
       présent sur le PATH ({{ editor_forbidden_check.stdout | trim }}) —
-      D11 (docs/machine-facts.md § Décisions) interdit node/npm comme
+      D12 (docs/machine-facts.md § Décisions) interdit node/npm comme
       surface d'approvisionnement pour cet éditeur, sous quelque forme
       que ce soit. Ce rôle s'arrête plutôt que de continuer sur une
       prémisse violée.
     success_msg: >-
-      Aucun des binaires interdits par D11 ({{ editor_forbidden_binaries | join(', ') }})
+      Aucun des binaires interdits par D12 ({{ editor_forbidden_binaries | join(', ') }})
       n'est présent sur le PATH — garde vérifiée.
 
 # --- Helix : config.toml sobre, aucun serveur de langage inscrit ----------
@@ -68,7 +72,7 @@
 # ansible-language-server pour le langage yaml sans qu'aucun des deux
 # ne soit présent — `hx --health yaml` le rapporte lui-même
 # ("not found in $PATH"), sans erreur bloquante. C'est exactement le
-# comportement attendu par D11 (absence documentée, pas corrigée) ;
+# comportement attendu par D12 (absence documentée, pas corrigée) ;
 # écrire un languages.toml pour supprimer cette mention irait à
 # l'encontre de la consigne plutôt que de la respecter.
 
@@ -111,7 +115,7 @@
   changed_when: false
   check_mode: false
 
-- name: "Activer les greffons Kate nécessaires (outils externes, terminal intégré) — jamais le client LSP (D11, rien à lui connecter)"
+- name: "Activer les greffons Kate nécessaires (outils externes, terminal intégré) — jamais le client LSP (D12, rien à lui connecter)"
   ansible.builtin.command:
     argv:
       - kwriteconfig6
@@ -177,7 +181,7 @@
   changed_when: true
   register: editor_kate_tools_write
 
-# --- Vérification D11 : ansible-lint reste le seul binaire faisant autorité
+# --- Vérification D12 : ansible-lint reste le seul binaire faisant autorité
 # Pas un test d'installation de ce rôle (ce rôle n'installe ni
 # ansible-lint ni yamllint) — une confirmation que rien de ce qui
 # précède n'en a introduit un second, par effet de bord.
@@ -218,7 +222,7 @@
     msg: >-
       --check : aucune écriture réalisée. Helix et Kate seraient
       installés, config.toml déployé pour Helix, greffons et outils
-      externes activés pour Kate (garde D11, ansible-lint venv D3a
+      externes activés pour Kate (garde D12, ansible-lint venv D3a
       non revérifiés en mode simulation).
   when: ansible_check_mode
 
@@ -226,7 +230,7 @@
   ansible.builtin.debug:
     msg:
       - "Helix et Kate installés depuis fedora/updates — jamais terra."
-      - "Garde D11 vérifiée : aucun node/npm sur le PATH."
+      - "Garde D12 vérifiée : aucun node/npm sur le PATH."
       - "Helix : {{ editor_helix_config_dir }}/config.toml déployé, aucun serveur de langage inscrit."
       - "Kate : greffons {{ editor_kate_plugins | join(', ') }} activés, outils externes déployés dans {{ editor_kate_externaltools_dir }}."
       - "ansible-lint (venv D3a) : {{ editor_ansible_lint_version.stdout }} — aucun second binaire introduit."

@@ -1,0 +1,13 @@
+# Déployé par roles/bootstrap/ (D9, docs/machine-facts.md § Décisions).
+# Même règle que celle écrite manuellement le 2026-08-05 dans
+# /etc/sudoers (ligne 110) — déplacée ici, jamais dans /etc/sudoers
+# lui-même : ce fichier n'appartient à aucun paquet, contrairement à
+# /etc/sudoers (paquet `sudo`), dont une mise à jour peut produire un
+# .rpmnew qui écarte la règle sans le signaler (point ouvert nommé par
+# D9 elle-même, jamais résolu jusqu'à ce livrable).
+#
+# Validé par `visudo -cf` AVANT d'être activé (voir la tâche qui déploie
+# ce gabarit, `validate:` du module template) — une erreur de syntaxe
+# ici ne doit jamais atteindre /etc/sudoers.d/ : c'est le seul endroit
+# de ce dépôt où une faute de frappe peut verrouiller l'accès sudo.
+%{{ bootstrap_sudoers_group }}	ALL=(ALL)	NOPASSWD: ALL

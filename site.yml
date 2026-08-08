@@ -1,0 +1,148 @@
+---
+# Playbook d'orchestration — reconstruction complète d'un poste neuf,
+# à partir du graphe de dépendances reconstitué par la revue globale
+# (docs/review-2026-08.md § 7.2). Séquence complète, y compris ce qui
+# précède ce playbook (installation de Fedora, etc.) : docs/orchestration.md
+# — ce fichier ne documente que ce qu'Ansible exécute.
+#
+# Amorçage (D9 pas encore en place sur une machine neuve) :
+#   ansible-playbook --ask-become-pass site.yml
+#
+# Étiquettes pour rejouer un rôle seul : bootstrap, recovery, gpu_cdi,
+# gpu_mux, local_ai, editor, completion — voir docs/orchestration.md
+# pour l'usage complet, y compris la reprise après le point d'arrêt.
+#
+# Ne redémarre JAMAIS lui-même — s'arrête explicitement (post_tasks,
+# plus bas) si un redémarrage est encore requis, avec le message exact
+# de ce qu'il faut vérifier au retour. Rejoué après un redémarrage
+# réel, chaque rôle qui précède est idempotent (changed=0 si déjà
+# appliqué) : « reprise propre » signifie ici qu'aucun re-jeu ne
+# modifie quoi que ce soit déjà en place, pas qu'aucune tâche n'est
+# réévaluée.
+#
+# N'inclut jamais les tâches taguées `never` (récupération de modèles,
+# roles/local_ai/, tag pull-models) dans le flux normal — comportement
+# natif d'Ansible sur les tags `never`, rien à faire de plus ici pour
+# le garantir.
+
+- name: Orchestration — poste de développement, de zéro à opérationnel
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  roles:
+    # --- Aucune dépendance amont, aucun redémarrage ---------------------
+    # D6/D9/D10 reconstructibles — voir roles/bootstrap/README.md pour
+    # l'amorçage (become) et le tag bootstrap-sudoers (D9, migration).
+    - role: bootstrap
+      tags: ['bootstrap']
+
+    # Chemin de retour SSH — DOIT précéder gpu_mux : la garde 0a/0b/0c
+    # de gpu_mux (docs/review-2026-08.md § 4.1, COR-1) vérifie l'état
+    # RÉEL de sshd/authorized_keys/firewalld au moment de l'exécution,
+    # pas le fait que ce rôle ait tourné un jour — le faire tourner
+    # avant est ce qui rend cette garde utile plutôt que vide.
+    - role: recovery
+      tags: ['recovery']
+
+    # Dépôt CDI/COPR + spécification — aucune dépendance amont au-delà
+    # du pilote NVIDIA déjà chargé (pré-Ansible, docs/orchestration.md).
+    # Aucun redémarrage.
+    - role: gpu_cdi
+      tags: ['gpu_cdi']
+
+    # Écrit gpu_mux_mode (D2bis/D2ter) — garde 0 dépend de recovery
+    # ci-dessus, déjà passé. N'écrit jamais dgpu_disable, ne redémarre
+    # jamais. pending_reboot passe à 1 : appliqué à la prochaine
+    # extinction/redémarrage par asus-shutdown.service (voir le point
+    # d'arrêt post_tasks plus bas).
+    - role: gpu_mux
+      tags: ['gpu_mux']
+
+    # Écrit le paramètre pilote D16 (modprobe.d) et déploie le service
+    # Ollama — dépend de gpu_cdi (verify-cdi-spec, gardé explicitement
+    # par ce rôle lui-même). Le service démarre et fonctionne
+    # immédiatement, indépendamment du redémarrage : seule la valeur du
+    # paramètre pilote D16 attend le prochain chargement de nvidia.ko
+    # (voir le point d'arrêt post_tasks plus bas — même redémarrage que
+    # gpu_mux, pas un second).
+    - role: local_ai
+      tags: ['local_ai']
+
+    # Indépendant de tout ce qui précède — pourrait s'exécuter à
+    # n'importe quel point de cette séquence, placé ici par
+    # regroupement (paquets système, D12/D13), pas par dépendance réelle.
+    - role: editor
+      tags: ['editor']
+
+    # Dépend de editor (garde COR-1, Helix installé) et de local_ai
+    # (garde : service joignable, modèle de complétion présent — ce
+    # dernier suppose --tags pull-models,untagged déjà joué une fois,
+    # hors flux normal, voir roles/local_ai/README.md).
+    - role: completion
+      tags: ['completion']
+
+  post_tasks:
+    # --- Point d'arrêt — jamais un redémarrage déclenché ici -----------
+    # Un seul redémarrage couvre gpu_mux_mode (D2bis/D2ter) ET le
+    # paramètre pilote D16 (docs/review-2026-08.md § 1, COR-2) :
+    # asus-shutdown.service, qui applique gpu_mux_mode, est ordonné
+    # Before=shutdown.target reboot.target halt.target (établi,
+    # docs/machine-facts.md § GPU, § Services) — il s'exécute pour un
+    # `reboot` comme pour un `poweroff`, pas seulement ce dernier ;
+    # nvidia.ko est déchargé puis rechargé par tout redémarrage complet,
+    # ce qui suffit à faire prendre effet le paramètre pilote (établi,
+    # docs/local-ai.md § 7.1 : « seul un redémarrage applique proprement
+    # une nouvelle valeur ici »). Aucune interaction connue entre les
+    # deux mécanismes (routage MUX au niveau firmware contre
+    # comportement du pilote à la suspension système — deux sous-systèmes
+    # indépendants). **Combinaison jamais vérifiée empiriquement sur ce
+    # poste** — historiquement appliqués par deux redémarrages séparés,
+    # à des dates différentes (2026-08-05 et 2026-08-07) : ce point
+    # d'arrêt vérifie donc les DEUX faits séparément après le
+    # redémarrage, plutôt que de supposer que l'un implique l'autre.
+
+    - name: "Relever pending_reboot (gpu_mux_mode, D2bis/D2ter)"
+      ansible.builtin.command:
+        cmd: cat /sys/class/firmware-attributes/asus-armoury/attributes/pending_reboot
+      register: site_pending_reboot
+      changed_when: false
+      check_mode: false
+
+    - name: "Relever la valeur active de NVreg_PreserveVideoMemoryAllocations (D16)"
+      ansible.builtin.command:
+        cmd: grep -i PreserveVideoMemoryAllocations /proc/driver/nvidia/params
+      register: site_nvreg_value
+      changed_when: false
+      check_mode: false
+
+    - name: "ARRÊT — redémarrage requis avant de poursuivre (editor/completion ne sont pas concernés, déjà exécutés ci-dessus)"
+      ansible.builtin.fail:
+        msg: >-
+          Redémarrage requis avant de considérer cette reconstruction
+          terminée : pending_reboot={{ site_pending_reboot.stdout | trim }}
+          (attendu 0), NVreg_PreserveVideoMemoryAllocations=
+          {{ site_nvreg_value.stdout | trim }} (attendu contenant « : 1 »).
+          Ce playbook NE redémarre PAS lui-même. Redémarrer maintenant
+          (décision et déclenchement manuels), puis après le retour en
+          session : vérifier `cat
+          /sys/class/firmware-attributes/asus-armoury/attributes/gpu_mux_mode/current_value`
+          (attendu 1) et la topologie DRM (docs/gpu-mux-recovery.md),
+          vérifier `cat /proc/driver/nvidia/params | grep -i
+          PreserveVideoMemoryAllocations` (attendu 1), puis relancer ce
+          même playbook sans argument particulier — chaque rôle qui
+          précède est idempotent, rien de déjà fait ne sera rejoué,
+          seul ce point d'arrêt sera réévalué et, cette fois, franchi.
+      when: >-
+        (site_pending_reboot.stdout | trim != '0')
+        or ('PreserveVideoMemoryAllocations: 1' not in site_nvreg_value.stdout)
+
+    - name: "Rapporter la fin de la reconstruction (point d'arrêt franchi ou jamais nécessaire)"
+      ansible.builtin.debug:
+        msg: >-
+          Reconstruction Ansible terminée — pending_reboot=
+          {{ site_pending_reboot.stdout | trim }},
+          {{ site_nvreg_value.stdout | trim }}. Voir
+          docs/orchestration.md pour ce qui reste hors d'Ansible
+          (--tags pull-models,untagged de roles/local_ai/, jamais dans
+          ce flux).

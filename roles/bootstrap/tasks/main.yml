@@ -1,0 +1,369 @@
+---
+# Rôle bootstrap — rend reconstructibles D6, D9, D10 (docs/machine-facts.md
+# § Décisions), jusqu'ici des transactions manuelles jamais scriptées
+# (revue globale, docs/review-2026-08.md § 7.1). Idempotent sur l'état
+# actuel de ce poste : D6/D9/D10 y sont déjà satisfaites — une exécution
+# normale devrait rapporter presque uniquement `ok`, à l'exception du
+# déplacement D9 (voir plus bas, tag dédié, jamais joué par réflexe).
+#
+# N'installe jamais de modèle, ne touche jamais SELinux (aucun
+# setenforce), ne bascule jamais gpu_mux_mode, ne redémarre jamais la
+# machine, n'installe jamais node/npm.
+
+# --- D6 : tuned-ppd -> power-profiles-daemon ----------------------------
+# Idempotent : ne rien faire si l'état cible est déjà atteint. Commande
+# d'origine reproduite à l'identique (transaction 7,
+# docs/machine-facts.md § Décisions), sous forme argv — jamais une
+# chaîne shell.
+
+- name: "D6 — relever les paquets installés"
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: "D6 — échouer bruyamment si les deux paquets sont dans un état incohérent (les deux présents, ou les deux absents sans jamais avoir été résolu)"
+  ansible.builtin.assert:
+    that:
+      - not (bootstrap_ppd_old_package in ansible_facts.packages and bootstrap_ppd_new_package in ansible_facts.packages)
+    fail_msg: >-
+      {{ bootstrap_ppd_old_package }} ET {{ bootstrap_ppd_new_package }}
+      sont installés simultanément — état non anticipé par D6
+      (docs/machine-facts.md § Décisions), qui prévoit un remplacement
+      complet. Résoudre manuellement avant de continuer : `dnf remove
+      {{ bootstrap_ppd_old_package }}` si {{ bootstrap_ppd_new_package }}
+      fonctionne déjà, sinon investiguer pourquoi les deux coexistent.
+    success_msg: "État cohérent : pas de coexistence des deux paquets."
+
+- name: >-
+    D6 — remplacer par power-profiles-daemon (commande d'origine,
+    transaction 7) : {{ bootstrap_ppd_old_package }}
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - swap
+      - "{{ bootstrap_ppd_old_package }}"
+      - "{{ bootstrap_ppd_new_package }}"
+      - --allowerasing
+      - -y
+  become: true
+  register: bootstrap_ppd_swap
+  changed_when: "'Nothing to do' not in bootstrap_ppd_swap.stdout"
+  when: >-
+    bootstrap_ppd_old_package in ansible_facts.packages
+    or bootstrap_ppd_new_package not in ansible_facts.packages
+
+- name: "D6 — rapport"
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Déjà satisfaite : ' ~ bootstrap_ppd_new_package ~ ' présent, '
+         ~ bootstrap_ppd_old_package ~ ' absent.'
+         if (bootstrap_ppd_new_package in ansible_facts.packages
+             and bootstrap_ppd_old_package not in ansible_facts.packages
+             and not bootstrap_ppd_swap.changed | default(false))
+         else 'Remplacement effectué dans cette exécution.' }}
+
+# --- D9 § diagnostic — toujours exécuté, jamais destructeur --------------
+
+- name: "D9 — confirmer que sudo fonctionne AVANT toute action de ce rôle (jamais via become : invocation directe)"
+  ansible.builtin.command:
+    cmd: sudo -n true
+  register: bootstrap_sudo_before
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "D9 — échouer bruyamment si sudo ne fonctionne déjà pas avant toute action (rien à migrer en sécurité dans cet état)"
+  ansible.builtin.assert:
+    that:
+      - bootstrap_sudo_before.rc == 0
+    fail_msg: >-
+      `sudo -n true` échoue avant toute action de ce rôle (code
+      {{ bootstrap_sudo_before.rc }}) — ce rôle exige un accès sudo
+      fonctionnel en préalable (amorçage : `--ask-become-pass` au
+      premier lancement si D9 n'est pas encore en place). Ne PAS
+      continuer : migrer une règle sudoers sur un accès déjà cassé
+      aggraverait la situation, pas la corrigerait.
+    success_msg: "sudo fonctionne avant toute action de ce rôle."
+
+- name: "D9 — relever si la règle vit déjà dans /etc/sudoers.d/ (état cible)"
+  ansible.builtin.stat:
+    path: "{{ bootstrap_sudoers_d_file }}"
+  become: true  # /etc/sudoers.d/ est 0750 root:root — illisible sans privilège, même en lecture seule
+  register: bootstrap_sudoers_d_stat
+
+- name: "D9 — rapport (diagnostic, toujours exécuté)"
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'État cible déjà atteint : ' ~ bootstrap_sudoers_d_file ~ ' existe.'
+         if bootstrap_sudoers_d_stat.stat.exists
+         else 'Règle encore uniquement dans /etc/sudoers (D9, 2026-08-05) — '
+              ~ 'migration disponible sous le tag bootstrap-sudoers, jamais '
+              ~ 'jouée par défaut (voir roles/bootstrap/README.md).' }}
+
+# --- D9 § migration — TAG DÉDIÉ, JAMAIS JOUÉ SANS INVOCATION EXPLICITE --
+# Motif (demande COR-2 § 3) : c'est l'opération la plus risquée de ce
+# dépôt — une erreur ici peut coûter l'accès sudo. Séquence conçue pour
+# qu'aucun échec, à aucune étape, ne laisse la machine sans sudo
+# fonctionnel : le nouveau fichier est validé par `visudo -cf` AVANT
+# d'être écrit (paramètre validate: du module template — si la syntaxe
+# est mauvaise, RIEN n'est écrit) ; sudo est revérifié APRÈS le nouveau
+# fichier mais AVANT de toucher à l'ancienne ligne ; l'ancienne ligne
+# n'est retirée qu'ensuite, elle aussi validée par `visudo -cf` avant
+# application ; sudo est revérifié une dernière fois après.
+# Procédure de retour si l'étape 2 (sudo cassé avec le nouveau fichier
+# déjà en place) échoue : l'ancienne ligne est encore dans /etc/sudoers,
+# intacte — supprimer {{ bootstrap_sudoers_d_file }} restaure l'état
+# antérieur exactement. Si l'étape 4 (sudo cassé après retrait de
+# l'ancienne ligne) échoue : accès root hors `sudo` requis (TTY racine,
+# console de récupération, ou toute session ayant encore un privilège
+# actif) pour soit restaurer la ligne dans /etc/sudoers, soit
+# diagnostiquer pourquoi {{ bootstrap_sudoers_d_file }} ne suffit pas
+# (permissions, contenu, `#includedir` absent de /etc/sudoers).
+
+- name: "D9 migration 1/4 — déployer la règle dans /etc/sudoers.d/, validée par visudo AVANT d'être écrite"
+  ansible.builtin.template:
+    src: wheel-nopasswd.j2
+    dest: "{{ bootstrap_sudoers_d_file }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  become: true
+  register: bootstrap_sudoers_d_write
+  tags: ['bootstrap-sudoers']
+
+- name: "D9 migration 2/4 — revérifier sudo APRÈS le nouveau fichier, AVANT de toucher à l'ancienne ligne (jamais via become)"
+  ansible.builtin.command:
+    cmd: sudo -n true
+  register: bootstrap_sudo_after_new_file
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: ['bootstrap-sudoers']
+
+- name: "D9 migration — échouer bruyamment si sudo casse avec le nouveau fichier en place (l'ancienne ligne n'est PAS encore touchée)"
+  ansible.builtin.assert:
+    that:
+      - bootstrap_sudo_after_new_file.rc == 0
+    fail_msg: >-
+      `sudo -n true` échoue après le dépôt de {{ bootstrap_sudoers_d_file }}
+      (code {{ bootstrap_sudo_after_new_file.rc }}). L'ancienne ligne dans
+      /etc/sudoers est encore intacte — RETOUR : supprimer
+      {{ bootstrap_sudoers_d_file }} restaure l'état antérieur à
+      l'identique. Ce rôle s'arrête AVANT de toucher à l'ancienne ligne.
+    success_msg: "sudo fonctionne toujours avec le nouveau fichier en place."
+  tags: ['bootstrap-sudoers']
+
+- name: "D9 migration 3/4 — retirer l'ancienne ligne de /etc/sudoers, validée par visudo AVANT application"
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    regexp: "{{ bootstrap_sudoers_old_line_regexp }}"
+    state: absent
+    validate: "visudo -cf %s"
+  become: true
+  register: bootstrap_sudoers_old_line_removed
+  tags: ['bootstrap-sudoers']
+
+- name: "D9 migration 4/4 — revérifier sudo une dernière fois, après retrait de l'ancienne ligne (jamais via become)"
+  ansible.builtin.command:
+    cmd: sudo -n true
+  register: bootstrap_sudo_after_removal
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: ['bootstrap-sudoers']
+
+- name: "D9 migration — échouer bruyamment si sudo casse après retrait de l'ancienne ligne (pire cas, accès root hors sudo requis)"
+  ansible.builtin.assert:
+    that:
+      - bootstrap_sudo_after_removal.rc == 0
+    fail_msg: >-
+      `sudo -n true` échoue après le retrait de l'ancienne ligne de
+      /etc/sudoers (code {{ bootstrap_sudo_after_removal.rc }}) —
+      {{ bootstrap_sudoers_d_file }} ne suffit apparemment pas à lui
+      seul. NE PAS FERMER CETTE SESSION : elle peut encore porter un
+      privilège actif. Vérifier {{ bootstrap_sudoers_d_file }} (mode
+      0440 ? propriétaire root:root ? contenu ?) et que /etc/sudoers
+      contient toujours `#includedir /etc/sudoers.d`. Si aucune
+      correction ne rétablit sudo depuis cette session, un accès root
+      hors sudo (TTY racine, console de récupération) est nécessaire
+      pour restaurer manuellement la ligne dans /etc/sudoers.
+    success_msg: >-
+      D9 migrée avec succès : NOPASSWD vit maintenant dans
+      {{ bootstrap_sudoers_d_file }}, /etc/sudoers ne porte plus la
+      règle en dur, sudo confirmé fonctionnel à chaque étape.
+  tags: ['bootstrap-sudoers']
+
+# --- D10 § préparation — téléchargement et vérification, jamais de privilège
+# ni d'écriture avant que l'empreinte soit confirmée ------------------------
+
+- name: "D10 — relever les paquets installés (si pas déjà fait par D6)"
+  ansible.builtin.package_facts:
+    manager: auto
+  when: ansible_facts.packages is not defined
+
+- name: "D10 — s'assurer que le répertoire de travail temporaire existe (hors dépôt, D4)"
+  ansible.builtin.file:
+    path: "{{ bootstrap_work_dir }}"
+    state: directory
+    mode: "0700"
+  check_mode: false
+  # Toujours créé, même sous --check : c'est un répertoire de travail
+  # temporaire hors de l'état système final (D10 § déploiement plus
+  # bas, seul concerné par --check), nécessaire pour que la démonstration
+  # de la garde d'empreinte (téléchargement réel, inspection réelle)
+  # produise un résultat significatif même en simulation.
+
+# Aucun privilège requis : dnf download ne fait qu'un transfert de
+# fichier, aucune transaction, aucune vérification de signature de
+# paquet n'est en jeu à ce stade — c'est précisément pour ça que
+# --nogpgcheck n'est jamais nécessaire ici, contrairement à
+# l'installation d'origine (2026-08-04). --repofrompath est éphémère :
+# rien n'est écrit dans /etc, vérifié en écrivant ce rôle (`ls
+# /etc/yum.repos.d/` avant/après, identique).
+# noqa: command-instead-of-module — aucun module ansible.builtin ne couvre `dnf download`
+- name: "D10 — télécharger le paquet porteur de la clé, dépôt temporaire non approuvé (lecture seule, aucun privilège)"  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - download
+      - --repofrompath
+      - "bootstrap-terra,{{ bootstrap_terra_base_url }}"
+      - --repoid=bootstrap-terra
+      - --destdir
+      - "{{ bootstrap_work_dir }}"
+      - "{{ bootstrap_terra_key_carrier_package }}"
+  register: bootstrap_terra_download
+  changed_when: true
+  check_mode: false
+
+- name: "D10 — échouer bruyamment si le téléchargement a échoué"
+  ansible.builtin.assert:
+    that:
+      - bootstrap_terra_download.rc == 0
+    fail_msg: >-
+      Échec du téléchargement de {{ bootstrap_terra_key_carrier_package }}
+      depuis {{ bootstrap_terra_base_url }} — sortie :
+      {{ bootstrap_terra_download.stderr | default('') }}. Ce rôle
+      s'arrête : aucun fichier de clé n'a été récupéré, rien à vérifier.
+    success_msg: "Paquet porteur de la clé téléchargé."
+
+- name: "D10 — trouver le fichier RPM téléchargé (nom exact non figé — dnf download résout la version courante)"
+  ansible.builtin.find:
+    paths: "{{ bootstrap_work_dir }}"
+    patterns: "{{ bootstrap_terra_key_carrier_package }}-*.rpm"
+  register: bootstrap_terra_rpm_find
+
+- name: "D10 — échouer bruyamment si aucun ou plusieurs RPM correspondants trouvés"
+  ansible.builtin.assert:
+    that:
+      - bootstrap_terra_rpm_find.matched == 1
+    fail_msg: >-
+      {{ bootstrap_terra_rpm_find.matched }} fichier(s) RPM trouvé(s)
+      dans {{ bootstrap_work_dir }} pour
+      {{ bootstrap_terra_key_carrier_package }}-*.rpm — un seul attendu.
+      Contenu du répertoire :
+      {{ bootstrap_terra_rpm_find.files | map(attribute='path') | list }}
+    success_msg: "Un seul RPM trouvé : {{ bootstrap_terra_rpm_find.files[0].path }}."
+
+- name: "D10 — extraire le contenu du RPM (rpm2cpio | cpio, aucun privilège, aucune installation)"  # noqa: command-instead-of-module
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail && rpm2cpio {{ bootstrap_terra_rpm_find.files[0].path | ansible.builtin.quote }}
+      | cpio -idm --quiet
+    chdir: "{{ bootstrap_work_dir }}"
+    executable: /bin/bash
+  register: bootstrap_terra_extract
+  changed_when: true
+  check_mode: false  # même motif que la création du répertoire de travail ci-dessus
+
+- name: "D10 — relever l'empreinte de la clé extraite, SANS l'importer dans aucun trousseau (inspection à sec)"
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --with-colons
+      - --import-options
+      - show-only
+      - --import
+      - "{{ bootstrap_work_dir }}{{ bootstrap_terra_key_dest }}"
+  register: bootstrap_terra_key_inspect
+  changed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si l'empreinte de la clé téléchargée ne correspond pas à celle épinglée (aucun import, aucun déploiement)"
+  ansible.builtin.assert:
+    that:
+      - >-
+        ('fpr:::::::::' ~ bootstrap_terra_key_fingerprint_expected ~ ':')
+        in bootstrap_terra_key_inspect.stdout
+    fail_msg: >-
+      L'empreinte de la clé téléchargée depuis
+      {{ bootstrap_terra_base_url }} ne contient pas l'empreinte épinglée
+      {{ bootstrap_terra_key_fingerprint_expected }} — empreintes trouvées :
+      {{ bootstrap_terra_key_inspect.stdout_lines | select('search', '^fpr') | list }}.
+      Ce rôle s'arrête : AUCUN import, AUCUN déploiement — un mécanisme
+      qui déploierait quand même produirait exactement le risque que D10
+      (docs/machine-facts.md § Décisions) engage à éviter.
+    success_msg: >-
+      Empreinte confirmée avant tout déploiement :
+      {{ bootstrap_terra_key_fingerprint_expected }}.
+
+# --- D10 § déploiement — uniquement atteint si l'empreinte a été confirmée -
+
+- name: "D10 — déployer le fichier de clé vérifié : {{ bootstrap_terra_key_dest }}"
+  ansible.builtin.copy:
+    src: "{{ bootstrap_work_dir }}{{ bootstrap_terra_key_dest }}"
+    dest: "{{ bootstrap_terra_key_dest }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: bootstrap_terra_key_write
+
+- name: "D10 — déployer terra.repo (gpgcheck=1/repo_gpgcheck=1 dès ce dépôt, jamais --nogpgcheck)"
+  ansible.builtin.template:
+    src: terra.repo.j2
+    dest: "{{ bootstrap_terra_repo_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: bootstrap_terra_repo_write
+
+- name: "D10 — installer les paquets terra (maintenant vérifiable normalement, clé déjà en place) : {{ bootstrap_terra_packages | join(', ') }}"
+  ansible.builtin.dnf:
+    name: "{{ bootstrap_terra_packages }}"
+    state: present
+  become: true
+  register: bootstrap_terra_install
+
+- name: "D10 — nettoyer le répertoire de travail temporaire (rien ne doit y survivre d'une exécution à l'autre)"
+  ansible.builtin.file:
+    path: "{{ bootstrap_work_dir }}"
+    state: absent
+  check_mode: false  # symétrique de sa création, toujours réelle, ci-dessus
+
+- name: "D10 — rapport"
+  ansible.builtin.debug:
+    msg: >-
+      Dépôt terra confirmé en place, empreinte vérifiée à chaque
+      exécution ({{ bootstrap_terra_key_fingerprint_expected }}) —
+      {{ 'déjà satisfait, aucun changement' if not (bootstrap_terra_key_write.changed
+         or bootstrap_terra_repo_write.changed or bootstrap_terra_install.changed)
+         else 'déployé/mis à jour dans cette exécution' }}.
+
+# --- Rapport final -------------------------------------------------------
+
+- name: "Rapporter l'état final"
+  ansible.builtin.debug:
+    msg:
+      - >-
+        D6 : {{ bootstrap_ppd_new_package }} en place, changed=
+        {{ bootstrap_ppd_swap.changed | default(false) }}.
+      - >-
+        D9 (diagnostic) : règle sudoers.d
+        {{ 'déjà en place' if bootstrap_sudoers_d_stat.stat.exists
+           else 'toujours à migrer — tag bootstrap-sudoers, jamais joué par défaut' }}.
+      - >-
+        D10 : terra.repo et {{ bootstrap_terra_key_dest }} en place,
+        empreinte vérifiée avant tout déploiement.

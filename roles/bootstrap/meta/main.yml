@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: bootstrap
+  author: Mickael Mahieu
+  description: >-
+    Rend reconstructibles D6 (power-profiles-daemon), D9 (NOPASSWD
+    wheel, dans /etc/sudoers.d/) et D10 (dépôt terra, empreinte épinglée
+    et vérifiée avant tout import) — voir docs/machine-facts.md §
+    Décisions et docs/review-2026-08.md § 7.1. Amorçage : ce rôle exige
+    `become` fonctionnel avant que D9 n'existe (premier lancement avec
+    `--ask-become-pass` si nécessaire).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

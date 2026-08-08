@@ -1,0 +1,85 @@
+---
+# Rôle bootstrap — rend reconstructibles trois décisions jusqu'ici
+# manuelles, jamais scriptées (revue globale, docs/review-2026-08.md
+# § 7.1, COR-2) : D6 (power-profiles-daemon), D9 (NOPASSWD wheel), D10
+# (dépôt terra). Amélioré par rapport à l'installation d'origine sur
+# deux points précis — voir tasks/main.yml pour le détail sourcé de
+# chacun : D9 vit dans /etc/sudoers.d/, jamais /etc/sudoers ; D10
+# n'utilise jamais --nogpgcheck, l'empreinte est vérifiée avant tout
+# import.
+
+# --- D6 : tuned-ppd -> power-profiles-daemon ----------------------------
+# Commande d'origine, reproduite à l'identique (transaction 7,
+# docs/machine-facts.md § Décisions) — argv, pas une chaîne shell.
+bootstrap_ppd_old_package: tuned-ppd
+bootstrap_ppd_new_package: power-profiles-daemon
+
+# --- D9 : NOPASSWD pour wheel, dans /etc/sudoers.d/ ----------------------
+# Motif de l'amélioration par rapport à l'installation d'origine
+# (/etc/sudoers ligne 110, D9, 2026-08-05) : /etc/sudoers appartient au
+# paquet `sudo` — une mise à jour peut produire un .rpmnew qui écarte la
+# règle en silence (point ouvert déjà nommé par D9 elle-même). Un fichier
+# dédié dans /etc/sudoers.d/ (chargé par la directive #includedir déjà
+# présente dans /etc/sudoers, jamais modifiée par ce rôle) n'appartient à
+# aucun paquet, survit à toute mise à jour de `sudo`.
+bootstrap_sudoers_d_file: /etc/sudoers.d/99-wheel-nopasswd
+bootstrap_sudoers_group: wheel
+
+# Ligne historique dans /etc/sudoers (D9, 2026-08-05) — jamais réécrite
+# sans confirmation explicite de l'opérateur (§ 3 de la demande COR-2).
+# Ancrée en motif de recherche exact pour la tâche de retrait (jamais
+# exécutée dans ce livrable, tag bootstrap-sudoers-migrate) : correspond
+# à la ligne relue directement en D9 (`sudo -n sed -n '108,112p'
+# /etc/sudoers`), pas une supposition.
+bootstrap_sudoers_old_line_regexp: '^%wheel\s+ALL=\(ALL\)\s+NOPASSWD:\s*ALL\s*$'
+
+# --- D10 : dépôt terra, empreinte épinglée et vérifiée avant tout import -
+# Amélioration par rapport à l'installation d'origine (2026-08-04,
+# transaction 5 : `dnf install --nogpgcheck --repofrompath terra,
+# https://repos.fyralabs.com/terra$releasever terra-release`, acceptation
+# interactive de la clé en transaction 6) : jamais --nogpgcheck ici —
+# l'empreinte est vérifiée AVANT tout déploiement de fichier ou import,
+# échec bruyant sinon (docs/machine-facts.md § Décisions D10).
+#
+# URL de base — même serveur, même chemin que l'installation d'origine
+# (dnf history info 5), vérifié de nouveau en écrivant ce rôle :
+# `dnf repoquery --repo=terra terra-gpg-keys --qf '%{location}'` a
+# résolu `https://repos.fyralabs.com/terra44/terra-gpg-keys-0:44-5.noarch.rpm`
+# — cette URL de base, sans version de paquet en dur (résolue à chaque
+# exécution par `dnf download`, jamais figée ici).
+bootstrap_terra_releasever: "44"
+bootstrap_terra_base_url: "https://repos.fyralabs.com/terra{{ bootstrap_terra_releasever }}"
+
+# Empreinte de la clé de signature du dépôt terra — décision de
+# l'opérateur (D10), corroborée localement (base rpm + fichier système,
+# les deux concordants, docs/repositories.md § 1) mais jamais par un
+# canal tiers indépendant (recherche exhaustive sur neuf canaux,
+# infructueuse, § 1 — écart nommé, pas cette garde). Substituable pour
+# la démonstration d'échec forcé (§ 3 de la demande) sans jamais changer
+# l'empreinte réellement épinglée :
+# -e bootstrap_terra_key_fingerprint_expected=0000000000000000000000000000000000000000
+bootstrap_terra_key_fingerprint: AE09157A4DE88B497EA1D5D300CDAB43DE226D6F
+bootstrap_terra_key_fingerprint_expected: "{{ bootstrap_terra_key_fingerprint }}"
+
+# Paquet dont le téléchargement sert de vecteur pour extraire la clé —
+# jamais installé avant que la clé n'ait été vérifiée. Jamais de version
+# figée (voir ci-dessus) : `dnf download` résout la plus récente
+# disponible à chaque exécution.
+bootstrap_terra_key_carrier_package: terra-gpg-keys
+
+# Répertoire de travail temporaire, hors de ce dépôt (D4 : rien de
+# concret n'y est versionné) — créé et détruit par ce rôle à chaque
+# exécution, jamais réutilisé d'une fois à l'autre (un artefact
+# périmé n'y survit jamais).
+bootstrap_work_dir: "{{ ansible_facts.env.HOME }}/.cache/bootstrap-terra-key"
+
+# Chemins système finaux — mêmes valeurs que celles déjà en place sur ce
+# poste (docs/repositories.md § 1), pas de nouveau nom inventé.
+bootstrap_terra_repo_file: /etc/yum.repos.d/terra.repo
+bootstrap_terra_key_dest: "/etc/pki/rpm-gpg/RPM-GPG-KEY-terra{{ bootstrap_terra_releasever }}"
+
+# Paquets réellement suivis par rpm une fois le dépôt en place — mêmes
+# noms que la transaction d'origine (dnf history info 5).
+bootstrap_terra_packages:
+  - terra-release
+  - "{{ bootstrap_terra_key_carrier_package }}"

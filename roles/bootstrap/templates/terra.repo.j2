@@ -1,0 +1,34 @@
+# Déployé par roles/bootstrap/ (D10, docs/machine-facts.md § Décisions).
+# Contenu identique à l'installation d'origine du 2026-08-04
+# (docs/repositories.md § 1-3) — gpgcheck=1 et repo_gpgcheck=1 dès ce
+# fichier, jamais dégradés : ce rôle vérifie l'empreinte de la clé AVANT
+# de déployer ce fichier (tasks/main.yml), donc n'a jamais besoin de
+# --nogpgcheck ni d'un repo temporaire non vérifié pour poser le dépôt
+# final. `$releasever`/`$basearch` sont des variables dnf, pas Jinja —
+# laissées telles quelles intentionnellement, comme dans le fichier
+# d'origine.
+
+[terra]
+name=Terra $releasever
+#baseurl=https://repos.fyralabs.com/terra$releasever
+metalink=https://tetsudou.fyralabs.com/metalink?repo=terra$releasever&arch=$basearch
+metadata_expire=6h
+type=rpm
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever
+repo_gpgcheck=1
+enabled=1
+enabled_metadata=1
+countme=1
+
+[terra-source]
+name=Terra $releasever - Source
+#baseurl=https://repos.fyralabs.com/terra$releasever-source
+metalink=https://tetsudou.fyralabs.com/metalink?repo=terra$releasever-source&arch=$basearch
+metadata_expire=6h
+type=rpm
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever-source
+repo_gpgcheck=1
+enabled=0
+enabled_metadata=0

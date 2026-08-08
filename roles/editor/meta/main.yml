@@ -4,9 +4,9 @@ galaxy_info:
   author: Mickael Mahieu
   description: >-
     Installe Helix (terminal) et Kate (graphique) — choix de
-    l'opérateur D12, docs/editor.md, depuis fedora/updates uniquement,
+    l'opérateur D13, docs/editor.md, depuis fedora/updates uniquement,
     jamais terra. N'installe jamais node/npm ni aucun serveur de
-    langage (D11) — garde vérifiée dans les deux sens après exécution.
+    langage (D12) — garde vérifiée dans les deux sens après exécution.
     Déploie une configuration sobre pour Helix
     (~/.config/helix/config.toml, aucun serveur de langage inscrit) et
     pour Kate (clés nommées via kwriteconfig6, jamais une copie de

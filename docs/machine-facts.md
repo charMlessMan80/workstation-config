@@ -2740,3 +2740,83 @@ froid), non établi.
   inchangés (dates de modification vérifiées) ; `sudoers` intact ;
   `getenforce` inchangé (`Enforcing`) ; aucun rôle `bootstrap`, aucun
   playbook d'orchestration écrit ; aucun redémarrage.
+- **2026-08-08 — rôle `bootstrap` (D6/D9/D10 reconstructibles) et
+  orchestration complète, `roles/bootstrap/` (nouveau), `site.yml`
+  (nouveau), `docs/orchestration.md` (nouveau) (COR-2).**
+  **§ 1 — un seul redémarrage, pas deux, établi par lecture** :
+  `asus-shutdown.service` (D2ter) est ordonné `Before=shutdown.target
+  reboot.target halt.target` (déjà établi, § GPU § Services) — il
+  s'applique pour un `reboot` comme pour un `poweroff` ; le paramètre
+  pilote D16 prend effet « au prochain chargement du module nvidia.ko »
+  (déjà établi, `docs/local-ai.md` § 7.1), que tout redémarrage complet
+  satisfait. Aucune interaction connue entre les deux mécanismes.
+  **Jamais vérifié en combiné** sur ce poste — appliqués historiquement
+  par deux redémarrages séparés à des dates différentes
+  (2026-08-05/2026-08-07) — écart nommé, `docs/orchestration.md` § 2.
+  `site.yml` vérifie les deux faits séparément après le point d'arrêt,
+  plutôt que de supposer que l'un implique l'autre.
+  **`roles/bootstrap/`** : D6 (`dnf swap`, idempotent, commande
+  d'origine reproduite), D9 (`NOPASSWD` déplacée vers
+  `/etc/sudoers.d/`, jamais `/etc/sudoers` — validée par `visudo -cf`
+  avant toute activation, tag `bootstrap-sudoers` **jamais joué dans
+  cette série**, conformément à la demande), D10 (empreinte
+  `AE09157A4DE88B497EA1D5D300CDAB43DE226D6F` téléchargée et vérifiée
+  par inspection à sec — **aucun import, aucun déploiement avant
+  confirmation** — avant tout déploiement de fichier, jamais
+  `--nogpgcheck`). Démontrée dans les deux sens (empreinte correcte →
+  passe ; empreinte simulée différente → échec avant tout
+  déploiement, fichiers réels inchangés, vérifié par somme de
+  contrôle). Exécuté réellement (D6+D10, D9 exclue par tag) : première
+  exécution `changed=5` (téléchargement/extraction/nettoyage
+  intrinsèquement toujours « changed », plus l'ajout d'un en-tête de
+  documentation à `terra.repo` — seule différence fonctionnelle :
+  aucune, `gpgcheck=1`/`repo_gpgcheck=1`/URLs/clé référencée
+  identiques, vérifié) ; seconde exécution : les trois tâches qui
+  touchent l'état système persistant (clé, dépôt, paquets) toutes `ok`
+  — idempotence confirmée pour ce qui compte, les tâches de
+  préparation en répertoire de travail temporaire restant, par
+  conception, toujours « changed ».
+  **`site.yml`** : ordonne bootstrap → recovery → gpu_cdi → gpu_mux →
+  local_ai → editor → completion, un seul point d'arrêt post-tâches
+  (jamais un redémarrage déclenché), vérifie `pending_reboot` ET la
+  valeur active du paramètre pilote séparément. `--check` complet :
+  franchit correctement le point d'arrêt sans s'arrêter (les deux faits
+  déjà satisfaits sur ce poste, hérité de redémarrages antérieurs) —
+  testé dans son état positif réel, pas dans son état négatif (aucun
+  moyen de le provoquer légitimement sans redémarrer ensuite, interdit
+  ici).
+  **Défaut trouvé en testant `site.yml`, non corrigé (hors périmètre
+  strict)** : `roles/local_ai/defaults/main.yml`
+  (`local_ai_gpu_cdi_playbook`) résout un chemin relatif à
+  `playbook_dir`, qui vaut la racine du dépôt quand ce rôle est inclus
+  depuis `site.yml` — pas `roles/local_ai/` comme quand il est appelé
+  seul. Contourné pour tester le reste de la séquence
+  (`--skip-tags local_ai`), pas corrigé — signalé,
+  `docs/orchestration.md` § 5, `docs/review-2026-08.md` § Suivi —
+  COR-2.
+  **`roles/editor/` corrigé** (`tasks/main.yml`, `defaults/main.yml`,
+  `meta/main.yml`, `editor.yml`) : numéros de décision périmés
+  (D11→D12 pour npm, D12→D13 pour le choix d'éditeur), trouvés par la
+  recherche systématique de COR-1. Diff vérifié : uniquement des noms
+  de tâches, messages et commentaires — aucune ligne `that:`/`when:`/
+  paramètre de module modifiée.
+  **Actions privilégiées** : écritures D10 (clé, dépôt, paquets,
+  `become: true`, tentative sans privilège non pertinente — ces
+  chemins système n'ont structurellement aucune voie non privilégiée,
+  toute la préparation en amont — téléchargement, extraction,
+  vérification d'empreinte — se fait sans aucun privilège) ; lecture
+  D9 (`stat` sur `/etc/sudoers.d/`, `become: true` — répertoire
+  `0750 root:root`, tentative sans privilège : `Permission denied`) ;
+  deux lectures manuelles de validation
+  (`sudo -n sed -n '108,112p' /etc/sudoers`, tentative sans privilège :
+  `Permission denied` ; `sudo -n test -e
+  /etc/sudoers.d/99-wheel-nopasswd`, tentative sans privilège :
+  résultat trompeur — `test -e` sans privilège renvoie faux aussi bien
+  si le fichier est absent que si le répertoire parent est
+  impénétrable, 0750 root:root ici — non concluant, pas une
+  confirmation d'absence malgré l'apparence). Aucun `setenforce`,
+  `getenforce` inchangé (`Enforcing`) ; aucun modèle téléchargé ;
+  `gpu_mux_mode` inchangé (`current_value=1`, jamais réécrit) ;
+  `/etc/sudoers` intact (règle D9 toujours en dur, tag
+  `bootstrap-sudoers` jamais joué) ; `/etc/sudoers.d/99-wheel-nopasswd`
+  confirmé absent (lecture privilégiée) ; aucun redémarrage.
