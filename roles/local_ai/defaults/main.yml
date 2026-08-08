@@ -146,7 +146,35 @@ local_ai_models_to_pull:
 # Réutilise verify-cdi-spec (roles/gpu_cdi), ne le réimplémente pas —
 # chemin résolu relativement à ce rôle (D1 : reconstructible quel que
 # soit l'emplacement de clonage du dépôt), pas en dur.
-local_ai_gpu_cdi_playbook: "{{ (playbook_dir + '/../gpu_cdi/gpu_cdi.yml') | realpath }}"
+#
+# [CORRIGÉ le 2026-08-08, ORC-2] ÉTAIT : `playbook_dir` — juste tant que
+# ce rôle n'était joué que seul (roles/local_ai/local_ai.yml, où
+# playbook_dir vaut ce répertoire, puisque ce fichier EST le playbook de
+# premier niveau), faux dès qu'il est inclus depuis un autre playbook
+# (site.yml : playbook_dir vaut alors la racine du dépôt, pas
+# roles/local_ai/) — trouvé en testant site.yml (docs/orchestration.md
+# § 5, docs/review-2026-08.md § Suivi — COR-2). C'est le quatrième mode
+# d'échec de CLAUDE.md (prémisse de garde périmée par l'évolution du
+# système) : correct à l'écriture, faux dès qu'un second contexte
+# d'appel est apparu.
+#
+# Établi par lecture du code source d'Ansible avant de corriger (pas
+# supposé) — deux variables magiques distinctes, sémantique différente,
+# source dans /usr/lib/python3.14/site-packages/ansible/vars/manager.py
+# (ansible-core 2.20.7, celui qui fait autorité pour ce dépôt, D3a) :
+#   playbook_dir = self._loader.get_basedir()          — répertoire du
+#     PLAYBOOK DE PREMIER NIVEAU en cours d'exécution (celui passé sur
+#     la ligne de commande) — change selon QUI a inclus ce rôle.
+#   role_path    = task._role._role_path                — répertoire du
+#     RÔLE PROPRIÉTAIRE de la tâche courante — fixe, déterminé par
+#     l'emplacement du rôle sur le disque, indépendant de qui l'inclut.
+# `role_path` est déjà le patron établi dans ce dépôt pour ce besoin
+# exact (roles/gpu_mux/defaults/main.yml, gpu_mux_trace_dir) — repris
+# ici, pas réinventé. gpu_cdi est un rôle FRÈRE de local_ai (tous deux
+# sous roles/) : `role_path` de local_ai, plus `..`, atteint gpu_cdi de
+# façon stable quel que soit le playbook appelant ou le répertoire de
+# travail courant.
+local_ai_gpu_cdi_playbook: "{{ (role_path + '/../gpu_cdi/gpu_cdi.yml') | realpath }}"
 
 # Chemin résolu (pas supposé /usr/bin) — la garde de service (§ 2.4)
 # doit invoquer le même binaire que celui utilisé pour dérouler ce

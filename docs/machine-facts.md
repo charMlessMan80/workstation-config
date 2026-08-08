@@ -2820,3 +2820,56 @@ froid), non établi.
   `/etc/sudoers` intact (règle D9 toujours en dur, tag
   `bootstrap-sudoers` jamais joué) ; `/etc/sudoers.d/99-wheel-nopasswd`
   confirmé absent (lecture privilégiée) ; aucun redémarrage.
+- **2026-08-08 — chemin indépendant du contexte d'exécution pour la
+  garde CDI de `roles/local_ai/` (ORC-2).** Corrige le défaut trouvé
+  en testant `site.yml` (journal ORC-1 ci-dessus) : quatrième mode
+  d'échec de `CLAUDE.md`, cette fois découvert dans la série même où
+  il est apparu.
+  **§ 1, établi par lecture du code source d'Ansible avant de
+  corriger** (`ansible-core 2.20.7`, celui qui exécute réellement les
+  rôles de ce dépôt, D3a —
+  `/usr/lib/python3.14/site-packages/ansible/vars/manager.py`) :
+  `playbook_dir` (`self._loader.get_basedir()`) suit le **playbook de
+  premier niveau** en cours d'exécution, change selon qui inclut le
+  rôle ; `role_path` (`task._role._role_path`) suit le **rôle
+  propriétaire de la tâche courante**, fixe quel que soit l'appelant —
+  déjà le patron établi dans ce dépôt pour ce besoin
+  (`roles/gpu_mux/defaults/main.yml`, `gpu_mux_trace_dir`), repris ici.
+  **Recherche systématique** sur toute construction de chemin
+  dépendant implicitement du point d'entrée : `playbook_dir` trouvé
+  dans neuf fichiers, huit sont le patron `role: "{{ playbook_dir }}"`
+  des playbooks-wrapper autonomes de chaque rôle (sûr par construction
+  — ce sont eux le point d'entrée dans leur usage normal) ; **une
+  seule occurrence problématique**, celle déjà connue. Décision
+  consignée dans `CLAUDE.md` § Sourcing des faits : une seule
+  occurrence ne justifie pas encore une colonne de validation
+  obligatoire (contrairement à `NOPASSWD`/`pending_reboot`, quatre
+  occurrences, ou aux décisions renumérotées de `roles/editor/`) —
+  mais tout nouveau chemin inter-rôles devrait être exercé depuis
+  `site.yml` avant d'être considéré validé.
+  **§ 2-3** : `local_ai_gpu_cdi_playbook` corrigé
+  (`role_path + '/../gpu_cdi/gpu_cdi.yml'`), la garde CDI continue de
+  mordre — démontrée identique dans quatre combinaisons (rôle seul
+  depuis la racine ; rôle depuis `site.yml` ; rôle seul depuis `$HOME` ;
+  `site.yml` depuis `/tmp`), plus la démonstration inverse (chemin
+  invalide via `-e` → échec avant toute action, message exact).
+  `site.yml --check` complet (tous rôles, sans contournement) : zéro
+  échec — le point d'arrêt franchi correctement dans son état positif
+  réel de cette machine. Exécution réelle de `local_ai` + seconde
+  exécution : `changed=0` les deux fois, aucune dérive introduite par
+  la correction.
+  **§ 4, consigné dans `CLAUDE.md`** : second exemple du quatrième
+  mode d'échec, à côté de la garde VRAM d'IA-1 — un rôle validé
+  isolément n'est pas validé dans une orchestration, et l'inverse est
+  vrai aussi.
+  **Actions privilégiées : aucune** — cette correction ne touche que
+  `roles/local_ai/defaults/main.yml` (variable de chemin) et de la
+  documentation ; aucune tâche `become` de ce rôle n'a été rejouée en
+  écriture réelle au-delà de ce qui était déjà idempotent.
+  `bootstrap-sudoers` non jouée (tag jamais invoqué, conformément à la
+  consigne) ; `/etc/sudoers` intact ; `gpu_mux_mode` inchangé
+  (`current_value=1`) ; `terra.repo` intact (somme de contrôle
+  identique à la fin de COR-2) ; aucun redémarrage ; aucun modèle
+  supplémentaire téléchargé ; aucun paquet installé (dernière
+  transaction `dnf` toujours 2026-08-07) ; `getenforce` inchangé
+  (`Enforcing`).

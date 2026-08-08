@@ -193,25 +193,35 @@ ansible-playbook --check site.yml                # simulation complète
 **Vérifié, dans cette série** : `--syntax-check` complet ;
 `ansible-lint --profile production` sur `site.yml` et tous les rôles
 qu'il inclut, 0 défaut ; `--check` complet — `bootstrap`, `recovery`,
-`gpu_cdi`, `gpu_mux`, `editor`, `completion` s'enchaînent sans erreur
-en simulation, le point d'arrêt post-redémarrage a été exercé dans son
+`gpu_cdi`, `gpu_mux`, `local_ai`, `editor`, `completion` s'enchaînent
+**tous**, `local_ai` compris (§ ci-dessous), sans erreur en
+simulation ; le point d'arrêt post-redémarrage a été exercé dans son
 état **nominal réel** de cette machine (`pending_reboot=0`,
 `PreserveVideoMemoryAllocations: 1` — les deux déjà satisfaits ici,
 héritage de redémarrages antérieurs à cette série) et a correctement
 **laissé passer** sans s'arrêter, plutôt que de s'arrêter à tort.
 
-**Trouvé en testant, non corrigé ici (hors périmètre strict de ce
-livrable)** : `roles/local_ai/defaults/main.yml`
-(`local_ai_gpu_cdi_playbook`) résout un chemin relatif à
-`playbook_dir` en supposant que ce rôle est **toujours** invoqué comme
-playbook autonome (`roles/local_ai/local_ai.yml`, où `playbook_dir`
-vaut `roles/local_ai/`) — faux quand ce rôle est inclus depuis
-`site.yml` (`playbook_dir` vaut alors la racine du dépôt), ce qui a
-fait échouer `--check site.yml` complet lors de l'écriture de ce
-document. Contournement utilisé pour tester le **reste** de la
-séquence (`--skip-tags local_ai`) — pas une correction. Signalé pour
-un prochain livrable, même discipline que `roles/editor/` en COR-1
-(`docs/review-2026-08.md` § Suivi).
+**[CORRIGÉ le 2026-08-08, ORC-2] ÉTAIT : trouvé en testant, non
+corrigé (hors périmètre strict de COR-2)** —
+`roles/local_ai/defaults/main.yml` (`local_ai_gpu_cdi_playbook`)
+résolvait un chemin via `playbook_dir` en supposant que ce rôle est
+**toujours** invoqué comme playbook autonome (`roles/local_ai/local_ai.yml`,
+où `playbook_dir` vaut `roles/local_ai/`) — faux quand ce rôle est
+inclus depuis `site.yml` (`playbook_dir` vaut alors la racine du
+dépôt), ce qui faisait échouer `--check site.yml` complet.
+**Corrigé** : `playbook_dir` remplacé par `role_path` (répertoire du
+rôle **propriétaire de la tâche courante**, stable quel que soit
+l'appelant — établi par lecture du code source d'Ansible avant de
+corriger, `docs/machine-facts.md` § Décisions, journal ORC-2).
+Démontré dans les trois contextes d'exécution requis (rôle seul
+depuis la racine du dépôt, rôle depuis `site.yml`, l'un des deux
+depuis un répertoire de travail différent) — la garde CDI réussit
+identiquement dans les quatre combinaisons testées — plus la
+démonstration inverse (chemin délibérément invalide via `-e` : la
+garde casse bruyamment, message exact, avant toute action). Recherche
+systématique sur toute construction de chemin dépendant implicitement
+du point d'entrée d'exécution, dans tous les rôles : rien trouvé
+au-delà de cette occurrence.
 
 **Jamais vérifié, et ne peut pas l'être depuis cette machine** :
 - La séquence **complète** de bout en bout, sur une machine qui n'a

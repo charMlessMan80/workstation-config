@@ -175,18 +175,49 @@ sans comprendre pourquoi elle a été posée.
   une garde correcte au sens strict (bonne commande, bonne interface,
   bonne date) devient fausse non par une erreur de conception mais
   parce que le système qu'elle surveille a changé de régime, exactement
-  comme elle était censée le permettre. Exemple : la garde VRAM de
-  `roles/local_ai/` (IA-1) asserait qu'aucun modèle n'est jamais chargé
-  en VRAM — vraie tant que le service n'avait jamais servi de
+  comme elle était censée le permettre. **Premier exemple** : la garde
+  VRAM de `roles/local_ai/` (IA-1) asserait qu'aucun modèle n'est jamais
+  chargé en VRAM — vraie tant que le service n'avait jamais servi de
   complétion réelle, devenue fausse dès le premier usage conforme à
   D20 (chargement à la demande, maintenu ensuite indéfiniment par D15).
   Corrigée en IA-4 pour comparer un relevé pris avant l'exécution du
   rôle à un relevé pris après, au lieu d'exiger un état vide dans
-  l'absolu (`docs/local-ai.md` § 10.3). **Parade** : une garde qui
-  porte sur un état qui évolue doit revérifier sa prémisse quand le
-  système qu'elle surveille change de régime — pas seulement quand sa
-  propre logique interne est mise en cause (cas déjà couvert par la
-  règle sur les gardes modifiées, § Avant d'agir).
+  l'absolu (`docs/local-ai.md` § 10.3). **Second exemple, ajouté le
+  2026-08-08 (ORC-2)** : `local_ai_gpu_cdi_playbook`
+  (`roles/local_ai/defaults/main.yml`) résolvait un chemin via
+  `playbook_dir` — vrai tant que ce rôle n'était joué que seul
+  (`playbook_dir` vaut alors le répertoire du rôle, puisque son propre
+  playbook wrapper est le point d'entrée), devenu faux dès l'écriture
+  de `site.yml` (ORC-1), qui inclut ce rôle depuis un autre point
+  d'entrée — `playbook_dir` vaut alors la racine du dépôt. **Trouvé
+  dans la série même où le second contexte est apparu**, par le test
+  de `site.yml` plutôt que par une revue tardive — corrigée en
+  remplaçant `playbook_dir` par `role_path` (répertoire du rôle
+  propriétaire de la tâche, stable quel que soit l'appelant — établi
+  par lecture du code source d'Ansible, `docs/machine-facts.md` §
+  Décisions, journal ORC-2). **Corollaire commun aux deux exemples** :
+  un rôle validé isolément n'est pas validé dans une orchestration, et
+  l'inverse est vrai aussi — chaque contexte d'appel peut révéler une
+  prémisse que l'autre laissait passer sans jamais la mettre à
+  l'épreuve. **Parade** : une garde qui porte sur un état qui évolue
+  (état système, ou **contexte d'exécution** — les deux sont des
+  formes du même problème) doit revérifier sa prémisse quand ce qu'elle
+  surveille change de régime — pas seulement quand sa propre logique
+  interne est mise en cause (cas déjà couvert par la règle sur les
+  gardes modifiées, § Avant d'agir). **Recherche systématique menée en
+  ORC-2 sur ce second exemple précis** (toute construction de chemin
+  dépendant implicitement du point d'entrée d'exécution, dans tous les
+  rôles) : **rien trouvé au-delà de l'occurrence déjà corrigée** — pas
+  encore une série répétée comme `NOPASSWD`/`pending_reboot` (quatre
+  occurrences avant qu'une colonne dédiée devienne nécessaire, COR-1)
+  ou les décisions renumérotées (`roles/editor/`, même livrable). Une
+  seule occurrence connue à ce jour ne justifie pas encore une colonne
+  de validation obligatoire à chaque livrable — mais tout nouveau
+  chemin inter-rôles introduit devrait être exercé depuis `site.yml`
+  en plus du rôle joué seul avant d'être considéré validé (conséquence
+  directe du corollaire ci-dessus), sans qu'il soit nécessaire d'en
+  faire une case à cocher séparée tant qu'aucune deuxième occurrence
+  indépendante n'apparaît.
 - **Une règle vit à un seul endroit ; les documents y renvoient, ils ne la
   recopient pas.** `CLAUDE.md` porte les règles persistantes ; tout autre
   document qui a besoin d'une de ces règles la cite par renvoi
