@@ -33,8 +33,19 @@ ce README ne duplique pas ce contenu.
    `kitty` de test, relève sa géométrie réelle par introspection D-Bus
    (`org.kde.KWin.getWindowInfo`), échoue bruyamment si elle ne
    correspond pas à la géométrie mesurée à l'étape 3.
-7. Déploie `~/.config/autostart/kitty-screenpad.desktop` (`Exec=kitty`,
-   aucun chemin absolu propre à cette machine).
+7. **Vérifie l'existence de `claude`, `htop` et l'interpréteur de
+   commandes** (`command -v`, BUR-2) — échec bruyant si l'un manque.
+8. Déploie la disposition de démarrage
+   (`~/.config/kitty/startup.session`, BUR-2) : plein écran, `claude` à
+   gauche, `htop` en haut à droite, un interpréteur en bas à droite —
+   puis **revérifie par la mesure** : lance une fenêtre de test avec
+   cette session réellement déployée, confirme l'état plein écran et
+   la géométrie (`getWindowInfo`, comme à l'étape 6) et la structure
+   interne — trois volets, disposition `splits`, bonnes commandes
+   (`kitten @ ls`, mécanisme propre à kitty).
+9. Déploie `~/.config/autostart/kitty-screenpad.desktop`
+   (`Exec=kitty --session startup.session`, aucun chemin absolu propre
+   à cette machine).
 
 ## Ce que ce rôle ne fait jamais
 
@@ -71,6 +82,16 @@ règle sur une géométrie jamais vérifiée) et `desktop_kitty_wmclass`
 (`app_id` réel, relevé par introspection D-Bus, pas déduit du nom du
 paquet).
 
+**Disposition de démarrage (BUR-2)** : `desktop_kitty_session_cwd`
+(répertoire de travail des trois volets, défaut `$HOME`) ;
+`desktop_kitty_claude_cmd`/`_htop_cmd`/`_shell_cmd` (noms de commande) ;
+`desktop_kitty_vsplit_bias` (gauche/droite, défaut 50) ;
+`desktop_kitty_htop_bias` (haut/bas dans la colonne de droite, défaut
+30 — **mesuré**, pas deviné : à 50/50 l'en-tête de `htop` (32 threads
+sur ce poste) ne laisse que 4 lignes de processus visibles sur `DP-3`,
+à 30 il en laisse 12 — détail complet et méthode de mesure,
+`docs/desktop.md` § 7.2).
+
 ## Utilisation
 
 ```
@@ -80,4 +101,7 @@ ansible-playbook roles/desktop/desktop.yml                 # écriture réelle
 
 # Démonstration d'échec forcé (garde sur le nom de sortie, § docs/desktop.md § 6.8) :
 ansible-playbook -e desktop_target_output=sortie-inexistante roles/desktop/desktop.yml
+
+# Démonstration d'échec forcé (garde sur les commandes de la disposition de démarrage, BUR-2) :
+ansible-playbook -e desktop_kitty_htop_cmd=htop-inexistant-garanti roles/desktop/desktop.yml
 ```

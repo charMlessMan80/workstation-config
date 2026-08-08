@@ -3180,3 +3180,58 @@ froid), non établi.
   `terra.repo` présent, non touché ; `/etc/cdi/nvidia.yaml` même date
   de modification qu'en fin de KAT-1 (`1785972042`) ; `uptime -s`
   inchangé (`2026-08-07 12:19:47`) — aucun redémarrage.
+- **2026-08-09 — disposition de démarrage kitty : claude | htop /
+  interpréteur (BUR-2), `roles/desktop/`.** Plein écran, séparation
+  verticale (`claude` à gauche), séparation horizontale à droite
+  (`htop` en haut, un interpréteur de commandes en bas) — fichier de
+  session kitty (`kitty/session.py`, format sourcé dans le code amont
+  installé, `0.47.1`), déployé par le rôle, jamais écrit à la main.
+  **Point délicat résolu par un test empirique, pas supposé** :
+  interaction entre le plein écran (état de fenêtre Wayland) et la
+  règle KWin existante (géométrie, `position`+`size`, `Apply
+  initially`, BUR-1). La spécification `xdg-shell` (source externe)
+  laisse la décision au compositeur quand aucune sortie n'est précisée
+  — kitty n'a aucun mécanisme pour en préciser une (`--position` :
+  « never works on Wayland »). Confondant délibérément recréé (même
+  méthode que BUR-1 pour `activeOutputName`) : `activeOutputName` mis à
+  `eDP-1` (clic de l'opérateur sur la dalle principale — aucun moyen
+  scriptable trouvé, `workspace.activeScreen` et un déplacement de
+  curseur par script KWin sans effet), fenêtre de test plein écran
+  lancée avec la règle `DP-3` déjà active : résultat mesuré `DP-3`,
+  pas `eDP-1` — le plein écran suit la sortie où la fenêtre se trouve
+  déjà, pas la sortie « active ». `kwinrulesrc` **inchangé** — aucune
+  géométrie différente n'était nécessaire.
+  Hauteur de `DP-3` (734 px logiques) contrainte pour `htop` (32
+  threads, `header_layout=two_50_50`) — **mesuré, pas deviné** : à
+  répartition moitié-moitié, 16 lignes pour `htop`, 4 processus
+  visibles (`kitten @ get-text`, lecture du contenu réellement rendu) ;
+  à la répartition retenue (30 % pour l'interpréteur), 23 lignes, 12
+  processus visibles. Exposé en variable
+  (`desktop_kitty_htop_bias`, défaut 30, ajustable), pas figé.
+  Gardes d'existence sur les trois commandes (`claude`, `htop`,
+  l'interpréteur — `command -v`), échec bruyant si l'une manque.
+  Vérification par la mesure après déploiement : fenêtre de test avec
+  la session réellement déployée, géométrie et état plein écran
+  confirmés par introspection D-Bus de KWin (`getWindowInfo`), structure
+  interne (trois volets, disposition `splits`, commandes) confirmée par
+  le mécanisme propre de kitty (`kitten @ ls`) — jamais une capture
+  visuelle. Deux démonstrations d'échec forcé : garde cassée
+  (commande absente) → arrêt avant toute écriture, `changed=0` ; session
+  neutralisée (fichier inexistant, jamais le fichier réellement
+  déployé) → kitty affiche un volet de repli **et** une fenêtre
+  d'erreur explicite (`kitten __show_error__`), disposition `fat` au
+  lieu de `splits` — signature complètement différente du cas nominal.
+  `ansible-lint --profile production roles/desktop/` : 0 défaut.
+  `--check` : `changed=0`. Deux exécutions réelles : `changed=1` puis
+  `changed=0` — idempotence confirmée.
+  **Aucune action privilégiée** au-delà de l'installation de `kitty`
+  lui-même (déjà présente, `changed=0` à chaque exécution de ce
+  livrable, inchangée depuis BUR-1).
+  **Confirmations** : `kwinrulesrc` inchangé ; `sudoers`, `/etc/cdi/`,
+  `gpu_mux_mode` non touchés (hors périmètre de ce rôle) ; `kwinrc` non
+  touché ; aucun paquet installé hors `kitty` (déjà présent) ; aucune
+  déconnexion de session, aucun redémarrage. **Le comportement à
+  l'ouverture de session réelle reste à prouver à la prochaine
+  connexion** — commande de vérification préparée
+  (`docs/desktop.md` § 7.4), pas rejouée ici (aucune déconnexion sans
+  demande explicite).

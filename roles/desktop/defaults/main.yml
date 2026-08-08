@@ -111,3 +111,56 @@ desktop_kitty_placerule: 3  # Apply initially (Rules::Apply)
 # Plasma ajouté sur DP-3) — elle passerait dessous ou dessus au lieu de
 # s'ajuster, contrairement à une fenêtre réellement à l'état maximisé.
 # Aucune correction entreprise ici (docs/desktop.md § 6.10).
+
+# --- Disposition de démarrage (BUR-2, 2026-08-09) : claude | htop / shell
+# ---------------------------------------------------------------------------
+# Fichier de session kitty (kitty/session.py, format sourcé dans le code
+# amont — docs/desktop.md § 1.1), déployé plutôt qu'écrit à la main.
+# Chemin résolu relatif au répertoire de config kitty, jamais absolu
+# dans le fichier .desktop (point 3 de la demande — kitty résout les
+# chemins relatifs de --session par rapport à son propre répertoire de
+# configuration, kitty.1 § --session, pas par rapport au CWD du
+# lanceur).
+desktop_kitty_session_file: startup.session
+desktop_kitty_session_path: "{{ desktop_kitty_config_dir }}/{{ desktop_kitty_session_file }}"
+
+# Répertoire de travail des trois volets — variable, jamais un chemin
+# propre à cette machine en dur ; valeur par défaut dérivée du
+# répertoire personnel (point 3 de la demande), pas un sous-répertoire
+# de projet particulier.
+desktop_kitty_session_cwd: "{{ ansible_facts.env.HOME }}"
+
+# Commandes lancées dans chaque volet — noms simples résolus par PATH à
+# l'exécution de kitty (comme kitty.conf.5 le documente pour les
+# commandes de session), pas un chemin figé ici. Chacune est gardée par
+# une vérification command -v avant déploiement (tasks/main.yml) :
+# échec bruyant si absente, plutôt qu'un volet qui se ferme
+# silencieusement au démarrage sans aucun message (le mode d'échec
+# typique de kitty pour une commande introuvable).
+desktop_kitty_claude_cmd: claude
+desktop_kitty_htop_cmd: htop
+desktop_kitty_shell_cmd: bash
+
+# Répartition gauche/droite (séparation verticale, claude | htop+shell)
+# — kitty/launch.py --bias : la NOUVELLE fenêtre (htop) prend ce
+# pourcentage de l'espace de la fenêtre existante (claude) qu'elle
+# scinde. 50 : moitié-moitié, aucune contrainte particulière relevée
+# sur cet axe (la demande ne portait que sur la hauteur, § 2) —
+# ajustable si besoin, même mécanisme que le biais vertical ci-dessous.
+desktop_kitty_vsplit_bias: 50
+
+# Répartition haut/bas dans la colonne de droite (htop en haut,
+# l'interpréteur en bas) — MESURÉE, pas devinée (§ 2 de la demande).
+# À bias=50 (moitié-moitié, DP-3 mesuré 2560x734 logiques, police
+# Noto Sans Mono 12.0) : htop reçoit 16 lignes sur 137 colonnes — son
+# en-tête (grille CPU 8×4 pour 32 threads + Mem + Swp/Load/Uptime + une
+# ligne vide + la barre d'onglets + l'en-tête de colonnes, mesuré par
+# `kitten @ get-text`, docs/desktop.md § 2) occupe à lui seul 10-11
+# lignes, ne laissant que 4 lignes de processus visibles — trop juste
+# pour un usage réel. À bias=30, htop reçoit 23 lignes (12 processus
+# visibles, mesuré de la même façon), l'interpréteur en bas en reçoit 9
+# — suffisant pour une invite de commande. Valeur par défaut retenue
+# pour cette raison, ajustable : l'opérateur a le chiffre, pas une
+# décision prise à sa place (§ 2 de la demande, « donne-lui le
+# chiffre »).
+desktop_kitty_htop_bias: 30

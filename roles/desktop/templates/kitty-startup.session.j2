@@ -1,0 +1,42 @@
+
+# Session de démarrage kitty (BUR-2), déployée par roles/desktop/ —
+# jamais écrite à la main dans la configuration utilisateur. Format et
+# directives sourcés dans le code amont de kitty (kitty/session.py,
+# version installée 0.47.1) : chaque ligne non vide, non commentée, est
+# une commande reconnue par kitty.session.parse_session — voir
+# docs/desktop.md § 1.1 pour le détail et les renvois.
+#
+# os_window_state fullscreen : état de fenêtre, distinct de la règle
+# KWin position+size (une géométrie). Interaction testée empiriquement
+# avant d'écrire cette ligne (docs/desktop.md § 1.2) — le plein écran
+# cible la sortie où la fenêtre se trouve déjà (celle que la règle
+# Apply-initially vient de lui donner), jamais org.kde.KWin.activeOutputName.
+os_window_state fullscreen
+
+# layout splits : seule disposition kitty permettant des séparations
+# arbitraires (verticale puis horizontale) — les autres (tall, fat,
+# grid, stack, vertical, horizontal) ne le permettent pas, établi par
+# lecture de kitty/layout/ (docs/desktop.md § 1.1).
+layout splits
+
+# Répertoire de travail commun aux trois volets — variable, jamais un
+# chemin propre à cette machine en dur (point 3 de la demande).
+cd {{ desktop_kitty_session_cwd }}
+
+# Volet 1 — claude, occupe tout l'espace jusqu'au premier split.
+launch --title=claude {{ desktop_kitty_claude_cmd }}
+focus
+
+# Volet 2 — séparation verticale : htop à droite de claude.
+# --bias={{ desktop_kitty_vsplit_bias }} : htop prend
+# {{ desktop_kitty_vsplit_bias }} % de l'espace de claude (splits
+# layout, kitty/launch.py --bias) — {{ 100 - desktop_kitty_vsplit_bias|int }}/{{ desktop_kitty_vsplit_bias }} gauche/droite.
+launch --location=vsplit --bias={{ desktop_kitty_vsplit_bias }} --title=htop {{ desktop_kitty_htop_cmd }}
+
+# Volet 3 — séparation horizontale : l'interpréteur sous htop.
+# --bias={{ desktop_kitty_htop_bias }} : l'interpréteur prend
+# {{ desktop_kitty_htop_bias }} % de l'espace de htop, htop garde le
+# reste — valeur mesurée, pas 50/50 (docs/desktop.md § 2) : à 50/50,
+# htop (16 lignes sur DP-3) n'affiche que 4 processus ; à
+# {{ desktop_kitty_htop_bias }}, htop (23 lignes) en affiche 12.
+launch --location=hsplit --bias={{ desktop_kitty_htop_bias }} --title=shell {{ desktop_kitty_shell_cmd }}

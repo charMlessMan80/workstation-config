@@ -868,6 +868,302 @@ placement par défaut de KWin, non lu dans le code source), § 6.7
 session). Ce paragraphe-ci n'ajoute aucune occurrence du jeton
 lui-même — périphrase seulement, conformément à la règle qui l'exige.
 
+## 7. BUR-2 — disposition de démarrage : claude | htop / interpréteur (2026-08-09)
+
+Trois volets dans la fenêtre kitty déjà placée sur `DP-3` par la règle
+KWin (§ 6) : plein écran, séparation verticale (`claude` à gauche),
+séparation horizontale à droite (`htop` en haut, un interpréteur de
+commandes en bas).
+
+### 7.1 — Résolution, § 1 de la demande
+
+**Mécanisme de disposition, sourcé dans le code amont de kitty**
+(`kitty/session.py`, `kitty/layout/splits.py`, version installée
+`0.47.1` — pas supposé, la documentation packagée ne porte pas le
+corps du chapitre « Sessions », seulement un renvoi ; lu à la source
+directement, même discipline qu'à EDI-1/KAT-1) :
+
+- **Format du fichier de session** : texte, une directive par ligne,
+  commentaires `#` en tête de ligne, analysé par
+  `kitty.session.parse_session` — directives reconnues :
+  `new_tab`/`new_os_window`, `layout <nom>`, `launch <cmd>`, `focus`,
+  `focus_tab`, `enabled_layouts`, `cd`, `title`, `os_window_size`,
+  `os_window_class`/`os_window_name`/`os_window_title`,
+  `os_window_state`, `resize_window`, `focus_matching_window`,
+  `set_layout_state` — toute autre ligne lève `ValueError` (échec
+  bruyant, pas un défaut silencieux).
+- **Disposition permettant des séparations arbitraires** : `splits`
+  (`kitty/layout/splits.py`, classe `Splits`) — seule disposition dont
+  l'arbre interne (`Pair`, `one`/`two`, `horizontal`) admet des
+  scissions verticales et horizontales composées librement. Les autres
+  dispositions embarquées (`tall`, `fat`, `grid`, `stack`, `vertical`,
+  `horizontal`) ont une structure fixe, pas de mécanisme de scission
+  arbitraire. `enabled_layouts` vaut `*` par défaut
+  (`kitty.conf.5`) — toutes les dispositions sont déjà disponibles sur
+  ce poste, aucun réglage à ajouter dans `kitty.conf`.
+- **Directive de séparation** : `launch --location=vsplit|hsplit
+  --bias=N <cmd>` (`kitty/launch.py`, option `--location`, choix
+  `vsplit`/`hsplit`/`split`/`default`/…, et `--bias`, pourcentage —
+  « la NOUVELLE fenêtre prend N % de l'espace de la fenêtre qu'elle
+  scinde, l'originale garde le reste »). Chaque `launch` d'un fichier
+  de session est traité par la MÊME fonction `launch()` que celle
+  invoquée à l'exécution interactive (`kitty/tabs.py`,
+  `Tab._startup`) — le mécanisme de scission fonctionne à l'identique
+  en session.
+- **Focus explicite** : `focus` (sans argument) marque le DERNIER
+  volet ajouté comme celui qui aura le focus au démarrage
+  (`Session.focus()`) — placé juste après `launch claude`, avant les
+  deux `launch` suivants, il fixe l'index cible sans être affecté par
+  les volets ajoutés ensuite (`Tab._startup`, `session_tab.active_window_idx == i`).
+  Sans directive `focus`, kitty retiendrait le PREMIER volet créé par
+  défaut (`first_window_id`, `tabs.py`) — jamais laissé au hasard ici.
+- **Raccrochage au démarrage** : deux mécanismes existent,
+  `startup_session <chemin>` dans `kitty.conf` (s'applique à TOUTE
+  invocation de kitty, y compris une future fenêtre ouverte
+  manuellement — pas souhaité ici) et `--session <chemin>` en ligne de
+  commande (s'applique à CETTE seule invocation — retenu, ajouté à
+  `Exec=` du fichier `.desktop` d'autostart déjà déployé par ce rôle,
+  § 6). « Les chemins relatifs sont résolus par rapport au répertoire
+  de configuration de kitty » (`kitty.1` § `--session`) — le fichier de
+  session est donc référencé par son seul nom
+  (`Exec=kitty --session startup.session`), aucun chemin absolu propre
+  à cette machine dans le `.desktop`.
+
+**Interaction plein écran / règle KWin — tranchée par la mesure, pas
+supposée (§ 1.2 de la demande, le point délicat).** La règle KWin (§ 6)
+impose une géométrie (`position`+`size`, `Apply initially`) ; le plein
+écran (`os_window_state fullscreen`, directive de session — sourcée
+dans `kitty/utils.py::parse_os_window_state`, appliquée par
+`boss.py::add_os_window` via `create_os_window(..., wstate, ...)`) est
+un état de fenêtre Wayland distinct. **Lu d'abord, jusqu'à sa limite** :
+la spécification `xdg-shell` (source externe, protocole officiel,
+`xdg_toplevel::set_fullscreen`) dit exactement : « The output passed by
+the request indicates the client's preference as to which display it
+should be set fullscreen on. If this value is NULL, it's up to the
+compositor to choose which display will be used. » — kitty n'a **aucun
+mécanisme** pour indiquer une sortie cible (confirmé, `kitty.1` §
+`--position` : « It never works on Wayland » — et aucune autre option
+de session ou de config ne porte de nom de sortie pour le plein écran)
+: la requête part donc **sans sortie précisée**, et la spécification
+elle-même renvoie la décision au compositeur — **pas moyen de trancher
+plus loin par la seule lecture.**
+
+**Testé empiriquement, avec le confondant délibérément recréé** (même
+méthode que BUR-1 § 6.2/6.3 pour `activeOutputName`) :
+1. État de départ vérifié : `busctl --user call org.kde.KWin /KWin
+   org.kde.KWin activeOutputName` → `DP-3` (pas un confondant si testé
+   tel quel — l'écran actif coïnciderait déjà avec la cible).
+2. **Divergence recréée par l'opérateur** (aucun mécanisme scriptable
+   trouvé pour forcer `activeOutputName` — ni `workspace.activeScreen`,
+   ni un déplacement de curseur par script KWin n'ont eu d'effet ; un
+   clic réel sur la dalle principale a été demandé et obtenu) :
+   `activeOutputName` → `eDP-1`, confirmé par relecture.
+3. Fenêtre de test lancée avec `os_window_state fullscreen` (règle KWin
+   déjà active, matche `wmclass=kitty`) :
+   ```
+   $ busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s <uuid>
+   ... "fullscreen" b true ... "x" d 0 "y" d 1067 "width" d 2560 "height" d 733.333 ...
+   ```
+   **Résultat : `DP-3`, pas `eDP-1`.** La fenêtre plein écran suit la
+   sortie où la règle `Apply initially` l'a déjà placée au moment de sa
+   création, pas `activeOutputName`. Cohérent avec la seconde moitié de
+   la phrase du protocole (« the compositor is free to allow the
+   surface to remain on the output it's currently at ») — confirmé sur
+   ce KWin précis, pas seulement plausible par lecture du protocole.
+4. Fenêtre de test fermée immédiatement après la mesure (PID isolé,
+   jamais une fenêtre de l'opérateur).
+
+**Conséquence retenue** : `os_window_state fullscreen` dans le fichier
+de session, sans réserve — la règle KWin (§ 6) continue de déterminer
+la sortie, le plein écran ne fait qu'ajouter l'état par-dessus une fois
+la fenêtre déjà positionnée.
+
+**§ 1.3 — `htop`** : déjà installé (`htop-3.4.1-3.fc44.x86_64`, dépôt
+`fedora` — `dnf repoquery --installed --qf '%{name} %{from_repo}'
+htop`). Aucune installation, aucune simulation nécessaire.
+
+### 7.2 — Contrainte de hauteur, § 2 de la demande
+
+`DP-3` : 2560×734 logiques (mesuré § 6, `kscreen-doctor -o`). Police
+`kitty.conf` : `Noto Sans Mono`, taille `12.0` — inchangées par ce
+livrable. Cellule mesurée en direct (fenêtre plein écran à un seul
+volet) : 274 colonnes × 33 lignes sur 2560×734 px, soit environ
+9,3×22,2 px logiques par cellule (calcul de vérification seulement —
+la mesure ci-dessous porte sur la disposition réelle, pas sur ce
+calcul).
+
+**Mesuré directement dans la disposition réelle** (`kitten @ ls`,
+colonne `lines`, sur la fenêtre de test du rôle) :
+
+| Répartition (`--bias` du `hsplit`) | Lignes `htop` | Lignes interpréteur | Processus visibles dans `htop` (`kitten @ get-text`) |
+|---|---|---|---|
+| 50 (moitié-moitié) | 16 | 16 | **4** |
+| 30 (retenue par défaut) | 23 | 9 | **12** |
+
+**En-tête `htop` mesuré, pas déduit du seul règlage** (`~/.config/htop/htoprc`,
+`header_layout=two_50_50`, `LeftCPUs4`/`RightCPUs4` — grille 4 cœurs
+par ligne, 32 threads sur ce poste `nproc`) : quatre lignes de grille
+CPU, une ligne `Mem`, une ligne `Swp`/`Load average`, une ligne
+`Uptime`, une ligne vide, une ligne d'onglets (`[Main] [I/O]`), une
+ligne d'en-tête de colonnes — **dix lignes fixes avant le premier
+processus**, plus une ligne de pied de page (`F1Help…`). À 16 lignes
+totales, il ne reste que 4 lignes utiles ; à 23, il en reste 12 —
+confirmé par lecture réelle du contenu rendu, pas par ce calcul seul :
+
+```
+$ kitten @ get-text --match title:htop-pane   # bias=50
+    0[...]   4[...]   8[...] 12[...]  16[...]  20[...]  24[...] 28[...]
+    1[...]   5[...]   9[...] 13[...]  17[...]  21[...]  25[...] 29[...]
+    2[...]   6[...]  10[...] 14[...]  18[...]  22[...]  26[...] 30[...]
+    3[...]   7[...]  11[...] 15[...]  19[...]  23[...]  27[...] 31[...]
+  Mem[...] Tasks: 149, ...
+  Swp[...] Load average: ...
+                         Uptime: ...
+  [Main] [I/O]
+    PID USER ... Command
+  19673 mahieumi ... claude          # 1 seul processus affiché...
+ 465486 mahieumi ... /usr/bin/htop   # ...jusqu'à 4, puis le pied de page
+```
+
+**Répartition à 50/50 jugée trop juste** — confirmée par cette lecture,
+pas seulement par le calcul. Ratio exposé en variable
+(`desktop_kitty_htop_bias`, `roles/desktop/defaults/main.yml`), défaut
+retenu **30** (23 lignes pour `htop`, 12 processus visibles, 9 lignes
+pour l'interpréteur — suffisant pour une invite de commande) : le
+chiffre est donné, pas la décision — l'opérateur ajuste la variable
+s'il préfère un autre compromis.
+
+### 7.3 — Implémentation, § 3 de la demande
+
+Fichier versionné, jamais écrit à la main :
+[`roles/desktop/templates/kitty-startup.session.j2`](../roles/desktop/templates/kitty-startup.session.j2),
+déployé dans `~/.config/kitty/startup.session`. Variables
+(`roles/desktop/defaults/main.yml`) : `desktop_kitty_session_cwd`
+(répertoire de travail des trois volets, défaut `$HOME` — pas un
+sous-répertoire de projet particulier, aucun chemin propre à cette
+machine en dur) ; `desktop_kitty_claude_cmd`/`_htop_cmd`/`_shell_cmd`
+(noms de commande, résolus par `PATH` à l'exécution) ;
+`desktop_kitty_vsplit_bias` (gauche/droite, 50 par défaut) ;
+`desktop_kitty_htop_bias` (haut/bas à droite, 30 par défaut, § 7.2).
+
+**Gardes d'existence** (`roles/desktop/tasks/main.yml`) : les trois
+commandes (`claude`, `htop`, l'interpréteur) sont vérifiées par
+`command -v` avant tout déploiement — échec bruyant et explicite si
+l'une manque, plutôt que le mode d'échec typique visé par la demande
+(un volet dont la commande n'existe pas se ferme silencieusement au
+démarrage, sans aucun message).
+
+Focus par défaut : `claude` — choix explicite (directive `focus`
+placée juste après son `launch`, § 7.1), pas laissé au hasard.
+
+### 7.4 — Preuve, § 4 de la demande
+
+Méthode établie dans ce dépôt (aucune capture visuelle) : le rôle
+lance une fenêtre de test avec la session **réellement déployée**
+(contrôle distant activé pour ce seul lancement, jamais dans
+`kitty.conf`), relève sa géométrie et son état plein écran par
+introspection D-Bus de KWin (même mécanisme que § 6, `getWindowInfo`)
+et sa structure interne par le mécanisme propre de kitty
+(`kitten @ ls`, JSON) — puis ferme la fenêtre de test (PID isolé,
+jamais une fenêtre de l'opérateur).
+
+**Structure réelle** (`kitten @ ls`, extrait) :
+```
+layout: splits
+  title=claude cmdline=['/usr/bin/claude']
+  title=htop   cmdline=['/usr/bin/htop']
+  title=shell  cmdline=['/usr/bin/bash', '--posix']
+```
+(kitty résout chaque commande en chemin absolu par `PATH` avant de la
+rapporter — constaté à l'essai, la garde `roles/desktop/tasks/main.yml`
+compare donc sur le nom de base, pas sur l'argv brut ; kitty ajoute
+`--posix` à `bash` de son propre chef, sans effet sur l'usage
+interactif du volet.)
+
+**Géométrie réelle** (`getWindowInfo`) :
+```
+"fullscreen" b true "x" d 0 "y" d 1067 "width" d 2560 "height" d 733.333
+```
+Sur `DP-3` (0,1067, 2560×734 mesuré § 6) — le plein écran n'a pas
+déplacé la fenêtre, cohérent avec § 7.1.
+
+**Échec forcé (garde § 3)** : commande substituée par une valeur
+garantie absente —
+```
+$ ansible-playbook roles/desktop/desktop.yml -e desktop_kitty_htop_cmd=htop-inexistant-garanti
+...
+La commande « htop-inexistant-garanti » (volet de la session de
+démarrage kitty) est absente du PATH — [...] Ce rôle s'arrête plutôt
+que de déployer une session qui échouerait en silence.
+PLAY RECAP ... changed=0 ...
+```
+Arrêt avant toute écriture — `changed=0`, confirmé.
+
+**Second échec forcé (disposition neutralisée)** : `kitty --session
+<fichier inexistant>` (test isolé, jamais le fichier réellement
+déployé) — sortie de `kitten @ ls` :
+```
+layout: fat | windows: 2
+  ~/dev/workstation-config           cmdline=['/bin/bash', '--posix']
+  The startup session was invalid    cmdline=['/usr/bin/kitten', '__show_error__', ...]
+```
+**Signature complètement différente du cas nominal** — disposition
+`fat` au lieu de `splits`, un volet de repli (l'interpréteur par
+défaut) accompagné d'une fenêtre d'erreur explicite générée par kitty
+lui-même (`kitten __show_error__`, pas un simple silence) plutôt que
+les trois volets nommés attendus. La démonstration n'est pas vide de
+sens — kitty signale l'échec plutôt que de le masquer, un mode d'échec
+plus favorable que celui redouté au § 3 de la demande (qui portait sur
+une commande *à l'intérieur* d'un volet, pas sur le fichier de session
+lui-même).
+
+**Le comportement à l'ouverture de session réelle ne peut être prouvé
+qu'à la prochaine connexion** — pas déclenché ici (aucune déconnexion
+sans demande explicite). Commande de vérification, à rejouer à la
+prochaine ouverture de session :
+```
+busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s <uuid-de-la-fenêtre-autostart>
+# attendu : "fullscreen" b true, géométrie DP-3
+kitten @ ls   # depuis un volet de cette même fenêtre — attendu : trois volets, disposition splits
+```
+
+## Validation — BUR-2 (2026-08-09)
+
+**Résolution en trois points (§ 1 de la demande)** : mécanisme de
+session sourcé dans le code amont de kitty (§ 7.1) ; interaction plein
+écran/règle KWin **tranchée par un test empirique avec confondant
+délibérément recréé**, pas supposée (§ 7.1) ; `htop` déjà installé,
+aucune action (§ 7.1).
+
+**Tableau des actions privilégiées** : aucune. Toutes les commandes de
+ce livrable (lecture de code source packagé, lecture D-Bus, lancement
+de fenêtres de test kitty, `ansible-playbook` sans `become` sur les
+tâches ajoutées) s'exécutent sans `sudo` — seule l'installation de
+`kitty` lui-même (déjà présente, `changed=0` à chaque exécution de ce
+livrable) reste privilégiée dans ce rôle, inchangée depuis BUR-1.
+
+**`ansible-lint --profile production roles/desktop/`** :
+```
+Passed: 0 failure(s), 0 warning(s) in 8 files processed of 10 encountered.
+```
+`--check` : `changed=0`. Exécution réelle : `changed=1` (première
+écriture de la session et de l'entrée autostart mise à jour) puis
+`changed=0` au passage suivant — idempotence confirmée.
+
+**Confirmations finales** : `kwinrulesrc` **inchangé** (aucune tâche de
+ce livrable n'y écrit — la règle existante suffisait, § 7.1 conclut que
+le plein écran n'a pas besoin d'une géométrie différente) ; `sudoers`,
+`/etc/cdi/`, `gpu_mux_mode` non touchés (hors périmètre de ce rôle,
+jamais référencés) ; `kwinrc` non touché ; aucune installation de
+paquet hors `kitty` (déjà présent) ; aucune déconnexion de session,
+aucun redémarrage.
+
+**Décompte du jeton de vérification, `CLAUDE.md` exclu** : inchangé
+par ce livrable — les trois marqueurs actionnables de BUR-1 restent
+ouverts (§ 1.3, § 6.3, § 6.7), aucun nouveau marqueur ajouté ici
+(l'interaction plein écran/règle KWin, seul point qui aurait pu en
+porter un, a été tranchée par la mesure plutôt que laissée ouverte).
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — état d'affichage
@@ -877,5 +1173,9 @@ lui-même — périphrase seulement, conformément à la règle qui l'exige.
 - [`docs/repositories.md`](repositories.md) — dossier Terra (D10),
   y compris le point 0 de BUR-1 (variante durable envisagée pour
   `repo_gpgcheck`, aucune trouvée).
+- [`docs/completion.md`](completion.md) § 9 — même discipline de preuve
+  sans capture visuelle (`journalctl`, ici `kitten @ ls`/`get-text`),
+  même méthode de confondant délibérément recréé pour trancher une
+  question de sortie/écran (KAT-1, `activeOutputName`).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici,
   notamment la garde sur Terra et le jeton de vérification jamais nu.

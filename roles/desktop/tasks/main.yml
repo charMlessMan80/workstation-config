@@ -242,6 +242,146 @@
       supposée.
   when: not ansible_check_mode
 
+# --- Disposition de démarrage (BUR-2) : garde d'existence, déploiement,
+# vérification par la mesure — jamais par confiance, même patron que la
+# règle KWin ci-dessus.
+
+- name: "Garde § 3 — vérifier que chaque commande de la session de démarrage existe sur le PATH"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "command -v {{ item }}"
+  loop:
+    - "{{ desktop_kitty_claude_cmd }}"
+    - "{{ desktop_kitty_htop_cmd }}"
+    - "{{ desktop_kitty_shell_cmd }}"
+  register: desktop_session_cmds_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si une commande de la session de démarrage est absente du PATH"
+  # Mode d'échec typique visé ici (point 3 de la demande) : un volet
+  # dont la commande n'existe pas se ferme silencieusement au
+  # démarrage, sans message — cette garde le rend bruyant avant même
+  # que le fichier de session ne soit déployé.
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+    fail_msg: >-
+      La commande « {{ item.item }} » (volet de la session de démarrage
+      kitty) est absente du PATH — un volet dont la commande n'existe
+      pas se fermerait silencieusement au démarrage, sans message. Ce
+      rôle s'arrête plutôt que de déployer une session qui échouerait
+      en silence.
+    success_msg: "Commande « {{ item.item }} » présente sur le PATH."
+  loop: "{{ desktop_session_cmds_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: "Déployer la session de démarrage kitty : {{ desktop_kitty_session_path }}"
+  ansible.builtin.template:
+    src: kitty-startup.session.j2
+    dest: "{{ desktop_kitty_session_path }}"
+    mode: "0644"
+  when: not ansible_check_mode
+
+# Vérification par la mesure, même patron que la règle KWin plus haut :
+# lance une fenêtre de test AVEC la session réellement déployée
+# (contrôle distant activé pour ce seul lancement de test — jamais
+# écrit dans kitty.conf), relève son état plein écran et sa géométrie
+# par introspection D-Bus de KWin (comme ci-dessus), et sa structure
+# interne (volets, disposition, commandes) par le mécanisme propre de
+# kitty (kitten @ ls, docs/desktop.md § 4).
+
+- name: >-
+    Lancer une fenêtre kitty de test AVEC la session de démarrage
+    réellement déployée et relever son état plein écran, sa géométrie
+    (introspection D-Bus de KWin) et sa structure interne (kitten @ ls)
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      SOCK_BASE="/tmp/desktop-verify-session-$$.sock"
+      rm -f "$SOCK_BASE"*
+      kitty -o allow_remote_control=yes -o "listen_on=unix:$SOCK_BASE" \
+        --session "{{ desktop_kitty_session_path }}" >/dev/null 2>&1 &
+      TEST_PID=$!
+      # kitty ajoute toujours "-<pid>" au chemin de listen_on donné
+      # (constaté à l'essai, docs/desktop.md § 4) — jamais le chemin nu.
+      SOCK="${SOCK_BASE}-${TEST_PID}"
+      UUID=""
+      for i in $(seq 1 40); do
+        sleep 0.25
+        MATCHES=$(busctl --user call org.kde.KWin /WindowsRunner org.kde.krunner1 Match s "kitty" 2>/dev/null || true)
+        for candidate in $(echo "$MATCHES" | grep -oE '\{[0-9a-f-]+\}' || true); do
+          INFO=$(busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$candidate" 2>/dev/null || true)
+          if echo "$INFO" | grep -q "\"pid\" i $TEST_PID "; then
+            UUID="$candidate"
+            break 2
+          fi
+        done
+      done
+      if [ -z "$UUID" ]; then
+        kill "$TEST_PID" 2>/dev/null || true
+        echo "ÉCHEC : fenêtre de test kitty --session introuvable par introspection D-Bus après 10s" >&2
+        exit 1
+      fi
+      for i in $(seq 1 20); do
+        [ -S "$SOCK" ] && break
+        sleep 0.25
+      done
+      echo "===WINDOWINFO==="
+      busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$UUID"
+      echo "===LS==="
+      kitten @ --to "unix:$SOCK" ls
+      kill "$TEST_PID" 2>/dev/null || true
+      rm -f "$SOCK"
+  register: desktop_verify_session_raw
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Séparer la géométrie/état (D-Bus) de la structure interne (kitten @ ls) dans la sortie de vérification"
+  ansible.builtin.set_fact:
+    desktop_verify_windowinfo: "{{ desktop_verify_session_raw.stdout.split('===LS===')[0] }}"
+    desktop_verify_ls_json: "{{ (desktop_verify_session_raw.stdout.split('===LS===')[1]) | trim | from_json }}"
+  when: not ansible_check_mode
+
+- name: >-
+    Échouer bruyamment si la session de test n'est pas plein écran sur
+    DP-3, ou si sa structure (trois volets, disposition splits,
+    commandes) ne correspond pas à ce qui a été déployé
+  ansible.builtin.assert:
+    that:
+      - "'\"fullscreen\" b true' in desktop_verify_windowinfo"
+      - (desktop_verify_windowinfo | regex_search('\"x\" d ([0-9.]+)', '\\1') | first | float - desktop_dp3_x | float) | abs < 5
+      - (desktop_verify_windowinfo | regex_search('\"y\" d ([0-9.]+)', '\\1') | first | float - desktop_dp3_y | float) | abs < 5
+      - (desktop_verify_windowinfo | regex_search('\"width\" d ([0-9.]+)', '\\1') | first | float - desktop_dp3_w | float) | abs < 5
+      - (desktop_verify_windowinfo | regex_search('\"height\" d ([0-9.]+)', '\\1') | first | float - desktop_dp3_h | float) | abs < 5
+      - desktop_verify_ls_json[0].tabs[0].layout == 'splits'
+      - desktop_verify_ls_json[0].tabs[0].windows | length == 3
+      - desktop_verify_ls_json[0].tabs[0].windows[0].title == 'claude'
+      # kitty résout la commande en chemin absolu par PATH avant de la
+      # rapporter (constaté à l'essai : "claude" -> "/usr/bin/claude")
+      # — comparaison sur le nom de base, pas sur l'argv brut.
+      - (desktop_verify_ls_json[0].tabs[0].windows[0].cmdline[0] | basename) == desktop_kitty_claude_cmd
+      - desktop_verify_ls_json[0].tabs[0].windows[1].title == 'htop'
+      - (desktop_verify_ls_json[0].tabs[0].windows[1].cmdline[0] | basename) == desktop_kitty_htop_cmd
+      - desktop_verify_ls_json[0].tabs[0].windows[2].title == 'shell'
+      - (desktop_verify_ls_json[0].tabs[0].windows[2].cmdline[0] | basename) == desktop_kitty_shell_cmd
+    fail_msg: >-
+      La session de test ne correspond pas à ce qui est attendu — soit
+      elle n'est pas plein écran sur DP-3, soit sa structure interne
+      diffère (voir desktop_verify_windowinfo et desktop_verify_ls_json
+      dans les tâches précédentes pour le détail). Ce rôle s'arrête
+      plutôt que de déployer l'autostart sur cette base.
+    success_msg: >-
+      Session de test confirmée plein écran sur DP-3, trois volets en
+      disposition splits, commandes conformes — par la mesure, pas
+      supposé.
+  when: not ansible_check_mode
+
 # --- Autostart : fichier .desktop généré, sans chemin propre à cette machine
 
 - name: "S'assurer que le répertoire autostart existe : {{ desktop_autostart_dir }}"
@@ -265,7 +405,9 @@
     msg: >-
       --check : aucune écriture réalisée. kitty serait installé, la
       règle KWin ({{ desktop_kwin_rule_id }}) écrite avec la géométrie
-      de DP-3 mesurée à cet instant, l'autostart déployé dans
+      de DP-3 mesurée à cet instant, la session de démarrage déployée
+      dans {{ desktop_kitty_session_path }} (claude | htop / interpréteur,
+      plein écran), l'autostart déployé dans
       {{ desktop_autostart_desktop_file }}.
   when: ansible_check_mode
 
@@ -275,5 +417,14 @@
       - "kitty installé, configuration sobre déployée dans {{ desktop_kitty_config_dir }}/kitty.conf."
       - "Règle KWin {{ desktop_kwin_rule_id }} écrite par clé nommée dans {{ desktop_kwinrulesrc_path }} — kwinrc jamais touché."
       - "Géométrie DP-3 confirmée par la mesure : {{ desktop_dp3_x }},{{ desktop_dp3_y }} {{ desktop_dp3_w }}x{{ desktop_dp3_h }}."
-      - "Autostart déployé dans {{ desktop_autostart_desktop_file }} — effectif à la prochaine ouverture de session, pas vérifié ici."
+      - >-
+          Session de démarrage déployée dans
+          {{ desktop_kitty_session_path }} — plein écran, claude | htop
+          ({{ desktop_kitty_htop_bias }}% pour l'interpréteur) —
+          confirmée par une fenêtre de test (plein écran sur DP-3,
+          trois volets, disposition splits).
+      - >-
+          Autostart déployé dans {{ desktop_autostart_desktop_file }}
+          (Exec=kitty --session {{ desktop_kitty_session_file }}) —
+          effectif à la prochaine ouverture de session, pas vérifié ici.
   when: not ansible_check_mode
