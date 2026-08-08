@@ -808,15 +808,23 @@ conteneur avec périphériques NVIDIA montés) dépend de la Phase 2
 tentative — aucun changement à signaler puisqu'aucune action n'a
 été entreprise.
 
-**D9 (2026-08-05) — `sudo` sans mot de passe pour le groupe `wheel`**
-(`%wheel ALL=(ALL) NOPASSWD: ALL`, `/etc/sudoers` ligne 110). Décision
-de l'opérateur, poste de développement personnel sans donnée
-professionnelle. `wheel` ne contient qu'un seul compte
-(`getent group wheel` → `wheel:x:10:mahieumi`). Vérifié indépendamment,
-pas seulement rapporté : `sudo -n visudo -c` →
-« /etc/sudoers: parsed OK » ; `/etc/sudoers.d/` vide (`sudo -n ls -la`) ;
-ligne 110 relue directement (`sudo -n sed -n '108,112p' /etc/sudoers`)
-et conforme au texte ci-dessus.
+**[DÉPLACÉE le 2026-08-08, ORC-3] D9 (2026-08-05) — `sudo` sans mot de
+passe pour le groupe `wheel`.** **ÉTAIT** : règle écrite en dur dans
+`/etc/sudoers` ligne 110 (`%wheel ALL=(ALL) NOPASSWD: ALL`). Motif
+conservé — décision de l'opérateur, poste de développement personnel
+sans donnée professionnelle ; `wheel` ne contient qu'un seul compte
+(`getent group wheel` → `wheel:x:10:mahieumi`). **Déplacée** vers
+`/etc/sudoers.d/99-wheel-nopasswd` (`roles/bootstrap/`, tag
+`bootstrap-sudoers`, exécuté réellement le 2026-08-08, ORC-3) — motif
+du déplacement : `/etc/sudoers` appartient au paquet `sudo`, une mise
+à jour peut produire un `.rpmnew` qui écarte la règle en silence,
+motif déjà nommé dès l'origine de D9 (point ouvert ci-dessous, fermé
+par ce même livrable). État vérifié indépendamment à l'origine, pas
+seulement rapporté : `sudo -n visudo -c` → « /etc/sudoers: parsed OK » ;
+`/etc/sudoers.d/` vide (`sudo -n ls -la`) ; ligne 110 relue directement
+(`sudo -n sed -n '108,112p' /etc/sudoers`) et conforme au texte
+ci-dessus — **cet état de départ est celui d'avant le déplacement**,
+voir le journal ORC-3 pour l'état final.
 
 **Conséquence assumée** : le garde-fou *dur* (le système refuse
 l'élévation) est remplacé par un garde-fou *mou* (l'agent respecte le
@@ -833,12 +841,66 @@ désormais être énumérée explicitement dans le rapport de livrable,
 faute de quoi cette visibilité perdue par `sudoers` ne l'est nulle
 part.
 
-**Point ouvert de basse priorité** : la règle vit dans `/etc/sudoers`,
-fichier appartenant au paquet `sudo` — une mise à jour peut produire un
-`.rpmnew` et laisser la modification en place sans le signaler. Un
-fichier dédié dans `/etc/sudoers.d/` (actuellement vide) y survivrait
-plus proprement. Non résolu ici : ce livrable n'a pas mandat pour
-modifier `sudoers` dans un sens comme dans l'autre.
+**[FERMÉ le 2026-08-08, ORC-3] Point ouvert de basse priorité** (ÉTAIT,
+depuis le 2026-08-05) : la règle vivait dans `/etc/sudoers`, fichier
+appartenant au paquet `sudo` — une mise à jour pouvait produire un
+`.rpmnew` et laisser la modification en place sans le signaler. Fermé
+par déplacement effectif vers `/etc/sudoers.d/99-wheel-nopasswd`
+(ci-dessus), fichier dédié, appartenant à aucun paquet — pas par
+requalification, par le déplacement lui-même, exécuté et vérifié dans
+les deux sens (journal ORC-3, plus bas).
+
+**Procédure de retour — écrite le 2026-08-08, avant toute écriture de
+D9-MIG (déplacement vers `/etc/sudoers.d/`), pas après.** Si un
+contrôle échoue à n'importe quelle étape de D9-MIG, depuis un shell
+root déjà ouvert (`sudo -i` dans un terminal séparé, ou la session SSH
+active — ne fermer aucun des deux avant confirmation finale) :
+
+1. **Restaurer la ligne dans `/etc/sudoers`** — si elle a été retirée
+   (étape 4 de D9-MIG) et que quelque chose ne va pas :
+   ```
+   sed -n '108,112p' /etc/sudoers   # vérifier l'état actuel d'abord
+   visudo    # ré-ouvrir, ré-insérer à la main la ligne exacte :
+   #   %wheel	ALL=(ALL)	NOPASSWD: ALL
+   # entre "## Same thing without a password" et la ligne
+   # "## Allows members of the users group..." (position d'origine,
+   # ligne 110 avant tout retrait) — visudo refuse d'enregistrer si la
+   # syntaxe est mauvaise, c'est la garantie qu'il ne peut pas aggraver
+   # l'état.
+   ```
+   Alternative non interactive, depuis le shell root (pas depuis un
+   compte qui dépendrait de la règle cassée) :
+   ```
+   printf '%%wheel\tALL=(ALL)\tNOPASSWD: ALL\n' >> /etc/sudoers.tmp
+   # puis fusionner à la position d'origine — visudo reste la voie
+   # sûre, cette alternative n'est qu'un filet si visudo lui-même est
+   # indisponible.
+   ```
+2. **Si le nouveau fichier `/etc/sudoers.d/99-wheel-nopasswd` pose
+   problème** (mauvaise syntaxe, mauvaise permission, ignoré) — le
+   supprimer purement et simplement restaure l'état antérieur tant que
+   la ligne dans `/etc/sudoers` est encore en place (étapes 1-3 de
+   D9-MIG) :
+   ```
+   rm -f /etc/sudoers.d/99-wheel-nopasswd
+   ```
+3. **Valider après toute restauration** :
+   ```
+   visudo -c
+   ```
+   Doit rapporter `/etc/sudoers: parsed OK` (et l'absence d'erreur sur
+   tout fichier de `/etc/sudoers.d/`).
+4. **Vérifier que l'accès est réellement revenu**, depuis le compte
+   normal (`mahieumi`), pas depuis le shell root qui n'a jamais perdu
+   l'accès :
+   ```
+   sudo -n -l -l
+   ```
+   Doit montrer une entrée `Sudoers entry:` avec `Options:
+   !authenticate` (équivalent affiché de `NOPASSWD`) — le nom du
+   fichier après `Sudoers entry:` confirme la source exacte de la
+   règle effective (mécanisme établi avant d'écrire quoi que ce soit,
+   § D9-MIG ci-dessous).
 
 **D10 (2026-08-06) — dépôt `terra` (Fyra Labs) : porteur, désactivation
 exclue ; ancrage de confiance formulé explicitement.**
@@ -2873,3 +2935,103 @@ froid), non établi.
   supplémentaire téléchargé ; aucun paquet installé (dernière
   transaction `dnf` toujours 2026-08-07) ; `getenforce` inchangé
   (`Enforcing`).
+- **2026-08-08 — déplacement effectif de D9 vers `/etc/sudoers.d/`,
+  étiquette `bootstrap-sudoers` jouée pour la première fois (ORC-3).**
+  L'opération la plus risquée du dépôt — filet en place côté opérateur
+  pendant toute l'opération (shell root `sudo -i` dans un terminal
+  séparé, session SSH distincte active), aucun des deux touché.
+  **§ 1, trois vérifications préalables, aucune écriture avant qu'elles
+  soient toutes faites** :
+  - **1.1** — directive d'inclusion : `#includedir /etc/sudoers.d`
+    présente, ligne 120 de `/etc/sudoers` (`sudo -n grep -n includedir
+    /etc/sudoers`), confirmée avant toute écriture.
+  - **1.2** — contraintes de nommage, établies par lecture de `man
+    sudoers` (§ Including other files from within sudoers), pas
+    supposées : « sudo will suspend processing of the current file and
+    read each file in /etc/sudoers.d, **skipping file names that end
+    in '~' or contain a '.' character** ». Nom retenu par
+    `roles/bootstrap/` : `99-wheel-nopasswd` — aucun point, ne finit
+    pas par `~` : conforme, pas de piège silencieux ici.
+  - **1.3** — propriétaire/permissions, établis par lecture de `man
+    sudoers` (diagnostics de `visudo -c`) : « the sudoers file must
+    not be world-writable, the default file mode is 0440 » ; owner
+    uid 0. Confirmé empiriquement sur `/etc/sudoers` lui-même
+    (`sudo -n stat -c '%U:%G %a' /etc/sudoers` → `root:root 440`) comme
+    référence réelle de cette machine. `roles/bootstrap/` applique déjà
+    `owner: root, group: root, mode: "0440"` — conforme, aucun défaut
+    trouvé, aucune modification de `roles/bootstrap/` nécessaire pour
+    ce livrable.
+  **État de départ consigné** : ligne 110, `%wheel	ALL=(ALL)	NOPASSWD: ALL` ;
+  `sudo -n visudo -c` → « /etc/sudoers: parsed OK » ; `sudo -n -l -l`
+  → `Sudoers entry: /etc/sudoers`, `Options: !authenticate`. Procédure
+  de retour rédigée dans ce même fichier (ci-dessus) **avant** la
+  première écriture, pas après.
+  **§ 2, séquence stricte, chaque étape vérifiée avant la suivante** :
+  1. Nouveau fichier écrit (`ansible.builtin.template`, `validate:
+     visudo -cf %s` — la syntaxe est vérifiée avant que le fichier
+     n'atteigne jamais `/etc/sudoers.d/`), `changed=true`, mode `0440`
+     confirmé, contenu relu directement.
+  2. `sudo -n visudo -c` sur la **configuration complète**, règle
+     présente deux fois : `/etc/sudoers: parsed OK` **et**
+     `/etc/sudoers.d/99-wheel-nopasswd: parsed OK` — la coexistence est
+     acceptée par `sudo`, le nouveau fichier est réellement traversé
+     (pas ignoré silencieusement).
+  3. **Preuve que la nouvelle règle est effectivement lue, pas
+     seulement `sudo -n true`** (qui n'aurait rien prouvé, l'ancienne
+     ligne suffisant à l'expliquer) : `sudo -n -l -l` (double `-l`,
+     format long — établi par lecture de `man sudo`, § `-l, --list`,
+     avant de l'utiliser) affiche **deux** entrées `Sudoers entry:`
+     distinctes ; et surtout, `sudo -n -l -l /usr/bin/true` (commande
+     précise) affiche `Sudoers entry: /etc/sudoers.d/99-wheel-nopasswd`
+     suivi de `Matched: /usr/bin/true` — la règle **effectivement
+     appliquée** est déjà celle du nouveau fichier (sémantique « dernier
+     match gagne » de `sudoers`, `#includedir` situé après l'ancienne
+     ligne), avant même le retrait de l'ancienne ligne.
+  4. Ancienne ligne retirée (`ansible.builtin.lineinfile`, `state:
+     absent`, `validate: visudo -cf %s`) — **seulement maintenant** :
+     `changed=true`, « 1 line(s) removed ».
+  5. Reprouvé : `sudo -n visudo -c` → les deux fichiers `parsed OK` ;
+     `sudo -n -l -l /usr/bin/true` → `Sudoers entry:
+     /etc/sudoers.d/99-wheel-nopasswd` (seule entrée possible
+     désormais) ; `sudo -n true` → succès. `/etc/sudoers` relu autour
+     de l'ancien emplacement : la ligne a disparu proprement (seul le
+     commentaire « Same thing without a password » reste, suivi
+     directement de la section suivante) ; `grep NOPASSWD /etc/sudoers`
+     → aucune correspondance, code de retour 1 (pas juste une sortie
+     vide) ; `#includedir /etc/sudoers.d` toujours présent.
+  **§ 1.2, consigné une fois pour toutes** : les contraintes de
+  nommage de `sudoers.d` sont un piège d'échec silencieux —
+  `sudo` ignore, **sans aucun message**, tout fichier de ce répertoire
+  dont le nom se termine par `~` ou contient un `.`. Un fichier déposé
+  avec l'un de ces caractères serait syntaxiquement correct, aux bonnes
+  permissions, et pourtant totalement inopérant — le mode d'échec le
+  plus dangereux de cette opération, parce qu'il ne produit aucun
+  diagnostic à côté duquel passer : rien à côté de quoi passer, juste
+  une absence.
+  **Rejoué avec le rôle réel** : `ansible-playbook roles/bootstrap/bootstrap.yml
+  --tags bootstrap-sudoers`, état déjà atteint par les actions
+  manuelles vérifiées ci-dessus → `changed=0` (7/7 tâches `ok`),
+  rejoué une seconde fois → `changed=0` identique. `ansible-lint
+  --profile production roles/bootstrap/` : 0 défaut.
+  **Actions privilégiées, exhaustives** (`become: true` ou `sudo`
+  direct) :
+  | # | Commande | Cible | Motif | Tentative sans privilège : résultat |
+  |---|---|---|---|---|
+  | 1 | `ansible.builtin.template` (`become: true`) | `/etc/sudoers.d/99-wheel-nopasswd` | écrire la nouvelle règle, validée avant activation | Non applicable — écriture racine intrinsèque |
+  | 2 | `sudo -n visudo -c` (lecture) | `/etc/sudoers` + `/etc/sudoers.d/` | valider la configuration complète | Non applicable — lecture de `/etc/sudoers`, mode `0440`, aucune voie non privilégiée |
+  | 3 | `sudo -n -l -l` (lecture) | politique sudo effective | prouver la provenance de la règle | Non applicable — interroge la politique sudo elle-même |
+  | 4 | `ansible.builtin.lineinfile` (`become: true`) | `/etc/sudoers` | retirer l'ancienne ligne, validée avant application | Non applicable — écriture racine intrinsèque |
+  | 5 | `sudo -n grep`/`sed`/`stat` (lectures diverses) | `/etc/sudoers` | consigner l'état de départ et l'état final | Non applicable — `/etc/sudoers` mode `0440`, illisible sans privilège |
+  Toutes structurellement sans voie non privilégiée (fichiers `0440`
+  root:root, ou interrogation de la politique `sudo` elle-même) —
+  aucune « tentative sans privilège » réelle n'était possible pour
+  cette catégorie, à la différence des cas déjà rencontrés
+  (`ausearch`, D9-lecture en COR-2) où une alternative existait au
+  moins partiellement.
+  **Confirmations** : `gpu_mux_mode` inchangé (`current_value=1`) ;
+  `terra.repo` intact (somme de contrôle identique) ; `/etc/cdi/`
+  intact (date de modification inchangée) ; aucun redémarrage
+  (`uptime -s` inchangé) ; aucune session fermée (`loginctl
+  list-sessions`, le shell root et la session SSH de l'opérateur
+  toujours listés) ; aucun paquet installé (dernière transaction `dnf`
+  toujours 2026-08-07) ; `getenforce` inchangé (`Enforcing`).
