@@ -1379,6 +1379,146 @@ NVIDIA ; aucun nouveau dépôt ; aucune modification de `/etc/sudoers` ;
 touchés ; `terra` non désactivé ; aucun redémarrage ; `getenforce`
 inchangé.
 
+### 9.6 — Premier événement réel de péremption (2026-08-09, GPU-4)
+
+Le mécanisme conçu et démontré par simulation en § 9.4 s'est déclenché
+pour la première fois sur un événement réel : mise à jour du pilote
+NVIDIA de `610.43.03` à `610.57.04` (transactions 30/39,
+`docs/packages.md` § 1), sans passer par ce dépôt. `systemctl --user
+is-active ollama` → `failed`, `ExecStartPre` (`--tags verify-cdi-spec`)
+a refusé le démarrage avec le message exact prévu par § 9.2 : « Version
+attendue … = '610.57.04'. Version trouvée … = '610.43.03'. Chemins
+référencés absents de l'hôte (35) ». **Le dispositif a intercepté
+exactement ce pour quoi il a été conçu** — sans lui, le conteneur aurait
+démarré, le GPU aurait été invisible, l'inférence serait tombée sur le
+CPU sans aucun message.
+
+**Bug trouvé en régénérant, corrigé avant de pouvoir régénérer pour de
+vrai** : `--tags regen-cdi-spec`, rejoué trois fois sur cette
+péremption réelle, laissait `/etc/cdi/nvidia.yaml` totalement
+inchangé à chaque fois (`changed=0`, `sha256sum` identique). Cause :
+`regen_spec.yml` gate son bloc d'écriture sur `gpu_cdi_verify_is_stale`
+au niveau du bloc — un `when` de bloc Ansible est réévalué à *chaque*
+tâche du bloc, pas figé à l'entrée. Une sous-étape du même bloc
+réimporte `verify_spec.yml`/`check_spec.yml` pour vérifier le
+**fichier de travail** (chemin différent, tout juste généré, donc à
+jour) et recalcule au passage `gpu_cdi_verify_is_stale` — écrasant la
+valeur qui gouvernait la décision d'écrire pour la spécification
+**réelle**. La tâche d'installation, juste après, lit cette valeur
+écrasée (fausse pour son propos) et saute silencieusement. Trois
+exécutions identiques, trois `changed=0`, `/etc/cdi/nvidia.yaml` jamais
+touché — reproductible à volonté, pas un aléa d'environnement.
+Corrigé dans `roles/gpu_cdi/tasks/regen_spec.yml` : le constat de
+péremption de la spécification réelle est figé dans une variable dédiée
+(`gpu_cdi_regen_target_is_stale`) **avant** toute réutilisation de
+`check_spec.yml` plus loin dans le bloc — celle-ci n'est plus jamais
+recalculée pour un autre chemin sans que la décision d'écrire en tienne
+compte à tort. `ansible-lint --profile production roles/gpu_cdi/` : 0
+défaut après correction ; `--tags regen-cdi-spec` rejoué une quatrième
+fois après correction : `changed=1`, spécification effectivement
+réécrite ; rejoué une cinquième fois (idempotence) : `changed=0`,
+« déjà à jour ». Dérogation au périmètre habituel de ce type de
+livrable (correction de rôle) — décidée explicitement avec l'opérateur
+avant d'agir, pas prise seule : le mécanisme ne pouvait littéralement
+pas atteindre son objectif sans ce correctif.
+
+**Relevé avant** (contrôle exigé avant toute régénération, § Matériel
+spécifique — GPU/MUX de `CLAUDE.md`, première application réelle) :
+```
+$ sha256sum /etc/cdi/nvidia.yaml
+303b2bcc0306aa95b65a17da7c625d73cc30d291d6a6343efb5946e3752d52e6
+$ stat --format='%s octets, mtime %y' /etc/cdi/nvidia.yaml
+19954 octets, mtime 2026-08-06 01:20:42
+```
+
+**Relevé après**, régénération réelle (correctif en place) :
+```
+$ sha256sum /etc/cdi/nvidia.yaml
+b1e555d80f181e01375b354facd4a750c541c1f3335922089db12efded375b9b
+$ stat --format='%s octets, mtime %y' /etc/cdi/nvidia.yaml
+19954 octets, mtime 2026-08-09 22:44:53
+```
+Taille strictement inchangée (19954 → 19954), contenu différent
+(`sha256sum` distinct) — cohérent avec un simple remplacement de jeton
+de version partout où il apparaît (`610.43.03` → `610.57.04`, même
+longueur de chaîne), pas avec une différence de structure.
+
+**Avertissements de génération, consignés intégralement** (`nvidia-ctk
+cdi generate --output=<fichier de travail>`, stderr complet, 14
+lignes `level=warning`, deux motifs apparaissant deux fois chacun) :
+```
+Could not locate libnvidia-vulkan-producer.so.610.57.04: not found
+Could not locate nvidia_drv.so: not found                          (× 2)
+Could not locate libglxserver_nvidia.so.610.57.04: not found        (× 2)
+Could not locate X11/xorg.conf.d/10-nvidia.conf: not found
+Could not locate X11/xorg.conf.d/nvidia-drm-outputclass.conf: not found
+Could not locate vulkan/icd.d/nvidia_icd.json: not found
+Could not locate vulkan/icd.d/nvidia_layers.json: not found
+Could not locate /nvidia-persistenced/socket: not found
+Could not locate /nvidia-fabricmanager/socket: not found
+Could not locate /tmp/nvidia-mps: not found
+Could not locate nvidia-imex: not found
+Could not locate nvidia-imex-ctl: not found
+```
+**Comparaison avec la génération précédente (2026-08-06), demandée
+explicitement — impossible à faire complètement** : seul le nom d'un
+avertissement (`libglxserver_nvidia`) avait été noté à l'époque, pas la
+liste complète ni le compte. Ce qui peut être dit : l'avertissement
+`libglxserver_nvidia` **réapparaît** ici, sans changement de
+comportement associé (taille identique avant/après cette régénération,
+contrairement à l'écart 19972 → 19954 du 2026-08-06) — voir
+`docs/machine-facts.md` § Conteneurs pour la portée exacte de ce que
+cette donnée confirme et n'infirme pas sur ce point. Aucun des treize
+autres avertissements n'a de terme de comparaison — jamais consignés
+avant cette série. Cette liste devient elle-même le point de
+comparaison pour la prochaine régénération réelle.
+
+**Vérification post-installation (boucle fermée du rôle)** :
+« Spécification à jour : version `610.57.04` == version chargée
+`610.57.04`, 50 chemins de bibliothèques référencés, tous présents sur
+l'hôte. » — 50 chemins, contre 21 relevés le 2026-08-06 (§ 9.5) :
+écart non investigué (générations à des dates et des versions de
+pilote différentes, comparaison directe non pertinente sans savoir si
+la méthode de comptage était la même) ; nœuds UVM (`/dev/nvidia-uvm`,
+`/dev/nvidia-uvm-tools`) confirmés présents dans la spécification par
+lecture directe (`grep -E 'nvidia-uvm' /etc/cdi/nvidia.yaml`).
+
+**Remise en service, preuve de bout en bout** :
+```
+$ systemctl --user reset-failed ollama.service
+$ systemctl --user start ollama.service
+$ systemctl --user is-active ollama.service
+active
+```
+`ExecStartPre` (`--tags verify-cdi-spec`) confirmé `status=0/SUCCESS`
+dans `systemctl --user status ollama`.
+```
+$ podman run --rm --device nvidia.com/gpu=all docker.io/nvidia/cuda:12.6.2-base-ubi9 nvidia-smi
+NVIDIA-SMI 610.57.04    KMD Version: 610.57.04    CUDA UMD Version: 13.3
+NVIDIA GeForce RTX 4090 ...
+```
+Cette image ne contient pas `nvidia-smi` — la commande n'a pu réussir
+que par injection CDI depuis l'hôte, pas par accès nu aux
+périphériques. **La régénération n'est tenue pour réussie que sur ce
+test, pas sur la seule vérification interne du rôle** (qui compare la
+spécification à elle-même).
+
+**Actions privilégiées de GPU-4** :
+
+| # | Commande / tâche | Chemin cible | Motif |
+|---|---|---|---|
+| 1 | rôle, tâche « Régén. — installer le fichier de travail vérifié » | `/etc/cdi/nvidia.yaml` (écriture) | régénération réelle, après double vérification |
+
+Aucune autre élévation. `ollama.service` tourne `--user`, sans
+`become` ; `podman run` du test conteneur est rootless.
+
+**Confirmations finales GPU-4** : aucun paquet installé ni retiré,
+aucune mise à jour appliquée, `terra` toujours activé, aucun
+redémarrage, aucune modification de `sudoers`/`gpu_mux_mode`/
+`kwinrulesrc`. Seul fichier de rôle modifié :
+`roles/gpu_cdi/tasks/regen_spec.yml` (correctif ci-dessus, approuvé
+explicitement avant d'agir).
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode

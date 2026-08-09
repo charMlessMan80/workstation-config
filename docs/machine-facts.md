@@ -91,8 +91,19 @@ risquées. Détail complet dans `docs/gpu-containers.md` § 7.5.
 
 ## GPU
 
-- Pilote : `NVIDIA-SMI 610.43.03`, `KMD Version 610.43.03`, `CUDA UMD Version
-  13.3`, VBIOS `95.03.2D.00.06`. (`nvidia-smi -q`)
+- **Fait daté (2026-08-04), pilote depuis mis à jour deux fois — voir
+  ci-dessous pour l'état courant.** Pilote alors : `NVIDIA-SMI
+  610.43.03`, `KMD Version 610.43.03`, `CUDA UMD Version 13.3`, VBIOS
+  `95.03.2D.00.06`. (`nvidia-smi -q`)
+  **État courant (2026-08-09, GPU-4)** : `NVIDIA-SMI 610.57.04`, `KMD
+  Version 610.57.04`, `CUDA Version 13.3`, VBIOS inchangé (mise à jour
+  logicielle, pas de flash). (`nvidia-smi -q`) Mise à jour intermédiaire
+  à `610.43.03 → 610.57.04` non documentée ici par un relevé distinct —
+  seule la valeur au moment de l'installation initiale et la valeur
+  courante sont consignées ; tout ce qui suppose `610.43.03` comme
+  version **du pilote réellement chargé aujourd'hui**, plus loin dans ce
+  document, est à cette date faux — vérifié occurrence par occurrence,
+  `docs/packages.md`/journal, entrée GPU-4.
 - VRAM totale : 16376 MiB. VRAM utilisée au moment de la lecture : 1045 MiB
   (valeur transitoire, non représentative d'un état stable — mesurée le
   2026-08-04 vers 20:31 CEST). (`nvidia-smi -q`)
@@ -107,7 +118,11 @@ risquées. Détail complet dans `docs/gpu-containers.md` § 7.5.
   - `from_repo=updates` (Fedora) : `libva-nvidia-driver`, `nvidia-gpu-firmware`.
   - `from_repo=@commandline` : `kmod-nvidia-7.1.5-201.fc44.x86_64` — construit
     localement par akmods et installé sans dépôt (voir transaction 11
-    ci-dessous).
+    ci-dessous). **Fait daté (2026-08-04) : un seul à cette date.**
+    Deux mises à jour de noyau depuis en ont ajouté chacune un
+    (`kmod-nvidia-7.1.6-201`, `kmod-nvidia-7.1.7-200` — transactions 31
+    et 40, `docs/packages.md` § 4.2) : trois au total à la date de
+    GPU-4 (2026-08-09), les anciennes non purgées par ce mécanisme.
   (`dnf repoquery --installed --qf '%{name} from_repo=%{from_repo}\n' | grep -i nvidia`)
 - `/etc/modprobe.d/` ne contient aucun fichier lié à NVIDIA (13 fichiers,
   tous des blacklists réseau ou `nvdimm-security.conf`).
@@ -201,11 +216,20 @@ risquées. Détail complet dans `docs/gpu-containers.md` § 7.5.
     c'est l'état cohérent attendu **avant** toute bascule vers
     Optimus/Hybrid, pas une anomalie : décision D2bis prise le 2026-08-04,
     non encore appliquée à la date de cet inventaire (voir « Décisions »).
-- Règle udev `/usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules` (déposée par
-  le paquet `supergfxctl`, pas par `asusd`) : bascule `power/control` à
-  `auto` sur bind des fonctions PCI NVIDIA (classes `0x030000` et
-  `0x030200`), et à `on` sur unbind. Cette règle agit indépendamment de l'état
-  du démon `supergfxd`. (`cat /usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules`)
+- **[CORRIGÉ le 2026-08-09, GPU-4] ÉTAIT** : règle udev
+  `/usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules`, attribuée au
+  paquet `supergfxctl` — **faux**, une corrélation lue comme une cause
+  (la règle existait, la valeur mesurée correspondait, le lien n'a
+  jamais été démontré ; détail complet et preuve expérimentale non
+  provoquée — `supergfxctl` retiré depuis le 2026-08-07, redémarrage
+  depuis, `power/control` toujours `auto` — dans `docs/dgpu-power.md`
+  § Mécanismes en présence, point 1). Règle réelle : udev
+  `/usr/lib/udev/rules.d/80-nvidia-pm.rules`, déposée par
+  `xorg-x11-drv-nvidia` (le pilote lui-même, pas `asusd` ni
+  `supergfxctl`) : bascule `power/control` à `auto` sur bind des
+  fonctions PCI NVIDIA (classes `0x030000` et `0x030200`), et à `on`
+  sur unbind. (`rpm -qf /usr/lib/udev/rules.d/80-nvidia-pm.rules`,
+  `cat /usr/lib/udev/rules.d/80-nvidia-pm.rules`)
   - État constaté ce jour : `power/control=auto` sur les deux fonctions PCI
     NVIDIA (`0000:01:00.0` et `0000:01:00.1`), confirmant que la règle est
     active en pratique malgré `supergfxd` inactif.
@@ -468,6 +492,29 @@ aberrante.
   consignent à chaque régénération, pas seulement après coup. Non
   implémenté dans `roles/gpu_cdi/` ici — dette technique, hors périmètre
   de ce livrable.
+  **Donnée ajoutée le 2026-08-09 (GPU-4), marqueur non fermé — elle
+  n'explique pas l'écart historique, elle en éloigne l'explication la
+  plus simple.** Première régénération réelle depuis cet écart
+  (nécessitée par la mise à jour du pilote vers `610.57.04`,
+  `docs/gpu-containers.md` § Péremption) : `sha256sum` et taille relevés
+  avant (`303b2bcc…`, 19954 octets) et après (`b1e555d8…`, 19954 octets
+  — **taille inchangée**, seul le contenu diffère). L'avertissement
+  `Could not locate libglxserver_nvidia.so.610.57.04` (candidat cité
+  ci-dessus pour l'écart 19972 → 19954) **est réapparu**, deux fois,
+  dans cette génération — mais sans corrélation avec un écart de taille
+  cette fois : avant et après portent le même nombre d'octets. Ce n'est
+  pas la preuve que l'hypothèse est fausse (le contexte diffère : ici
+  une bascule de version de pilote, alors le 2026-08-06 deux
+  régénérations le même jour, même version) — c'est la preuve qu'elle
+  ne se vérifie pas trivialement par simple présence de
+  l'avertissement. Les deux sorties de génération complètes de cette
+  série sont consignées dans `docs/gpu-containers.md` § Péremption pour
+  qu'une future régénération sur un pilote inchangé puisse enfin
+  reproduire les conditions exactes de l'écart original. **Marqueur
+  maintenu ouvert** : ces avertissements n'expliquent toujours pas
+  l'écart de 2026-08-06, faute des deux sorties de cette date
+  précise — ils écartent seulement l'explication la plus simple
+  (« l'avertissement suffit à lui seul à faire varier la taille »).
 - **[ÉTAIT, jusqu'au 2026-08-05] `nvidia-container-toolkit` : non
   installé.** Depuis la Phase 1 : `nvidia-container-toolkit-1.19.1-1.fc44.x86_64`
   et `nvidia-container-toolkit-selinux-1.19.1-1.fc44.noarch`, source COPR
@@ -609,7 +656,18 @@ conflit entre commutateurs GPU et un risque de repli sur `integrated` au
 démarrage, ce qui couperait la dGPU. Corroboré ce jour : `supergfxctl -g`
 échoue explicitement (« supergfxd is not enabled ») — le chemin `asusd`/
 `asus-armoury` est bien celui en usage réel sur cette machine, pas
-`supergfxctl`.
+`supergfxctl`. **Fait daté, exact pour le 2026-08-04** : à cette date,
+`supergfxctl` était installé, son démon `supergfxd` simplement
+désactivé — décrire cet état comme « installé mais désactivé » était
+vrai alors. **[CORRIGÉ le 2026-08-09, GPU-4] Périmé depuis, à ne pas
+lire comme l'état courant** : `supergfxctl` n'est plus installé du tout
+depuis le 2026-08-07, retiré silencieusement par obsolescence Terra
+(`terra-obsolete`), pas par un choix délibéré de l'opérateur ni par ce
+rôle — détail complet `docs/repositories.md` § 9, `docs/packages.md`
+§ 2.3. Le motif de D2ter (écarter `supergfxd` par prudence, quel qu'en
+soit l'état) reste valide indépendamment de cette disparition — la
+décision elle-même n'est pas remise en cause, seule la description de
+l'état du paquet l'était.
 
 **D2ter — révocation partielle (2026-08-05).** La bascule MUX se fait par
 **écriture directe** dans
@@ -1723,21 +1781,28 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   rôle, jamais documentés avant ce livrable.** Détail complet, preuves
   et argumentaire dans `docs/packages.md` § 2.2/§ 3 — résumé ici pour
   que ce fichier reste la source unique des points non résolus.
-  **`asusctl`** : `roles/gpu_mux/` a abandonné `asusctl armoury set`
-  pour une écriture sysfs directe (D2ter révoquée en partie,
-  2026-08-05), mais l'**application réelle** de `gpu_mux_mode` au
-  redémarrage passe par `asus-shutdown.service`
-  (`Applying deferred GPU attribute gpu_mux_mode = 1`, § Points
-  ouverts, entrée « Rôle exact d'`asus-shutdown.service` ») —
-  fourni exclusivement par le paquet `asusctl` (`rpm -qf
-  /usr/lib/systemd/system/asus-shutdown.service` →
-  `asusctl-6.3.11-2.fc44.x86_64`), jamais déclaré par
-  `roles/bootstrap/`. Sur une machine neuve sans `asusctl`, l'écriture
-  sysfs réussirait et `pending_reboot` basculerait quand même (porté
-  par le pilote noyau `asus_armoury`, indépendant d'`asusctl`) — la
-  bascule réelle échouerait silencieusement jusqu'au redémarrage,
-  seulement rattrapée alors par les `post_tasks` de `site.yml`
-  (`docs/orchestration.md` § 2). **`claude-code`** et **`htop`** :
+  **`asusctl`** — **[MOTIF CORRIGÉ le 2026-08-09, GPU-4]** ÉTAIT :
+  nécessaire parce que l'application réelle de `gpu_mux_mode` au
+  redémarrage passerait par `asus-shutdown.service`, fourni
+  exclusivement par ce paquet — **plus affirmatif que ce qui a été
+  établi**. La révocation partielle de D2ter (ci-dessus, § Décisions) a
+  consigné explicitement que l'écriture sysfs directe et la file
+  d'`asusd` portaient, le 2026-08-05, la même valeur cible, et que
+  **laquelle des deux a effectivement produit le changement matériel
+  observé est indéterminable a posteriori**. Motif qui tient
+  réellement : `asusd` (fourni par `asusctl`) gère les profils
+  d'alimentation et les courbes de ventilation propres à ce matériel
+  (`/etc/asusd/asusd.ron` : `platform_profile_on_battery`,
+  `platform_profile_on_ac`, `platform_profile_linked_epp` ; `asusctl
+  profile`/`asusctl fan-curve`) — **D6** a choisi `power-profiles-daemon`
+  explicitement « pour sa cohérence avec `asusd` » (§ Décisions), motif
+  qui présuppose `asusd` présent. Sur une machine neuve sans `asusctl`,
+  `roles/bootstrap/` installerait `power-profiles-daemon` sans erreur
+  (D6 n'en dépend pas pour s'exécuter) — seule la cohérence avec
+  `asusd`, raison même du choix, ne tiendrait plus, sans qu'aucun test
+  actuel ne le remarque. Pas un blocage qui casse, une prémisse de
+  décision silencieusement caduque — détail complet,
+  `docs/packages.md` § 2.2/§ 3. **`claude-code`** et **`htop`** :
   `roles/desktop/tasks/main.yml` porte une garde explicite
   (`ansible.builtin.assert`) qui échoue bruyamment si `claude`/`htop`
   sont absents du `PATH` avant de déployer la session de démarrage

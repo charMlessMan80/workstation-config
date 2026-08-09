@@ -38,6 +38,28 @@
     gpu_cdi_verify_spec_path: "{{ gpu_cdi_spec_path }}"
   tags: ['regen-cdi-spec']
 
+- name: "Régén. — figer ce constat AVANT toute réutilisation de check_spec.yml plus bas dans ce fichier"
+  # Bug trouvé et corrigé le 2026-08-09 (GPU-4) : ce bloc réutilise plus
+  # bas exactement ce même mécanisme (verify_spec.yml -> check_spec.yml)
+  # pour vérifier le FICHIER DE TRAVAIL (chemin différent) — cette
+  # réutilisation recalcule gpu_cdi_verify_is_stale à partir de ce second
+  # chemin et écrase la valeur calculée ci-dessus, pour la spécification
+  # RÉELLE. Un `when` porté par un bloc Ansible est réévalué à chaque
+  # tâche du bloc, pas une seule fois à l'entrée — la tâche d'installation
+  # plus bas, si elle continuait à lire directement gpu_cdi_verify_is_stale,
+  # verrait la valeur (déjà écrasée par la vérification du fichier de
+  # travail, presque toujours « à jour » puisque tout juste généré) et
+  # sauterait silencieusement, quel que soit l'état réel de
+  # {{ gpu_cdi_spec_path }}. Constaté par exécution réelle : trois
+  # invocations consécutives de --tags regen-cdi-spec sur une
+  # spécification réellement périmée, changed=0 à chaque fois,
+  # /etc/cdi/nvidia.yaml jamais réécrit. Ce fait figé (gpu_cdi_regen_target_is_stale)
+  # est ce que ce bloc consulte désormais pour décider d'écrire — jamais
+  # la variable partagée, mutable, réutilisée à d'autres fins plus bas.
+  ansible.builtin.set_fact:
+    gpu_cdi_regen_target_is_stale: "{{ gpu_cdi_verify_is_stale }}"
+  tags: ['regen-cdi-spec']
+
 - name: "Régén. — rien à faire : la spécification réelle est déjà à jour"
   ansible.builtin.debug:
     msg: >-
@@ -45,13 +67,13 @@
       {{ gpu_cdi_verify_spec_version }} == version chargée
       {{ gpu_cdi_verify_loaded_version }}, tous les chemins référencés
       présents) — aucune écriture, aucun changement.
-  when: not gpu_cdi_verify_is_stale
+  when: not gpu_cdi_regen_target_is_stale
   tags: ['regen-cdi-spec']
 
 - name: >-
     Régén. — spécification périmée ou absente : régénérer, bloc borné,
     nettoyage garanti (succès ou échec)
-  when: gpu_cdi_verify_is_stale and not ansible_check_mode
+  when: gpu_cdi_regen_target_is_stale and not ansible_check_mode
   tags: ['regen-cdi-spec']
   block:
     - name: "Régén. — créer un fichier de travail privé pour la nouvelle spécification (jamais /etc/cdi directement)"
@@ -103,5 +125,5 @@
       exécution réelle générerait une nouvelle spécification dans un
       fichier de travail, la vérifierait, puis ne l'installerait que si
       cette vérification passe.
-  when: gpu_cdi_verify_is_stale and ansible_check_mode
+  when: gpu_cdi_regen_target_is_stale and ansible_check_mode
   tags: ['regen-cdi-spec']

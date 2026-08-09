@@ -165,15 +165,61 @@ source locale ou une documentation embarquée avec le pilote (donc
 « amont », recevable comme source externe au sens de `CLAUDE.md` — jamais
 confondue avec une lecture locale) :
 
-### 1. Règle udev `90-supergfxd-nvidia-pm.rules` (paquet `supergfxctl`)
+### 1. Règle udev `80-nvidia-pm.rules` (paquet `xorg-x11-drv-nvidia`)
 
+**[CORRIGÉ le 2026-08-09, GPU-4] ÉTAIT** : attribuée au paquet
+`supergfxctl` (nom de fichier `90-supergfxd-nvidia-pm.rules`) — **faux**,
+établi par preuve expérimentale non provoquée plutôt que par relecture :
+`supergfxctl` est retiré de ce poste depuis le 2026-08-07 (silencieusement,
+par obsolescence Terra — `docs/repositories.md` § 9, `docs/packages.md`
+§ 2.3), un redémarrage a eu lieu depuis, et `power/control` vaut
+toujours `auto` avec la carte `suspended` :
 ```
-$ cat /usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules
+$ rpm -q supergfxctl
+package supergfxctl is not installed
+$ ls /usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules
+ls: cannot access '/usr/lib/udev/rules.d/90-supergfxd-nvidia-pm.rules': No such file or directory
+$ cat /sys/bus/pci/devices/0000:01:00.0/power/control
+auto
+$ cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status
+suspended
+```
+La règle réellement en vigueur, relue directement :
+```
+$ rpm -qf /usr/lib/udev/rules.d/80-nvidia-pm.rules
+xorg-x11-drv-nvidia-610.57.04-1.fc44.x86_64
+$ cat /usr/lib/udev/rules.d/80-nvidia-pm.rules
+# Enable runtime PM for NVIDIA VGA/3D controller devices on driver bind
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
-ACTION=="unbind", ... ATTR{power/control}="on"   (deux règles miroir)
+
+# Disable runtime PM for NVIDIA VGA/3D controller devices on driver unbind
+ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
 ```
-(`rpm -qf` confirme le paquet porteur : `supergfxctl-5.2.7-2.fc44.x86_64`.)
+Datée du 3 août (dépôt du paquet, avant même la première session
+d'inventaire de ce poste) — la règle `supergfxctl` était un **doublon**,
+au même contenu, ciblant les mêmes classes PCI ; les deux ont
+probablement coexisté sans conflit du 2026-08-04 (installation de
+`supergfxctl`) au 2026-08-07 (son retrait), l'une des deux devenant
+purement redondante sans que rien ne le signale.
+
+**Motif de l'erreur, consigné pour ce qu'il est** : une corrélation lue
+comme une cause. La règle `supergfxctl` existait, la valeur mesurée
+(`power/control=auto`) correspondait exactement à ce qu'elle prescrit —
+mais le lien causal n'a jamais été démontré, seulement supposé
+plausible parce que rien d'autre n'avait été cherché à l'époque.
+Variante du **quatrième mode d'échec** répertorié dans `CLAUDE.md` §
+Modes d'échec qui imitent le sourcing (« transposition entre
+interfaces ») : là où ce mode désignait une propriété transposée par
+analogie entre deux interfaces apparentées, celui-ci est une **cause
+transposée par coïncidence de valeur** entre deux mécanismes
+indépendants qui, ce jour-là, produisaient le même résultat observable
+— un cas voisin, pas identique, à verser au même catalogue (édition de
+`CLAUDE.md` hors périmètre de ce livrable, signalée pour le prochain
+qui y touchera). Ce que la mesure de l'époque a bien établi reste
+valable (`power/control=auto` effectivement en vigueur, § Synthèse
+chiffrée) — seule l'attribution de la cause était fausse.
 
 Cette règle cible explicitement les classes PCI `0x030000` et `0x030200`
 (contrôleur VGA / contrôleur 3D — les deux classes possibles de la

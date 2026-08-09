@@ -164,34 +164,39 @@ ce livrable**.
 - **`asusctl`** — non déclaré par `roles/bootstrap/` (qui installe
   `terra-release`/`terra-gpg-keys` mais pas `asusctl` lui-même), non
   requis par aucun autre paquet installé (`rpm -q --whatrequires
-  asusctl` → vide). `roles/gpu_mux/` a pourtant explicitement abandonné
-  `asusctl armoury set` pour une écriture sysfs directe (D2ter révoquée
-  partiellement, 2026-08-05) — **mais l'écriture directe ne fait que
-  poser la demande** (`pending_reboot: 0 → 1`, confirmé par le rôle) ;
-  son **application réelle au firmware** passe par
-  `asus-shutdown.service`, établi comme le mécanisme réel dans un
-  livrable antérieur (`docs/machine-facts.md` § Points ouverts,
-  « Applying deferred GPU attribute gpu_mux_mode = 1 »). Ce service, et
-  le binaire `/usr/bin/asus-shutdown` qu'il exécute, sont fournis
-  **exclusivement** par le paquet `asusctl` :
-  ```
-  $ rpm -qf /usr/lib/systemd/system/asus-shutdown.service
-  asusctl-6.3.11-2.fc44.x86_64
-  ```
-  Le pilote noyau qui expose `/sys/.../asus-armoury/` (`asus_armoury`,
-  vérifié via `modinfo`/`rpm -qf` — fourni par `kernel-modules`, pas par
-  `asusctl`) suffit pour que l'écriture réussisse et que
-  `pending_reboot` bascule. Sur une machine neuve sans `asusctl`
-  installé, `roles/gpu_mux/` réussirait donc sa propre garde interne
-  (l'écriture, la confirmation par `pending_reboot`) **sans qu'aucune
-  bascule réelle ne se produise au redémarrage** — parce que rien ne
-  ferait tourner `asus-shutdown.service`. Le filet de sécurité existe
-  quand même, mais tardivement : les `post_tasks` de `site.yml`
-  relisent l'état après redémarrage et s'arrêtent si `pending_reboot`
-  ou `gpu_mux_mode` ne correspondent pas à l'attendu
-  (`docs/orchestration.md` § 2) — l'échec serait donc détecté, mais
-  seulement après un redémarrage complet, pas avant comme pour les deux
-  paquets suivants.
+  asusctl` → vide).
+  **[MOTIF CORRIGÉ le 2026-08-09, GPU-4]** La version précédente de ce
+  paragraphe attribuait la nécessité d'`asusctl` à l'application réelle
+  de `gpu_mux_mode` au redémarrage via `asus-shutdown.service` — **plus
+  affirmatif que ce qui a été établi**. Un livrable antérieur
+  (révocation partielle de D2ter, `docs/machine-facts.md` § Décisions)
+  a consigné explicitement que, le 2026-08-05, l'écriture directe dans
+  sysfs et la file d'`asusd` (jamais purgée depuis une tentative
+  antérieure) portaient **la même valeur cible** — et que **laquelle
+  des deux a effectivement produit le changement matériel observé est
+  indéterminable a posteriori**. Présenter `asus-shutdown.service`
+  comme LE mécanisme d'application allait au-delà de ce que ce fait
+  établit.
+
+  Le motif qui tient, sourcé sans dépendre de ce point indéterminé :
+  `asusd` (fourni par `asusctl`) gère les profils d'alimentation et les
+  courbes de ventilation propres à ce matériel — vérifié directement,
+  pas supposé : `/etc/asusd/asusd.ron` porte
+  `platform_profile_on_battery`, `platform_profile_on_ac`,
+  `platform_profile_linked_epp` ; `asusctl profile` et `asusctl
+  fan-curve` existent comme sous-commandes dédiées (`asusctl --help`).
+  **D6** (`docs/machine-facts.md` § Décisions) a choisi
+  `power-profiles-daemon` plutôt que `tuned-ppd` explicitement « pour
+  sa cohérence avec `asusd` » — ce motif présuppose `asusd` présent.
+  Sur une machine neuve sans `asusctl`, `roles/bootstrap/` installerait
+  et activerait `power-profiles-daemon` sans erreur (D6 ne dépend
+  d'aucun autre paquet pour s'exécuter) — mais **sans le partenaire
+  ASUS pour lequel il a été choisi plutôt qu'un autre gestionnaire de
+  profils** : la prémisse de D6 ne tiendrait plus, sans qu'aucune garde
+  actuelle ne le signale. Aucun test, dans `roles/bootstrap/` ni
+  ailleurs, ne vérifie la cohérence entre `power-profiles-daemon` et
+  `asusd` — silencieux au même titre que l'était l'ancien motif, par un
+  mécanisme différent et mieux sourcé.
 - **`claude-code`** — non déclaré par aucun rôle, non requis par aucun
   paquet installé. `roles/desktop/tasks/main.yml` contient une garde
   explicite (« Échouer bruyamment si une commande de la session de
@@ -207,10 +212,15 @@ ce livrable**.
   de base — pas un gap.
 
 **Asymétrie à noter** : `claude-code`/`htop` échouent tôt et bruyamment
-(avant tout redémarrage, avant tout déploiement) ; `asusctl` échouerait
-tard (après un redémarrage complet, seulement détecté par les
-`post_tasks` de `site.yml`) — les trois sont réellement nécessaires,
-mais pas au même coût de découverte sur une machine neuve.
+(avant tout redémarrage, avant tout déploiement, garde `assert`
+explicite) ; l'absence d'`asusctl` ne ferait échouer aucune garde
+existante — `power-profiles-daemon` s'installerait et fonctionnerait
+(D6 ne dépend d'aucun paquet pour s'exécuter), seule sa cohérence avec
+`asusd` (motif même de D6) ne tiendrait plus, sans qu'aucun test actuel
+ne le détecte, ni tôt ni tard. Les trois sont réellement nécessaires,
+mais la nécessité d'`asusctl` est de nature différente : pas une
+exécution qui casse, une prémisse de décision qui ne tient plus en
+silence.
 
 ### 2.3 — Non reproduit, non nécessaire (0, à date — un cas déjà refermé de lui-même)
 
@@ -248,16 +258,18 @@ risque que ce livrable cherche à mesurer, matérialisé une fois de plus,
 cette fois sans qu'aucune action de l'opérateur ni d'aucun rôle n'y
 soit pour quoi que ce soit.
 
-**Conséquence directe, hors périmètre strict de ce livrable** :
-`docs/repositories.md` § 4/§ 9 (PKG-1, commit `996fdc7`) affirme
+**Conséquence directe, hors périmètre strict de ce livrable (PKG-2)** :
+`docs/repositories.md` § 4/§ 9 (PKG-1, commit `996fdc7`) affirmait
 toujours « `terra` : 5 paquets, dont `asusctl` » en laissant entendre
 que les quatre autres sont inchangés depuis avant le retrait de
 `cardwire` — **faux** : l'un des cinq est `terra-obsolete` (installé
 2026-08-07), pas `supergfxctl` (parti le même jour). Le compte
-« 5 » reste juste par coïncidence numérique, sa composition
-détaillée ne l'est plus. Correction **non appliquée ici** —
-`docs/repositories.md` est hors périmètre de ce livrable — signalée
-pour un prochain livrable qui y touchera.
+« 5 » restait juste par coïncidence numérique, sa composition
+détaillée ne l'était plus. Non corrigée dans ce livrable-ci —
+`docs/repositories.md` était hors périmètre de PKG-2. **[CORRIGÉ le
+2026-08-09, GPU-4]** `docs/repositories.md` § 4/§ 10 met désormais la
+composition exacte, et nomme le fait de méthode qui en découle
+(surface de risque de `terra` non nommée en D10).
 
 ### 2.4 — Non reproduit, délibérément hors périmètre (9)
 
@@ -327,7 +339,7 @@ hors des deux chiffres, pour la raison donnée à chaque endroit.
 prérequis § 0 de `docs/orchestration.md` déjà en place), qu'est-ce qui
 manquerait ?**
 
-Trois paquets, dont deux avec un coût de découverte très différent :
+Trois paquets, avec deux modes d'échec de nature différente :
 
 1. **`claude-code`** et **`htop`** — `roles/desktop/` s'arrêterait
    immédiatement et bruyamment, avant tout redémarrage, avant tout
@@ -337,23 +349,23 @@ Trois paquets, dont deux avec un coût de découverte très différent :
    *après* déploiement, pas contre l'absence du paquet lui-même :
    `site.yml` resterait bloqué à ce point tant que l'opérateur n'aurait
    pas installé les deux à la main.
-2. **`asusctl`** — plus grave dans son mode d'échec parce que plus
-   tardif : `roles/gpu_mux/` réussirait sa propre garde (l'écriture
-   sysfs, la confirmation par `pending_reboot`), l'opérateur
-   redémarrerait en toute confiance, et la bascule MUX resterait sans
-   effet parce qu'`asus-shutdown.service` n'existerait pas pour
-   l'appliquer. Le filet de sécurité (`post_tasks` de `site.yml`,
-   `docs/orchestration.md` § 2) rattraperait l'échec **après** ce
-   redémarrage, pas avant.
+2. **`asusctl`** — **[MOTIF CORRIGÉ le 2026-08-09, GPU-4]** aucune
+   garde ne casserait, ni tôt ni tard : `roles/bootstrap/` installerait
+   `power-profiles-daemon` (D6) sans erreur, `power-profiles-daemon`
+   fonctionnerait. Ce qui manquerait est plus discret qu'un échec de
+   playbook — la cohérence avec `asusd` que D6 donne explicitement
+   comme motif de ce choix (`docs/machine-facts.md` § Décisions)
+   n'aurait plus de sens, `asusd` étant absent, sans qu'aucun test
+   actuel ne le remarque. Pas un blocage de `site.yml` comme les deux
+   précédents — une prémisse de décision silencieusement caduque.
 
 **Ce que je recommanderais de traiter en premier** : ajouter `asusctl`
 à la liste de paquets installés par `roles/bootstrap/` (aux côtés de
 `terra-release`/`terra-gpg-keys`, même dépôt, même moment logique de
-la séquence). C'est le seul des trois dont l'échec sur machine neuve
-serait à la fois **tardif** (après un redémarrage) et **silencieux
-jusque-là** (contrairement à `claude-code`/`htop`, dont l'échec est
-déjà bruyant et immédiat par construction — la garde existante suffit,
-rien à corriger). Traiter `claude-code`/`htop` ensuite, par simple
+la séquence) — c'est le seul des trois dont rien, dans l'état actuel
+du dépôt, ne remarquerait l'absence : ni un `assert` qui casse (comme
+`claude-code`/`htop`), ni un `post_tasks` qui rattrape après coup.
+Traiter `claude-code`/`htop` ensuite, par simple
 cohérence de méthode : soit les déclarer explicitement dans un rôle
 (probablement `desktop`, aux côtés de `kitty`/`jq`), soit documenter
 sciemment leur absence de `site.yml` comme un choix assumé — les deux

@@ -288,7 +288,7 @@ copie refaite, § 3 « Preuve que la friction a disparu »).
 | `rpmfusion-free-updates` | RPM Fusion, miroir | Même clé que `rpmfusion-free` | 8 paquets | 1 | 0 |
 | `rpmfusion-nonfree` | RPM Fusion, miroir | Clé RPM Fusion Nonfree, `/etc/pki/rpm-gpg/RPM-GPG-KEY-rpmfusion-nonfree-fedora-44` | 0 paquet direct constaté | 1 | 0 |
 | `rpmfusion-nonfree-updates` | RPM Fusion, miroir | Même clé que `rpmfusion-nonfree` | 10 paquets (dont pilote NVIDIA) | 1 | 0 |
-| `terra` | Fyra Labs (infrastructure propre) | TLS + acceptation de clé le 2026-08-04, **corroboration indépendante introuvable** — D10 | 5 paquets, dont `asusctl` (**ÉTAIT** 6 — `cardwire` retiré le 2026-08-09, § 9, PKG-1) | 1 | **1** |
+| `terra` | Fyra Labs (infrastructure propre) | TLS + acceptation de clé le 2026-08-04, **corroboration indépendante introuvable** — D10 | 5 paquets : `asusctl`, `asusctl-rog-gui`, `terra-gpg-keys`, `terra-obsolete`, `terra-release` (**ÉTAIT** 6, `asusctl`/`asusctl-rog-gui`/`supergfxctl`/`terra-gpg-keys`/`terra-release` — corrigé le 2026-08-09, GPU-4 : le compte « 5 » annoncé en PKG-1 après le retrait de `cardwire` était juste par coïncidence, sa composition fausse — `supergfxctl` a disparu le même jour que le retrait de `cardwire`, par un mécanisme distinct et non lié, remplacé dans le compte par `terra-obsolete`, § 9) | 1 | **1** |
 | `copr:…ai-ml:nvidia-container-toolkit` | COPR Fedora, groupe `@ai-ml` | TLS vers l'infrastructure COPR + empreinte épinglée — D7 | 2 paquets | 1 | 0 |
 | `claude-code` | Anthropic, `downloads.claude.ai` | TLS + clé `https://downloads.claude.ai/keys/claude-code.asc` — D5 | 1 paquet | 1 | *(non défini, § note)* |
 
@@ -502,6 +502,38 @@ consigné dans `docs/machine-facts.md` § Points ouverts) : combien de
 paquets installés sur ce poste ne proviennent d'aucun rôle de ce
 dépôt — `cardwire` n'a été repéré que parce qu'il produisait un
 conflit visible ; un paquet orphelin silencieux ne le serait pas.
+
+## 10. Correction de la composition de `terra` — `supergfxctl` disparu, pas `cardwire` bis (GPU-4)
+
+**[CORRIGÉ le 2026-08-09]** § 9 (PKG-1) annonçait « 5 paquets, dont
+`asusctl` » après le retrait de `cardwire`, en laissant croire que les
+quatre autres membres restaient ceux d'avant. **Faux** : entre-temps
+(2026-08-07, avant même le retrait de `cardwire`), `supergfxctl` avait
+déjà disparu — retiré silencieusement par `dnf` via une obsolescence
+déclarée par `terra-obsolete` (`Obsoletes: supergfxctl < 5.2.7-3`),
+sans conflit, sans message, découvert seulement en PKG-2
+(`docs/packages.md` § 2.3) puis confirmé matériellement en GPU-4 (ce
+livrable, `power/control` toujours `auto` sans `supergfxctl`,
+`docs/dgpu-power.md` § Mécanismes en présence). `terra-obsolete`
+lui-même, installé par cette même transaction, complète le compte à
+cinq. Le chiffre « 5 » de § 9 restait donc juste — coïncidence
+numérique entre un retrait délibéré (`cardwire`) et une disparition
+non provoquée (`supergfxctl`) — mais sa composition détaillée était
+fausse depuis le jour même où elle a été écrite. Corrigé § 4, ligne
+`terra`.
+
+**Fait de méthode, plus important que ce cas précis** : un dépôt tiers
+peut faire disparaître un paquet installé, par obsolescence normale,
+**sans conflit et sans trace visible dans le flux habituel d'une mise à
+jour** — `cardwire` avait au moins produit un message à chaque
+`dnf update` tant qu'il restait présent ; `supergfxctl` n'a rien
+produit du tout. C'est une surface de risque de `terra` qui n'avait
+jamais été nommée en D10 (`docs/machine-facts.md` § Décisions) : la
+corroboration de confiance de ce dépôt (§ 1 ci-dessus) portait sur
+l'authenticité de ce qu'il **installe**, jamais sur ce qu'il peut
+faire disparaître en silence. Aucune action entreprise sur cette base
+ici — fait consigné, pas de nouvelle garde ajoutée à un rôle pour ce
+livrable.
 
 ## Voir aussi
 
