@@ -282,11 +282,11 @@ c'est précisément ce qui les rend plus difficiles à repérer.
    mise en cause (cas distinct, déjà couvert par la règle sur les
    gardes modifiées, § Avant d'agir).
 
-**Trois règles, initialement de simples principes, ont depuis reçu
+**Quatre règles, initialement de simples principes, ont depuis reçu
 une étape de validation qui les rend vérifiables plutôt que
-seulement énoncées** — motif commun aux trois : un principe sans
+seulement énoncées** — motif commun aux quatre : un principe sans
 étape de vérification ne s'applique pas tout seul, et cette série l'a
-montré deux fois de suite avant que chacune ne soit corrigée.
+montré plusieurs fois de suite avant que chacune ne soit corrigée.
 - **La colonne « tentative sans privilège : résultat »** (§ Avant
   d'agir, règle sur l'élévation) — ajoutée après trois élévations par
   réflexe en trois livrables consécutifs, restreinte à son domaine le
@@ -310,6 +310,15 @@ montré deux fois de suite avant que chacune ne soit corrigée.
   jamais en rôle isolé ; une seule occurrence à ce jour, pas encore une
   colonne obligatoire, mais déjà une étape que tout nouveau chemin de
   ce type doit traverser avant d'être considéré validé.
+- **L'énumération des branches exercées et non exercées** (§ Avant
+  d'agir, règle sur les branches non exercées) — ajoutée après une
+  quatrième occurrence du même défaut (`--tags regen-cdi-spec`,
+  totalement inopérant depuis sa création faute d'une péremption
+  réelle pour l'exercer, invisible pendant trois livrables), reliée
+  ici pour la première fois aux trois occurrences antérieures qui
+  n'avaient jamais été nommées comme un seul et même motif (chemin de
+  retour SSH, mode dégradé `kitty`, génération réelle de l'unité
+  d'autostart).
 
 ## Avant d'agir
 
@@ -339,6 +348,47 @@ montré deux fois de suite avant que chacune ne soit corrigée.
   annoncé atteint. Motif : sur une machine de dev sans garde-fou
   d'entreprise, l'enchaînement silencieux est la façon la plus rapide de
   sortir du périmètre convenu.
+- **Chaque livrable touchant un rôle énumère les branches exercées et
+  les branches non exercées de ce qu'il modifie ou revendique comme
+  prouvé — une branche jamais empruntée n'est pas prouvée, quel que
+  soit le nombre de fois où la branche opposée a réussi.** Un
+  conditionnel (`when:`, un `if` de script, une garde qui peut refuser
+  ou laisser passer) a nécessairement une autre branche ; cette autre
+  branche reste une hypothèse tant qu'aucune exécution réelle ne l'a
+  traversée — la répétition du test qui prend la même branche
+  n'ajoute rien à sa preuve. Motif : quatrième occurrence du même
+  défaut dans ce dépôt, cette fois exercée par un événement non
+  provoqué plutôt que découverte par relecture. `--tags
+  regen-cdi-spec` (CDI-2, 2026-08-06) n'avait jamais réellement
+  régénéré `/etc/cdi/nvidia.yaml` depuis sa création : la
+  démonstration retenue à l'époque portait sur « spécification déjà à
+  jour, aucune écriture », jamais sur « spécification périmée,
+  régénération effective », faute d'une péremption réelle avant la
+  mise à jour du pilote du 2026-08-09 — un bogue de collision de
+  variable (`gpu_cdi_verify_is_stale`, recalculée par une
+  sous-vérification et écrasant la valeur qui gouvernait l'écriture)
+  rendait cette branche totalement inopérante depuis le début,
+  invisible pendant trois livrables (`docs/gpu-containers.md`
+  § 9.6-9.7). Trois occurrences antérieures du même défaut,
+  jamais nommées comme un seul et même motif avant celle-ci : le
+  chemin de retour SSH (`roles/recovery/`, `sshd` trouvé `active` mais
+  `disabled` — la survie au redémarrage n'avait jamais été exercée
+  avant que le rôle ne l'active réellement, `docs/machine-facts.md`,
+  journal 2026-08-04) ; le mode dégradé de la temporisation `kitty`
+  (`roles/desktop/`, BUR-4 — « jamais démontré avant ce livrable, et
+  la garde échouait réellement ce test », `docs/desktop.md` § 9.3) ;
+  la génération réelle de l'unité d'autostart par
+  `systemd-xdg-autostart-generator` (`roles/desktop/`, BUR-5 — jamais
+  exercée en conditions réelles avant une ouverture de session
+  authentique, où elle a immédiatement échoué, `docs/desktop.md`
+  § 10). **Rendue opérationnelle (2026-08-09, livrable de clôture
+  GPU)** : pas un principe de plus, une étape de validation — tout
+  rapport de livrable touchant un rôle énumère, pour chaque
+  conditionnel significatif de ce que le livrable modifie ou
+  revendique comme prouvé, la branche réellement empruntée pendant ce
+  livrable et celle qui ne l'a pas été. Dire « non exercée » rend la
+  lacune visible au lieu de la laisser passer sous couvert d'un test
+  qui, lui, a réussi.
 - **Toute garde se démontre dans les deux sens.** Une contrainte annoncée
   (ex. « dgpu_disable doit rester à 0 ») se vérifie à la fois par le cas
   nominal (la garde n'interfère pas quand tout va bien) et par l'échec forcé
@@ -359,6 +409,24 @@ montré deux fois de suite avant que chacune ne soit corrigée.
   jamais reconfirmé qu'elle cassait encore à raison. Rejoué le 2026-08-06
   (`roles/gpu_cdi/tasks/main.yml`, garde gpgcheck) : les deux sens
   passent avec la logique corrigée.
+  **Technique ajoutée aux conventions (2026-08-09, découverte en
+  BUR-5, généralisée ici) : rejouer la démonstration contre le code
+  TEL QU'IL ÉTAIT avant la correction, reconstruit depuis git
+  (`git show HEAD:<chemin>`, ou la révision précédente selon le cas —
+  jamais un extrait réécrit à la main), rendu avec les mêmes valeurs
+  de variables que le code corrigé, puis comparé au résultat obtenu
+  contre le code corrigé.** Sans ce contraste, un test qui passe après
+  correction ne dit pas si un trou réel a été bouché ou si du zèle a
+  été ajouté à un mécanisme déjà correct — les deux produisent le même
+  « ça passe ». Motif : `roles/desktop/templates/kitty-startup-wait.sh.j2`,
+  garde `kscreen-doctor` (BUR-5) — la version reconstruite depuis
+  `git show HEAD:…` (avant correctif) a produit un faux positif
+  « nominal » en 208 ms face à un `kscreen-doctor` fictif en échec
+  systématique (`rc=1`), la version corrigée n'a jamais compté cet
+  échantillon (délai maximal atteint, mode dégradé) — la démonstration
+  ne se contente pas de dire que la nouvelle garde fonctionne, elle
+  montre que l'ancienne se trompait réellement (`docs/desktop.md`
+  § 10.8).
 - **Un commentaire de code qui énonce une décision doit être relu à
   chaque révision de cette décision.** Ce n'est pas une tâche de
   nettoyage ultérieur, séparable de la révision elle-même — c'est une

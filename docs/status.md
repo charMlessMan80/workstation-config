@@ -8,13 +8,23 @@ chaque série) ; ce document répond à une seule question, **où en
 est-on aujourd'hui**, et se périme dès qu'un futur livrable change
 l'un des faits qu'il résume — à tenir à jour à ce moment-là, pas avant.
 
+**Rafraîchi le 2026-08-09 (livrable de clôture) — écrit plus tôt le
+même jour, déjà périmé sur plusieurs points avant la fin de la
+journée.** Pilote NVIDIA : `610.57.04` (était `610.43.03` au moment de
+la première rédaction). `supergfxctl` : disparu (retiré silencieusement
+par obsolescence Terra le 2026-08-07, `docs/repositories.md` § 10).
+`cardwire` : retiré (D23, `docs/machine-facts.md` § Décisions). Kitty :
+opérationnel à l'ouverture de session réelle (bug BUR-5 corrigé) — voir
+tableau ci-dessous pour la nuance sur ce qui reste non prouvé.
+
 ## Ce qui est en place et prouvé
 
 | Composant | Décision(s) | Preuve | Document |
 |---|---|---|---|
 | Bascule GPU MUX (panneau câblé dGPU/iGPU) | D2bis/D2ter | Bascule effectuée et vérifiée par mesure post-redémarrage (topologie DRM, `pending_reboot`) | `docs/gpu-mux-recovery.md`, `docs/machine-facts.md` § Décisions, journal 2026-08-05 |
 | Chemin de retour SSH avant toute bascule risquée | `roles/recovery/` | Trois gardes (sshd actif+activé, clé publique non vide, `firewalld` autorise ssh), démontrées dans les deux sens | `roles/recovery/README.md` |
-| Toolkit conteneur NVIDIA + spécification CDI | D7 | Dépôt COPR corroboré (empreinte de clé, sans corroboration indépendante — écart assumé, § écarté ci-dessous n'applique pas ici, c'est un risque **accepté**, pas une voie écartée), spécification vérifiée par minuterie horaire (`verify-cdi-spec`) | `docs/gpu-containers.md`, `docs/repositories.md` § 1-3 |
+| Toolkit conteneur NVIDIA + spécification CDI | D7 | Dépôt COPR corroboré (empreinte de clé, sans corroboration indépendante — écart assumé, § écarté ci-dessous n'applique pas ici, c'est un risque **accepté**, pas une voie écartée). **Chaîne détection → régénération prouvée de bout en bout par un événement réel non provoqué (2026-08-09, GPU-4)** : mise à jour du pilote `610.43.03` → `610.57.04`, péremption détectée, `ollama` bloqué (`ExecStartPre` refusé), notifications émises, régénération via `regen-cdi-spec` (bogue de collision de variable trouvé et corrigé au passage — cette branche n'avait jamais réellement écrit depuis sa création), test conteneur de bout en bout réussi. **Nature de la preuve, précisée** : avant cet événement, seule la branche « déjà à jour » de `verify-cdi-spec` avait été exercée (d'où la formulation précédente de cette ligne, correcte pour ce qu'elle couvrait mais silencieuse sur la branche de régénération, jamais testée en conditions réelles jusqu'ici) | `docs/gpu-containers.md` § 9.6-9.7, `docs/repositories.md` § 1-3 |
+| Temporisation du démarrage `kitty` sur la stabilité des sorties | BUR-4/BUR-5 | **Partiellement prouvée.** Opérationnelle à deux ouvertures de session réelles (`269 ms`, `268 ms`) — le bug BUR-5 qui empêchait l'autostart de se lancer est réellement corrigé. Mais ces deux temps sont le **plancher structurel** du script (deux échantillons `rc=0` identiques dès le premier relevé, jamais d'itération au-delà du minimum) : le mécanisme n'a **jamais eu à attendre** une topologie réellement instable. Rien ne permet de lui attribuer une éventuelle absence de gel de `eDP-1` — voir la nuance Kate ci-dessous pour un patron similaire (preuve réelle mais partielle, pas à lire comme équivalente à une preuve complète) | `docs/desktop.md` § 9-10, `docs/machine-facts.md` § Points ouverts (BUR-5) |
 | Service d'inférence local (Ollama conteneurisé, réseau confiné) | D14/D18 | Confinement réseau prouvé par inspection à quatre reprises (deux fois deux) ; service joignable, `verify-cdi-spec` réutilisé sans réimplémentation | `docs/local-ai.md` |
 | Paramètre pilote `NVreg_PreserveVideoMemoryAllocations=1` | D16 | Écrit, redémarrage effectué, valeur active confirmée `1` après (journal daté 2026-08-08, IA-4) | `docs/machine-facts.md` § Décisions, D16 |
 | Modèles retenus, chargement séquentiel | D21/D22 | Récupération isolée par conteneur éphémère (jamais le réseau du service), intégrité vérifiée, coexistence en VRAM mesurée **ne pas** tenir (§ écarté ci-dessous) | `docs/machine-facts.md` § Décisions, D21/D22 |
@@ -38,6 +48,22 @@ de la classe **« observation rapportée par l'opérateur »**
 de la même façon** si la voie Kate se met un jour à défaillir — il
 faudrait de nouveau un opérateur au clavier, pas seulement relancer
 une session détachée.
+
+### Nuance sur la preuve de la temporisation `kitty`, même patron que Kate
+
+Preuve réelle (deux ouvertures de session authentiques, pas une
+invocation Ansible), mais **partielle** pour une raison différente de
+Kate : ici, ce n'est pas la classe de la source qui est en cause (le
+journal `systemd --user` est une preuve directement rejouable), c'est
+le **cas exercé**. Les deux occurrences observées ont trouvé une
+topologie déjà stable dès le premier échantillon — la boucle
+d'attente n'a jamais eu à itérer, encore moins à atteindre la borne de
+5 s. La branche qui justifie l'existence même de ce mécanisme (une
+sortie qui met plusieurs centaines de millisecondes à se stabiliser)
+reste **non exercée** au sens de la règle ajoutée à `CLAUDE.md`
+§ Avant d'agir à cette même clôture — une branche jamais empruntée
+n'est pas prouvée, quel que soit le nombre de fois où la branche
+opposée (ici : « déjà stable ») a réussi.
 
 ## Ce qui est en place mais non prouvé de bout en bout
 
@@ -144,7 +170,7 @@ constats de la revue : `docs/review-2026-08.md`, marquage 2026-08-09) :
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — l'histoire complète,
-  décisions datées (D1-D22) et journal de chaque série.
+  décisions datées (D1-D23) et journal de chaque série.
 - [`docs/review-2026-08.md`](review-2026-08.md) — l'audit complet,
   statut de chaque constat.
 - [`docs/orchestration.md`](orchestration.md) — la séquence de

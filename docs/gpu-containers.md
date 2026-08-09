@@ -1383,15 +1383,33 @@ inchangé.
 
 Le mécanisme conçu et démontré par simulation en § 9.4 s'est déclenché
 pour la première fois sur un événement réel : mise à jour du pilote
-NVIDIA de `610.43.03` à `610.57.04` (transactions 30/39,
-`docs/packages.md` § 1), sans passer par ce dépôt. `systemctl --user
-is-active ollama` → `failed`, `ExecStartPre` (`--tags verify-cdi-spec`)
-a refusé le démarrage avec le message exact prévu par § 9.2 : « Version
-attendue … = '610.57.04'. Version trouvée … = '610.43.03'. Chemins
-référencés absents de l'hôte (35) ». **Le dispositif a intercepté
-exactement ce pour quoi il a été conçu** — sans lui, le conteneur aurait
-démarré, le GPU aurait été invisible, l'inférence serait tombée sur le
-CPU sans aucun message.
+NVIDIA de `610.43.03` à `610.57.04`, sans passer par ce dépôt.
+**[CORRIGÉ le 2026-08-09, livrable de clôture] ÉTAIT** : attribuée aux
+« transactions 30/39 » — **faux pour la transaction 30**, datée du
+2026-08-07 et sans rapport (`dnf history info 30` ne contient aucune
+entrée NVIDIA — c'est cette même transaction qui a fait disparaître
+`supergfxctl` par obsolescence, un événement distinct,
+`docs/repositories.md` § 10). Seule la transaction 39
+(2026-08-09 08:48:18) a mis à jour les paquets NVIDIA vers `610.57.04`
+(`dnf history info 39`). Mais la ligne de commande de la transaction
+n'est **pas** la bonne datation : les paquets installés à 08:48
+n'affectent `/proc/driver/nvidia/version` (donc la péremption réelle
+de la spécification) qu'après rechargement du module, au redémarrage
+suivant — pas à l'installation elle-même. Daté par l'encadrement des
+exécutions de la minuterie horaire `local-ai-cdi-verify.service`, pas
+par la transaction : dernière vérification réussie à
+`2026-08-09T10:00:54+02:00` (version encore `610.43.03`), première en
+échec à `2026-08-09T11:00:18+02:00` (version `610.57.04` chargée,
+spécification toujours à `610.43.03`) — la bascule effective se situe
+donc **entre 10:00 et 11:00**, sur l'un des redémarrages rapprochés de
+cette fenêtre (`journalctl --list-boots`), pas à 08:48. `systemctl
+--user is-active ollama` → `failed`, `ExecStartPre`
+(`--tags verify-cdi-spec`) a refusé le démarrage avec le message exact
+prévu par § 9.2 : « Version attendue … = '610.57.04'. Version trouvée
+… = '610.43.03'. Chemins référencés absents de l'hôte (35) ». **Le
+dispositif a intercepté exactement ce pour quoi il a été conçu** — sans
+lui, le conteneur aurait démarré, le GPU aurait été invisible,
+l'inférence serait tombée sur le CPU sans aucun message.
 
 **Bug trouvé en régénérant, corrigé avant de pouvoir régénérer pour de
 vrai** : `--tags regen-cdi-spec`, rejoué trois fois sur cette
@@ -1518,6 +1536,96 @@ redémarrage, aucune modification de `sudoers`/`gpu_mux_mode`/
 `kwinrulesrc`. Seul fichier de rôle modifié :
 `roles/gpu_cdi/tasks/regen_spec.yml` (correctif ci-dessus, approuvé
 explicitement avant d'agir).
+
+### 9.7 — Chronologie complète de l'incident et ce qu'elle établit (livrable de clôture, lecture seule)
+
+Reconstruite entièrement à partir du journal (`journalctl --user`,
+`journalctl --list-boots`), pas de mémoire ni de déduction — chaque
+horaire ci-dessous est une ligne de journal relue dans cette session.
+
+**Bascule du pilote, entre 10:00 et 11:00** (§ 9.6 ci-dessus pour le
+détail de la datation par encadrement).
+
+**Douze échecs horaires consécutifs**, un par exécution de
+`local-ai-cdi-verify.timer` (`OnCalendar=hourly`), tous avec le même
+message de péremption : `11:00:18`, `12:14:55`, `13:01:02`, `14:01:02`,
+`15:01:01`, `16:45:54`, `17:01:10`, `18:01:10`, `19:00:14`, `20:00:47`,
+`21:00:44`, `22:00:43`. Chacun a déclenché `OnFailure=local-ai-cdi-verify-notify.service`
+— douze `notify-send --urgency=critical`, tous `Finished` (code 0,
+aucune erreur d'émission) :
+```
+$ journalctl --user -u local-ai-cdi-verify-notify.service --since "2026-08-09" -o short-iso | grep Finished | wc -l
+12
+```
+**Réparties sur des redémarrages successifs, précisément quatre, pas
+trois** — corrigé par rapport au chiffre annoncé, écart signalé plutôt
+qu'ajusté en silence (`CLAUDE.md` § Avant d'agir) : `journalctl -b -4`
+porte l'échec de `11:00` seul (démarrage bref, ~17 min, chevauchant la
+reproduction contrôlée du gel de `eDP-1` — `docs/desktop.md` § 8.9-8.10) ;
+`-b -3` porte les sept échecs de `12:14` à `18:01` (démarrage de
+~5h50, le seul des cinq à couvrir une plage large) ; `-b -2` porte
+celui de `19:00` seul ; `-b -1` (~4 min) n'en porte aucun, trop bref
+pour qu'un tic horaire s'y présente ; `-b 0` (démarrage courant) porte
+les trois derniers, `20:00`/`21:00`/`22:00`, jusqu'à la régénération.
+Si « trois démarrages successifs » visait les trois démarrages de
+**longue durée** (`-3`, `-2`, `0`) en excluant les deux transitoires
+(`-4`, `-1`), le compte se retrouve — mais ce n'est pas ce qu'une
+lecture littérale de « douze fois, sur trois démarrages » établit ;
+consigné avec le détail complet plutôt que la version arrondie.
+
+**Le service d'inférence n'a jamais fonctionné pendant cette fenêtre** :
+`ollama.service` échoue à chaque tentative de démarrage entre `10:51`
+(premier échec après la bascule du pilote) et `22:46:42` (premier
+succès, après régénération) — confirmé par lecture directe du journal
+`--user -u ollama.service` sur toute la période, aucun intervalle
+« actif » entre ces deux horaires. **Aucun fonctionnement dégradé
+silencieux n'a été possible entre-temps** : la garde `ExecStartPre` a
+tenu la porte fermée pendant onze heures, pas seulement au premier
+échec.
+
+**L'opérateur a vu les notifications et a délibérément différé le
+traitement** — classe « observation rapportée par l'opérateur »
+(`CLAUDE.md` § Sourcing des faits) : une autre investigation était en
+cours sur la même période (gel de `eDP-1`, phases A/B,
+`docs/desktop.md` § 8), où l'ordre des tests et des redémarrages
+comptait. Ce n'est pas consigné comme une lecture indépendante de ce
+livrable — le journal seul n'atteste que l'émission et la réussite des
+notifications, jamais leur réception ni la décision de l'opérateur de
+les traiter plus tard.
+
+**Établi par cet épisode** : la chaîne complète — détection périodique
+→ échec bruyant nommant version attendue/trouvée/chemins manquants →
+refus de démarrage du service consommateur → notification visible →
+notification vue → régénération sur demande → succès — a fonctionné
+**intégralement**, sur un événement non provoqué, pour la première
+fois. C'est la première validation de ce dispositif par la réalité,
+pas par une simulation (§ 9.4).
+
+**Non établi, à ne pas présenter comme un défaut** : le délai de
+traitement (~11 h) relève d'une priorisation de l'opérateur entre deux
+enquêtes concurrentes, pas d'une défaillance du dispositif — le signal
+a été émis, reçu et retenu à chaque occurrence, jamais perdu.
+
+**Point ouvert, priorité basse, consigné plutôt qu'implémenté** : un
+signal reçu pendant qu'on travaille sur autre chose a besoin d'une file
+d'attente, pas d'une notification supplémentaire — la section
+« points ouverts » de `docs/status.md` joue ce rôle mais n'est pas
+alimentée par ce qui survient en cours de session. C'est une habitude
+à prendre, pas un mécanisme à construire — aucune implémentation
+proposée ici.
+
+**La leçon de méthode, structurelle** : `--tags regen-cdi-spec`
+n'avait jamais réellement régénéré depuis sa création (CDI-2,
+2026-08-06) — le bogue trouvé et corrigé en § 9.6 existait déjà à ce
+moment, invisible parce que la branche d'écriture n'avait jamais été
+empruntée (spécification déjà à jour à chaque test antérieur). Même
+cause que trois autres cas déjà connus de ce dépôt (chemin de retour
+SSH `sshd` `active` mais `disabled`, mode dégradé de l'enveloppe
+`kitty`, génération de l'unité d'autostart) : une branche jamais
+empruntée en conditions réelles n'est pas prouvée, quel que soit le
+nombre de fois où la branche opposée a été testée avec succès. Réponse
+apportée à `CLAUDE.md` § Avant d'agir — voir cette entrée pour la règle
+elle-même et son motif complet.
 
 ## Voir aussi
 

@@ -1709,6 +1709,27 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   simplement pas été exercé — ce livrable ne confirme ni n'infirme
   l'hypothèse de concurrence, il ne l'a pas testée. **Ce point reste
   ouvert**, inchangé par BUR-5.
+  **[MISE À JOUR le 2026-08-09, livrable de clôture] Deux ouvertures de
+  session réelles depuis, kitty opérationnel — mais la temporisation
+  n'a toujours pas été exercée pour de vrai.** Correctif BUR-5
+  confirmé en usage réel : `kitty-startup-wait.sh`, invoqué par
+  l'autostart à deux démarrages successifs (`19:45:13`, boot `-1` ;
+  `19:49:32`, boot `0` — `journalctl --user`, hors de toute invocation
+  Ansible), décide « nominal » en `269ms` puis `268ms`. Dans les deux
+  cas, exactement **deux** échantillons, tous deux `rc=0`, identiques
+  dès le premier — la topologie était déjà stable au moment du tout
+  premier relevé. C'est le **plancher structurel** du script
+  (`(desktop_kitty_wait_stable_samples - 1) × desktop_kitty_wait_interval_seconds`
+  = 0,2 s, plus le coût réel de deux invocations `kscreen-doctor -j`),
+  pas une attente réelle mesurée : la boucle n'a jamais eu à itérer au
+  delà du minimum. **Kitty est donc opérationnel à l'ouverture de
+  session (le bug BUR-5 est réellement corrigé)**, mais la
+  temporisation elle-même reste **non exercée** au sens de la règle
+  ci-dessus (§ Avant d'agir, `CLAUDE.md`) — aucune de ces deux
+  ouvertures n'a présenté de topologie instable à absorber. **Ce point
+  reste ouvert** : rien ne permet toujours d'attribuer une éventuelle
+  absence de gel à ce mécanisme, faute de l'avoir vu réellement
+  attendre.
 - **Nouveau point ouvert (2026-08-09, BUR-5) — contenu exact de
   l'environnement vu par `systemd-xdg-autostart-generator` au moment de
   son exécution réelle.** Établi seulement par ses effets (un nom seul
@@ -3809,3 +3830,66 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   (revérifié), `sudoers`/`terra.repo`/`/etc/cdi/`/`gpu_mux_mode`/
   `kwinrulesrc`/`site.yml` non touchés, aucun redémarrage, aucune
   déconnexion.
+- **2026-08-09 — régénération de la spécification CDI après mise à
+  jour du pilote, trois attributions corrigées (GPU-4).** Comblé
+  rétroactivement ici, dans le geste de clôture plutôt qu'un livrable
+  séparé : cette série n'avait pas reçu sa propre entrée de journal au
+  moment où elle a été close, trouvé en préparant cette entrée-ci —
+  signalé plutôt que laissé silencieux. Spécification CDI régénérée
+  via `--tags regen-cdi-spec` après découverte d'un bogue qui la
+  rendait totalement inopérante (collision de variable dans
+  `regen_spec.yml`, corrigée avec l'accord explicite de l'opérateur —
+  seule dérogation de cette série à « ne modifie pas le rôle ») ;
+  `ollama` remis en service, test conteneur de bout en bout réussi
+  (`nvidia-smi` depuis une image qui ne l'embarque pas). Trois
+  attributions fausses corrigées : `power/control=auto` réattribué à
+  `xorg-x11-drv-nvidia` (`80-nvidia-pm.rules`), pas à `supergfxctl`
+  (doublon, une corrélation prise pour une cause) ; composition de
+  `terra` corrigée dans `docs/repositories.md` (`supergfxctl` disparu
+  le 2026-08-07, remplacé par `terra-obsolete`, pas par coïncidence
+  avec le retrait de `cardwire`) ; motif de nécessité d'`asusctl`
+  (PKG-2) corrigé — pas `asus-shutdown.service` (indéterminable a
+  posteriori, GPU-3), mais la cohérence de `power-profiles-daemon`
+  avec `asusd` (D6). Recherche systématique de `610.43.03` dans tout
+  le dépôt : occurrences classées fait daté (laissées) contre
+  affirmation d'état courant (corrigées, `docs/machine-facts.md`
+  § GPU). Détail complet : `docs/gpu-containers.md` § 9.6.
+- **2026-08-09 — clôture de série : premier exercice réel du
+  dispositif de péremption CDI, chronologie complète.** Entièrement
+  documentaire — aucun rôle modifié, aucun paquet installé ni retiré,
+  aucune commande n'a changé l'état du système. Chronologie
+  reconstruite du seul journal (`journalctl --user`,
+  `journalctl --list-boots`), pas de mémoire : mise à jour du pilote
+  bascule entre `10:00:54` (dernière vérification réussie) et
+  `11:00:18` (première en échec) — corrigé une attribution erronée de
+  cette même bascule aux « transactions 30/39 » dans
+  `docs/gpu-containers.md` § 9.6, transaction 30 (2026-08-07) sans
+  aucun rapport (c'est elle qui a fait disparaître `supergfxctl`, un
+  événement distinct). Douze échecs horaires consécutifs, douze
+  notifications `notify-send --urgency=critical` émises sans erreur,
+  réparties sur **quatre** démarrages avec au moins un échec (pas
+  trois comme initialement énoncé — écart signalé, pas ajusté en
+  silence, détail complet `docs/gpu-containers.md` § 9.7) ; `ollama`
+  bloqué sans interruption de `10:51` à `22:46`, aucun fonctionnement
+  dégradé silencieux possible. Établi : la chaîne détection → échec
+  bruyant → refus de démarrage → notification → notification vue a
+  fonctionné intégralement sur un événement non provoqué — première
+  validation par la réalité de ce dispositif, pas par simulation. Non
+  établi, pas un défaut : le délai de traitement (~11 h) relève d'une
+  priorisation de l'opérateur entre deux enquêtes concurrentes (gel de
+  `eDP-1` en cours), pas d'une perte de signal. Point ouvert de basse
+  priorité consigné, pas implémenté : une file d'attente pour les
+  signaux reçus en cours de session — une habitude à prendre, pas un
+  mécanisme à construire. Leçon de méthode versée à `CLAUDE.md`
+  § Avant d'agir : quatrième occurrence du même défaut structurel (une
+  branche jamais exercée n'est pas prouvée) après le chemin SSH, le
+  mode dégradé `kitty`, la génération de l'unité d'autostart — nouvelle
+  règle ajoutée, étape de validation plutôt que principe de plus.
+  Seconde règle ajoutée : rejouer une démonstration contre le code
+  d'avant, reconstruit depuis `git show HEAD:…`, jamais réécrit à la
+  main (technique déjà pratiquée en BUR-5, généralisée ici).
+  `docs/status.md` mis à jour : dispositif CDI déplacé vers « prouvé »
+  avec preuve datée ; temporisation `kitty` ajoutée comme
+  partiellement prouvée (plancher structurel 268 ms, jamais eu à
+  attendre réellement) ; pilote, `supergfxctl`, `cardwire` rafraîchis.
+  Aucune action privilégiée cette série — confirmé, pas supposé.
