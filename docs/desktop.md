@@ -1358,12 +1358,13 @@ confirmée par aucune ligne de journal** — elle resterait à démontrer par
 reproduction contrôlée (phase B) pour être autre chose qu'une hypothèse
 par défaut.
 
-**Phase B non entamée dans ce livrable.** Elle suppose de reproduire un
-facteur qui a déjà figé la dalle principale, sans session SSH disponible
-et avec un seul chemin de secours local jamais testé (TTY) — la demande
-exige une confirmation explicite de l'opérateur avant de l'entamer, TTY
-testé au préalable inclus ; ce livrable s'arrête donc ici côté
-investigation active et attend cette confirmation.
+**[MISE À JOUR § 8.10] Phase B entreprise après confirmation de
+l'opérateur (TTY testé au préalable) — résultat négatif sur les trois
+étapes, y compris la configuration exacte de la régression.** Ceci
+affaiblit l'hypothèse ci-dessus prise isolément (§ 8.10) ; le facteur le
+plus plausible restant est propre au contexte d'ouverture de session
+(autostart, compositeur en cours d'initialisation), non testé par cette
+phase et non testable sans reproduire le risque déjà rencontré.
 
 ### 8.6 — Divergence consignée : `startup.session.bak`
 
@@ -1415,13 +1416,115 @@ ce sens § 6.7, pas dupliqué ici.
 
 ### 8.8 — Issue à garder ouverte
 
-Si la reproduction contrôlée (phase B, non entamée) désigne le plein
-écran comme facteur, **renoncer à celui-ci et conserver la disposition en
-volets avec la géométrie imposée par la règle KWin est une réponse
+**[REQUALIFIÉE § 8.10]** Écrite avant la phase B, sur l'hypothèse que la
+reproduction désignerait le plein écran comme facteur suffisant à lui
+seul — ce que la phase B **infirme** (étapes 2 et 3, résultat négatif).
+Conservée pour l'historique, plus la réponse par défaut : voir § 8.10
+pour ce qui reste réellement ouvert (facteur de concurrence propre à
+l'ouverture de session, non testé).
+
+Si une reproduction future, par l'autostart réel, désignait malgré tout
+le plein écran comme facteur (dans le contexte d'ouverture de session,
+pas hors de lui), **renoncer à celui-ci et conserver la disposition en
+volets avec la géométrie imposée par la règle KWin resterait une réponse
 légitime** — le coût se limite à la barre de titre visible. Si le
 diagnostic pointe plutôt vers un défaut du pilote `amdgpu`/`amdgpu_dm`
 qui ne sera pas corrigé depuis ce dépôt, ne pas s'acharner : consigner et
 s'arrêter.
+
+### 8.9 — Phase B, préconditions vérifiées (2026-08-09)
+
+Confirmation reçue de l'opérateur pour entamer la reproduction contrôlée
+(§ 8.5). Préconditions établies avant tout lancement, comme exigé :
+
+- **Basculement TTY testé par l'opérateur** (`Ctrl+Alt+F3`, retour
+  `Ctrl+Alt+F2`) : fonctionne dans les deux sens, confirmé par
+  l'opérateur avant toute provocation.
+- **Commande de récupération, établie par lecture puis vérifiée
+  réellement depuis le TTY** (pas présumée) :
+  ```
+  QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY=wayland-0 kscreen-doctor output.eDP-1.disable output.eDP-1.enable
+  ```
+  Deux échecs intermédiaires, chacun résolu par lecture avant nouvel
+  essai — pas par tâtonnement : `kscreen-doctor` (`ldd` : lié à
+  `libQt6DBus`/`libdbus-1`, hypothèse initiale insuffisante) échoue en
+  `qt.qpa.xcb: could not connect to display` depuis un TTY brut (aucun
+  `DISPLAY`/`WAYLAND_DISPLAY` hérité de la session graphique) ;
+  `QT_QPA_PLATFORM=offscreen` lève cette erreur mais casse la lecture
+  réelle (« invalid config ») — `kscreen-doctor` est en réalité lié à
+  `libQt6WaylandClient`/`libwayland-client`, greffon `KSC_KWayland.so`
+  (trouvé sous `/usr/lib64/qt6/plugins/kf6/kscreen/`), qui a besoin
+  d'une connexion Wayland réelle au compositeur — `offscreen` la
+  supprime. Forme qui fonctionne, vérifiée par l'opérateur depuis le
+  TTY (`kscreen-doctor -o`, lecture seule) : `QT_QPA_PLATFORM=wayland
+  WAYLAND_DISPLAY=wayland-0`, en s'appuyant sur `/run/user/1000/
+  wayland-0` (socket du compositeur, accessible à `mahieumi` depuis
+  n'importe quel TTY de ce même utilisateur — `XDG_RUNTIME_DIR` est par
+  utilisateur, pas par session, confirmé par `loginctl show-user
+  mahieumi -p RuntimePath` → `/run/user/1000`).
+- **État des sorties avant tout lancement** (`kscreen-doctor -o`, ce
+  livrable, avant § 8.10) : `DP-3` et `eDP-1` tous deux
+  `enabled`/`connected`, `eDP-1` actif à `2560x1600@60.00`, `DP-3` actif
+  à `3840x1100@60.02` — identique à l'état courant relevé § « Journal
+  des séries » de `docs/machine-facts.md`, aucun changement entre les
+  deux relevés.
+- **Fenêtres de test isolées, jamais le fichier de session réellement
+  déployé** (même discipline que § 7.4/6.8) : fichiers temporaires sous
+  le répertoire de travail (non versionnés, jamais dans le dépôt),
+  chaque lancement avec un identifiant de contrôle à distance propre —
+  jamais de `pkill` sur une instance existante de l'opérateur.
+
+### 8.10 — Phase B, résultat (2026-08-09)
+
+Protocole suivi dans l'ordre prescrit, un seul facteur à la fois,
+confirmation de l'opérateur avant chaque étape, relevé de l'état des
+sorties et du journal noyau/`kwin_wayland` après chacune. **Aucune des
+trois étapes n'a reproduit le gel** — y compris l'étape 3, qui rejoue la
+configuration exacte à l'origine de la régression du 09/08.
+
+| Étape | Facteur | Fenêtre de test | Confirmation `eDP-1` | Journal après |
+|---|---|---|---|---|
+| 1 | Volets seuls, sans plein écran | `layout splits`, 3 volets, `fullscreen b false`, `DP-3` (`getWindowInfo` confirmé) | « eDP-1 reste vivant » | `amdgpu`/`drm`/`kwin_wayland` : rien |
+| 2 | Plein écran seul, sans volets ni commandes | `kitty --start-as=fullscreen`, `fullscreen b true`, `DP-3` | « pas de freeze » | `amdgpu`/`drm`/`kwin_wayland` : rien |
+| 3 | Les deux, **configuration identique** au fichier réellement figé (copie de `startup.session.bak`, `diff` confirmé) | `fullscreen b true`, `layout splits`, `DP-3` | « aucun problème » | `amdgpu`/`drm`/`kwin_wayland` : rien |
+
+État des sorties (`kscreen-doctor -o`) relevé avant et après chaque
+étape : identique dans les trois cas, aucun changement de géométrie ou
+de mode. Fenêtres de test fermées par leur PID isolé à chaque fois,
+jamais une fenêtre de l'opérateur.
+
+**Conséquence sur l'hypothèse retenue § 8.5.** Le résultat négatif de
+l'étape 3 est le fait le plus informatif de cette phase : **la
+configuration exacte qui a figé `eDP-1` le 09/08 ne le reproduit pas**
+lorsqu'elle est lancée à la main dans une session déjà stable et
+établie. Ceci **affaiblit** l'hypothèse d'une interaction statique entre
+l'état plein écran et la validation atomique de la sortie sœur — si
+cette interaction suffisait à elle seule, l'étape 3 l'aurait déclenchée.
+**Différence non testée, et qui reste la piste la plus plausible** :
+dans le démarrage fautif (`-3`), la disposition s'est lancée **par
+l'autostart, au tout début d'une ouverture de session** (`10:41:08`, une
+seconde après le premier message de `org_kde_powerdevil` — § 8.4, A.3),
+period où le compositeur et les autres services de session finissent de
+s'initialiser ; ici, chaque fenêtre de test a été lancée à la main dans
+une session **déjà stable depuis des heures**. Un facteur de
+concurrence propre au démarrage de session (compositeur pas encore
+totalement établi, plusieurs clients autostart simultanés) n'est ni
+confirmé ni exclu par cette phase — seule une reproduction **par
+l'autostart réel à une ouverture de session authentique** permettrait de
+trancher, ce qui exigerait de redéployer `startup.session` et de courir
+le même risque que celui déjà rencontré. **Non entrepris ici** — hors
+périmètre de ce livrable sans nouvelle confirmation explicite.
+
+**Correction de l'issue ouverte § 8.8** : renoncer au plein écran n'est
+**plus soutenu par une preuve directe** comme réponse au problème — les
+étapes 2 et 3 montrent le plein écran, seul et combiné aux volets,
+fonctionner sans incident hors contexte d'ouverture de session. Rester
+prudent : ceci ne prouve pas non plus que le plein écran est innocent en
+contexte d'autostart réel, seulement que ce n'est pas un facteur suffisant
+en dehors de ce contexte. `startup.session.bak` reste en l'état,
+`roles/desktop/`/`site.yml` **toujours pas rejoués** — cette phase ne
+lève pas la divergence consignée § 8.6, elle ne fait que retirer un
+argument à une des deux résolutions possibles.
 
 ## Voir aussi
 

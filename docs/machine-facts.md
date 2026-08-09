@@ -1572,6 +1572,30 @@ froid), non établi.
   préalable inclus — non entamée dans ce livrable. Se ferme soit par
   reproduction concluante, soit par abandon assumé du plein écran au
   profit des seuls volets (`docs/desktop.md` § 8.8).
+  **[MISE À JOUR le 2026-08-09, même journée] Phase B entreprise après
+  confirmation de l'opérateur — résultat négatif.** TTY testé et
+  fonctionnel dans les deux sens ; commande de récupération établie par
+  lecture puis vérifiée réellement depuis le TTY (deux échecs
+  intermédiaires résolus par lecture — voir `docs/desktop.md` § 8.9) :
+  `QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY=wayland-0 kscreen-doctor
+  output.eDP-1.disable output.eDP-1.enable`. Protocole en trois étapes
+  suivi dans l'ordre, confirmation de l'opérateur et relevé
+  noyau/`kwin_wayland`/sorties après chacune (détail `docs/desktop.md`
+  § 8.10) : **aucune des trois n'a reproduit le gel**, y compris
+  l'étape 3 qui rejoue la configuration exacte du fichier réellement
+  figé le 09/08 (copie de `startup.session.bak`, `diff` confirmé). Ce
+  résultat négatif **affaiblit** l'hypothèse de l'interaction statique
+  plein écran/validation atomique prise seule — un facteur de
+  concurrence propre à l'ouverture de session (autostart, compositeur
+  en cours d'initialisation) reste la piste la plus plausible, non
+  testée par cette phase et non testable sans reproduire le risque déjà
+  rencontré (redéployer `startup.session` pour tester à une ouverture
+  de session authentique). **Ne reste donc PAS fermé** : la
+  qualification « se ferme par abandon assumé du plein écran » ci-dessus
+  est elle-même requalifiée — le plein écran n'est plus soutenu comme
+  facteur suffisant par une preuve directe (`docs/desktop.md` § 8.10).
+  `startup.session.bak` inchangé, `roles/desktop/`/`site.yml` toujours
+  pas rejoués.
 
 ## Journal des séries
 
@@ -3309,3 +3333,40 @@ froid), non établi.
   reformulé sur ce qui reste réellement ouvert — voir `docs/desktop.md`
   § 8.7) ; décompte inchangé (trois marqueurs actionnables avant comme
   après, un seul reformulé).
+- **2026-08-09 (même journée, phase B) — reproduction contrôlée du gel
+  de `eDP-1`, confirmée par l'opérateur, résultat négatif.** Suite de
+  l'entrée ci-dessus. TTY testé par l'opérateur (`Ctrl+Alt+F3`/`F2`,
+  fonctionnel) ; commande de récupération établie par lecture d'abord
+  (`kscreen-doctor --help`, `ldd`), deux échecs intermédiaires depuis le
+  TTY (`qt.qpa.xcb: could not connect to display` avec
+  `QT_QPA_PLATFORM` par défaut, « invalid config » avec `=offscreen` —
+  greffon `KSC_KWayland.so` exige une connexion Wayland réelle), forme
+  vérifiée fonctionnelle par l'opérateur : `QT_QPA_PLATFORM=wayland
+  WAYLAND_DISPLAY=wayland-0 kscreen-doctor -o`. Trois fenêtres `kitty`
+  de test isolées (fichiers temporaires hors dépôt, sockets de contrôle
+  à distance propres, jamais `startup.session` ni une fenêtre de
+  l'opérateur) lancées dans la session graphique courante (démarrage
+  `0`), un facteur à la fois, confirmation de l'opérateur et relevé
+  `journalctl`/`kscreen-doctor -o` après chacune : volets seuls, plein
+  écran seul, puis les deux combinés avec une **copie identique**
+  (`diff` confirmé) de `startup.session.bak`. **Aucune des trois n'a
+  reproduit le gel** — `eDP-1` confirmé vivant par l'opérateur à chaque
+  étape, aucune anomalie `amdgpu`/`drm`/`kwin_wayland`, état des sorties
+  inchangé avant/après. Conséquence : l'hypothèse de l'interaction
+  statique plein écran/validation atomique de la sortie sœur, retenue
+  par élimination en phase A, est **affaiblie** — la configuration
+  exacte de la régression ne suffit pas à la reproduire hors contexte
+  d'ouverture de session. Facteur de concurrence propre à l'autostart
+  (compositeur en cours d'initialisation à l'ouverture de session) posé
+  comme piste la plus plausible restante, non testée — la tester
+  exigerait de reproduire le risque déjà rencontré (redéployer
+  `startup.session`, tester à une ouverture de session authentique),
+  non entrepris. Détail complet `docs/desktop.md` § 8.9–8.10.
+  **Aucune action privilégiée** — toutes les commandes (lancement de
+  fenêtres `kitty` de test isolées, `busctl --user`, `kscreen-doctor`,
+  `journalctl`, `kitten @`) s'exécutent sans `sudo`, aucune n'en a
+  besoin structurellement. **Confirmations** : `startup.session.bak`
+  inchangé ; ni `roles/desktop/` ni `site.yml` rejoués ; aucune
+  configuration modifiée ; fenêtres de test toutes fermées par leur PID
+  isolé, aucune fenêtre de l'opérateur touchée ; aucune déconnexion,
+  aucun redémarrage.
