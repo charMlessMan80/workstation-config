@@ -288,7 +288,7 @@ copie refaite, § 3 « Preuve que la friction a disparu »).
 | `rpmfusion-free-updates` | RPM Fusion, miroir | Même clé que `rpmfusion-free` | 8 paquets | 1 | 0 |
 | `rpmfusion-nonfree` | RPM Fusion, miroir | Clé RPM Fusion Nonfree, `/etc/pki/rpm-gpg/RPM-GPG-KEY-rpmfusion-nonfree-fedora-44` | 0 paquet direct constaté | 1 | 0 |
 | `rpmfusion-nonfree-updates` | RPM Fusion, miroir | Même clé que `rpmfusion-nonfree` | 10 paquets (dont pilote NVIDIA) | 1 | 0 |
-| `terra` | Fyra Labs (infrastructure propre) | TLS + acceptation de clé le 2026-08-04, **corroboration indépendante introuvable** — D10 | 6 paquets, dont `asusctl` | 1 | **1** |
+| `terra` | Fyra Labs (infrastructure propre) | TLS + acceptation de clé le 2026-08-04, **corroboration indépendante introuvable** — D10 | 5 paquets, dont `asusctl` (**ÉTAIT** 6 — `cardwire` retiré le 2026-08-09, § 9, PKG-1) | 1 | **1** |
 | `copr:…ai-ml:nvidia-container-toolkit` | COPR Fedora, groupe `@ai-ml` | TLS vers l'infrastructure COPR + empreinte épinglée — D7 | 2 paquets | 1 | 0 |
 | `claude-code` | Anthropic, `downloads.claude.ai` | TLS + clé `https://downloads.claude.ai/keys/claude-code.asc` — D5 | 1 paquet | 1 | *(non défini, § note)* |
 
@@ -297,15 +297,39 @@ fichier `.repo` — pas revérifié ici quel défaut `dnf5` lui applique en
 l'absence de valeur explicite ; sans conséquence pour ce livrable, D5
 ferme déjà ce dépôt.
 
-**`6ecc2dfaa0dc41e5ad51e007707a786b` (1195 paquets)** : n'est **pas**
-un dépôt actuellement configuré — c'est la valeur `from_repo` héritée de
-l'installation initiale (image live/anaconda), conservée telle quelle
-dans la base rpm pour les paquets installés à ce moment (confirmé par
-échantillon : `Box2D`, `ModemManager`, `NetworkManager-libreswan` —
-paquets de base Fedora sans rapport avec un dépôt tiers). Mécanisme
-exact non creusé davantage — sans rapport avec l'objet de ce livrable.
-`@commandline` (3 paquets) : paquets installés par chemin de fichier
-direct (`dnf install <chemin.rpm>`), pas par un dépôt.
+**Catégorie « paquets du média d'installation »** (nommée pour la
+première fois comme telle en PKG-1, § 9 — le fait brut, lui, était
+déjà consigné ici depuis BUR-1) : paquets dont `from_repo` porte
+l'identifiant opaque `6ecc2dfaa0dc41e5ad51e007707a786b`, qui n'est
+**pas** un dépôt actuellement configuré — c'est la valeur `from_repo`
+héritée de l'installation initiale (image live/anaconda), conservée
+telle quelle dans la base rpm pour les paquets installés à ce moment
+(confirmé par échantillon : `Box2D`, `ModemManager`,
+`NetworkManager-libreswan` — paquets de base Fedora sans rapport avec
+un dépôt tiers). Mécanisme exact non creusé davantage — sans rapport
+avec l'objet du livrable qui l'a d'abord consigné. Ces paquets
+échappent structurellement à l'inventaire des dépôts activés ci-dessus
+(§ 4) : leur dépôt d'origine n'est plus interrogeable, seul le
+`from_repo` hérité en atteste — `switcheroo-control` (§ 9) en est la
+première occurrence rencontrée avec une conséquence pratique
+(conflit `dnf update`), plutôt qu'un simple compte comme ici.
+
+**Compte** : `dnf repoquery --installed --qf '%{name}
+from_repo=%{from_repo}\n' | grep -c
+'from_repo=6ecc2dfaa0dc41e5ad51e007707a786b'` → **1170** paquets
+(2026-08-09, PKG-1). **ÉTAIT 1195** (compte initial, BUR-1, date non
+retrouvée dans ce document) — écart de 25 non recherché individuellement
+(hors périmètre de PKG-1) mais cohérent avec le mécanisme documenté :
+un paquet de cette catégorie change de `from_repo` dès qu'il est
+remplacé par une version tirée d'un dépôt actif (`updates` en premier
+lieu) lors d'une mise à jour normale — mesure ancienne, ne sert pas de
+ligne de base sans revérification (`CLAUDE.md` § Sourcing des faits).
+Ce compte se revérifiera donc à chaque livrable qui en a besoin,
+jamais réutilisé tel quel au-delà de sa date.
+
+`@commandline` (5 paquets, 2026-08-09 — non revérifié à quelle valeur
+antérieure) : paquets installés par chemin de fichier direct (`dnf
+install <chemin.rpm>`), pas par un dépôt.
 
 ## 5. Équivalents Fedora/COPR pour les paquets `terra` — fait consigné, rien entrepris
 
@@ -447,10 +471,42 @@ modification accidentelle) — aucun mécanisme de vérification
 périodique de l'intégrité déjà présente sur ce poste (contrairement à
 `rpm -Vf` pour les fichiers d'un paquet, § ailleurs dans ce dépôt).
 
+## 9. Retrait de `cardwire`, dérive corrigée (PKG-1)
+
+`cardwire` (installé manuellement le 2026-08-04, transaction dnf 20,
+depuis `terra`) faisait échouer `sudo dnf update` à chaque exécution :
+sa mise à jour vers `0.11.1-2.fc44` fournit `switcheroo-control`, entrant
+en conflit avec le paquet Fedora du même nom, `active`/`enabled` et
+réellement utilisé — `dnf` écartait systématiquement `cardwire` de la
+transaction plutôt que d'échouer franchement. Détail complet, motifs
+cumulés et décision datée : `docs/machine-facts.md` § Décisions, D23.
+
+**Vérifié avant retrait** (`sudo dnf remove --assumeno cardwire`) :
+transaction limitée à ce seul paquet, aucun autre paquet emporté.
+**Vérifié après retrait** : `switcheroo-control` toujours installé,
+`active`, `enabled` ; `cardwired.service` absent de `systemctl
+list-unit-files` ; `sudo dnf update` s'exécute sans conflit
+(« Nothing to do », aucune mise à jour appliquée). Terra passe donc de
+six à cinq paquets fournis sur ce poste (§ 4, ligne `terra`, mise à
+jour plutôt qu'effacée — `pending_reboot`/machine-facts.md, même
+discipline).
+
+C'est ce retrait qui a fait remonter le cas `switcheroo-control` —
+`from_repo` opaque, média d'installation, pas un dépôt interrogeable
+(§ 4, catégorie nommée à cette occasion) — comme première occurrence
+**avec conséquence pratique** de cette catégorie, plutôt que comme
+simple compte pour mémoire.
+
+**Point ouvert distinct, non traité ici** (hors périmètre de PKG-1,
+consigné dans `docs/machine-facts.md` § Points ouverts) : combien de
+paquets installés sur ce poste ne proviennent d'aucun rôle de ce
+dépôt — `cardwire` n'a été repéré que parce qu'il produisait un
+conflit visible ; un paquet orphelin silencieux ne le serait pas.
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — D10, D7 (COPR), D5
-  (Claude Code), inventaire GPU et Ansible.
+  (Claude Code), D23 (retrait `cardwire`), inventaire GPU et Ansible.
 - [`docs/gpu-containers.md`](gpu-containers.md) — D7, ancrage de
   confiance du COPR `@ai-ml`, même discipline de sourcing appliquée ici
   à Terra.
@@ -497,3 +553,23 @@ terra-gpg-keys terra-release` — les six toujours présents, mêmes
 versions) ; aucun nouveau dépôt (toujours onze activés) ; aucune
 modification de `sudoers` ni de `/etc/cdi/` ; aucun redémarrage ;
 `gpgcheck`/`repo_gpgcheck` inchangés sur `terra.repo` (§ 3).
+
+## Validation — PKG-1 (2026-08-09, retrait de `cardwire`)
+
+**Action privilégiée, une seule** :
+
+| # | Commande | Tentative sans privilège : résultat | Motif |
+|---|---|---|---|
+| 1 | `sudo dnf remove -y cardwire` | Non applicable — retrait de paquet, écriture de la base rpm intrinsèquement privilégiée, aucune voie non privilégiée n'existe par construction (patron SUD-1/D9) | fermer la dérive documentée en D23 |
+
+**Simulation avant écriture** : `sudo dnf remove --assumeno cardwire`
+— transaction limitée à `cardwire` seul (7,0 MiB), aucun autre paquet.
+**Confirmations finales** : `switcheroo-control` toujours installé,
+`active`, `enabled` ; `cardwired.service` absent de `systemctl
+list-unit-files` (comparé à un nom d'unité connu pour ne jamais avoir
+existé, même comportement — RC=1, « 0 unit files listed ») ; `rpm -q
+cardwire` échoue (RC=1, paquet absent) ; aucun fichier `*cardwire*`
+restant sous la racine (`find / -xdev`) ; `sudo dnf update` s'exécute
+sans conflit, `Nothing to do`, **aucune mise à jour appliquée** ;
+`terra` toujours activé ; aucun autre paquet installé ; aucun rôle
+Ansible touché ; aucun redémarrage ; aucune déconnexion.

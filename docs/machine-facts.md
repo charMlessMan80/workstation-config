@@ -1311,6 +1311,36 @@ depuis un précédent livrable) — `@VERIF` le facteur de ralentissement
 du **premier** chargement après démarrage du service (cache disque
 froid), non établi.
 
+**D23 (2026-08-09, PKG-1) — retrait de `cardwire`** (installé
+manuellement le 2026-08-04, transaction 20, depuis `terra`). **Motifs
+cumulés** : `rpm -q --whatrequires cardwire` — aucun paquet ne le
+requiert ; `cardwired.service` `disabled`/`inactive`, jamais démarré ;
+sa version `-2` fournit `switcheroo-control` et **remplacerait un
+service Fedora actif et activé** (`switcheroo-control-3.0-5.fc44`),
+ce qui bloquait `sudo dnf update` à chaque exécution
+(« Skipping packages with conflicts ») ; il touche à la commutation
+graphique, sujet sur lequel D2ter a explicitement écarté un second
+commutateur pour éviter les conflits ; et l'opérateur ne s'en sert
+pas. Détail complet, vérifications avant/après retrait :
+`docs/repositories.md` § 9.
+
+**Considération de méthode** : un paquet écarté à chaque mise à jour
+est une **dérive silencieuse** — il reste figé indéfiniment et le
+message devient du bruit qu'on cesse de lire. Le retrait ferme la
+dérive plutôt que de la tolérer.
+
+**Fait annexe consigné à cette occasion** : `switcheroo-control` porte
+`from_repo=6ecc2dfaa0dc41e5ad51e007707a786b` — catégorie « paquets du
+média d'installation », nommée pour la première fois comme telle ici
+(le fait brut, la valeur `from_repo` elle-même, était déjà consigné
+depuis BUR-1, `docs/repositories.md` § 4) : **1170 paquets**
+(re-mesuré le 2026-08-09 ; **ÉTAIT 1195** au compte initial, écart de
+25 non recherché individuellement — cohérent avec des remplacements
+normaux par mises à jour depuis, § détail dans `docs/repositories.md`
+§ 4). C'est `switcheroo-control` qui fait de cette catégorie plus
+qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
+à toute recherche par dépôt configuré.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1635,6 +1665,32 @@ froid), non établi.
   se fermerait par `strace` disponible sur ce poste, ou par lecture du
   code source de `systemd-xdg-autostart-generator` établissant
   explicitement la construction de cet environnement.
+- **Nouveau point ouvert (2026-08-09, PKG-1) — combien de paquets
+  installés ne proviennent d'aucun rôle de ce dépôt.** `cardwire` (D23)
+  n'a été découvert que parce qu'il produisait un conflit visible à
+  chaque `dnf update` ; un paquet orphelin silencieux, sans conflit,
+  ne serait jamais repéré par ce mécanisme. Ordre de grandeur établi,
+  pas un compte exhaustif (pas demandé) : `rpm -qa | wc -l` → **2504**
+  paquets installés sur ce poste (2026-08-09, après retrait de
+  `cardwire`) ; les rôles de ce dépôt (`bootstrap`, `editor`,
+  `completion`, `desktop`, `gpu_cdi` — `recovery`, `gpu_mux`,
+  `local_ai` n'installent aucun paquet) déclarent explicitement **15**
+  paquets RPM distincts via `ansible.builtin.dnf`/`package`. **Écart :
+  de l'ordre de 2 490 paquets** ne sont nommés par aucune tâche
+  d'aucun rôle — l'écrasante majorité de ce qui est installé sur ce
+  poste. Composition non distinguée (pas demandé, exhaustivité non
+  requise) : dépendances transitives des 15 paquets déclarés, base de
+  l'image d'installation (catégorie « média d'installation » ci-dessus,
+  D23 — 1170 à elle seule), et paquets installés manuellement au fil
+  des livrables (`asusctl`, `asusctl-rog-gui`, `supergfxctl`,
+  `terra-gpg-keys`/`terra-release` en dehors de ce que `bootstrap`
+  déclare lui-même, entre autres). **Ce qu'il faudrait pour traiter ce
+  point** : un inventaire qui distingue, paquet par paquet, ce qui est
+  strictement une dépendance transitive résolue par `dnf` (attendu,
+  pas une dérive) de ce qui a été installé par une commande manuelle
+  jamais reproduite dans un rôle (candidat à devenir un second
+  `cardwire` silencieux) — non entrepris ici, sujet en soi
+  (`docs/repositories.md` § 9).
 
 ## Journal des séries
 
@@ -3569,3 +3625,25 @@ froid), non établi.
   information dessus, ni pour ni contre (plein écran jamais atteint).
   Nouveau point ouvert ajouté ci-dessus (contenu exact de
   l'environnement du générateur), non bloquant.
+- **2026-08-09 — retrait de `cardwire`, paquet orphelin bloquant les
+  mises à jour (PKG-1).** Sujet indépendant de BUR-5, sur la même
+  date. Simulation (`sudo dnf remove --assumeno cardwire`) avant toute
+  écriture : transaction limitée au seul `cardwire`, confirmée avant
+  d'agir. Retrait réel exécuté (`sudo dnf remove -y cardwire`), seule
+  action privilégiée de cette série, structurellement sans voie non
+  privilégiée (§ Décisions, D23 — tableau complet,
+  `docs/repositories.md` § Validation, PKG-1). Vérifié après coup :
+  `switcheroo-control` toujours installé/`active`/`enabled` ;
+  `cardwired.service` disparu de `systemctl list-unit-files` ; aucun
+  fichier `cardwire` restant ; `sudo dnf update` sans conflit,
+  `Nothing to do`, **aucune mise à jour appliquée** (décision laissée
+  à l'opérateur). Fait annexe consigné à cette occasion : catégorie
+  « paquets du média d'installation » (`from_repo` opaque
+  `6ecc2dfaa0dc41e5ad51e007707a786b`, déjà connue en fait depuis BUR-1
+  mais jamais nommée comme catégorie), 1170 paquets re-mesurés (ÉTAIT
+  1195), `switcheroo-control` en fait partie. Nouveau point ouvert
+  ajouté ci-dessus : ordre de grandeur des paquets installés hors de
+  tout rôle de ce dépôt (≈2 490 sur 2504, 15 déclarés explicitement).
+  Aucun paquet installé, aucun rôle Ansible touché, `terra` toujours
+  activé, aucune modification de `sudoers`/`terra.repo`/`/etc/cdi/`/
+  `gpu_mux_mode`/`kwinrulesrc`, aucun redémarrage, aucune déconnexion.
