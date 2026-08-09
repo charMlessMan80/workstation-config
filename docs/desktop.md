@@ -1764,16 +1764,32 @@ entier pour la démonstration d'échec forcé : `-e …=1000000`
   QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY=wayland-0 kscreen-doctor output.eDP-1.disable output.eDP-1.enable
   ```
 
-**À vérifier au retour** :
-- État de `eDP-1` — vivant (curseur mobile) ou figé.
-- Mode nominal (plein écran) ou dégradé (barre de titre visible,
-  titre `kitty -- mode degrade (voir journal --user)`, avertissement
-  dans le volet shell) — les deux se distinguent au premier coup d'œil,
-  par construction (§ 2 de la demande).
-- Temps d'attente réel de cette ouverture de session, dans le journal :
-  ```
-  journalctl --user -u app-kitty\\x2dscreenpad@autostart.service --no-pager | grep kitty-startup-wait
-  ```
+**À vérifier au retour, DANS CET ORDRE — quatrième issue ajoutée en
+BUR-5 (§ 10)** : la question du plein écran ne se pose que si l'unité
+existe. Un défaut d'ordre a coûté un aller-retour complet en BUR-5
+(kitty ne s'est pas lancé du tout, faute d'unité générée — § 10.1) sans
+que ce soit vérifié en premier.
+1. **L'unité existe-t-elle ?**
+   ```
+   systemctl --user status app-kitty\\x2dscreenpad@autostart.service
+   ```
+   `could not be found` → quatrième issue (§ 10) : autostart non
+   généré, ni nominal ni dégradé ni gel, kitty absent. Ne pas chercher
+   plus loin sur l'écran — commencer par `docs/desktop.md` § 10.7 (la
+   vérification que le rôle aurait dû faire échouer avant de déployer)
+   et par le contenu réel de l'entrée (`cat
+   ~/.config/autostart/kitty-screenpad.desktop` : `Exec=`/`TryExec=`
+   doivent porter un chemin absolu, jamais un nom seul).
+2. **Seulement si l'unité existe** : état de `eDP-1` — vivant (curseur
+   mobile) ou figé.
+3. Mode nominal (plein écran) ou dégradé (barre de titre visible,
+   titre `kitty -- mode degrade (voir journal --user)`, avertissement
+   dans le volet shell) — les deux se distinguent au premier coup d'œil,
+   par construction (§ 2 de la demande BUR-4).
+4. Temps d'attente réel de cette ouverture de session, dans le journal :
+   ```
+   journalctl --user -u app-kitty\\x2dscreenpad@autostart.service --no-pager | grep kitty-startup-wait
+   ```
 
 **Repli en une commande, si le gel se reproduit** — la même qu'en
 BUR-3 (§ 8.1), depuis le volet shell (nominal ou dégradé, l'un des
@@ -1799,6 +1815,350 @@ les deux épisodes de gel observés à ce jour (BUR-3), le TTY est testé
 une perte de données ni un état non récupérable. La prudence par
 défaut de ce dépôt (`CLAUDE.md` § Avant d'agir) reste juste ; elle doit
 rester **proportionnée** à ce que ce risque représente réellement.
+
+## 10. Autostart absent — kitty ne se lance pas du tout (BUR-5, 2026-08-09)
+
+Quatrième issue à l'ouverture de session suivant BUR-4, non anticipée :
+ni nominal, ni dégradé, ni gel de `eDP-1` (aucun gel constaté cette
+fois) — **kitty ne s'est pas lancé du tout**. Périmètre de ce
+livrable : établir pourquoi, corriger, et fermer un second trou
+(garde `kscreen-doctor`) indépendant du reste.
+
+### 10.1 — Fait établi par le journal
+
+À 18:03:07 (ouverture de session, démarrage courant — `journalctl
+--list-boots`, boot `0`, `e8b1ea40-121d-42dc-806f-5df162183c98`),
+toutes les entrées d'autostart démarrent sous la forme
+`app-<nom>@autostart.service` :
+```
+$ journalctl --user -b0 --no-pager -g 'autostart|generator'
+Aug 09 18:03:07 … Starting app-geoclue\x2ddemo\x2dagent@autostart.service …
+Aug 09 18:03:07 … Starting app-imsettings\x2dstart@autostart.service …
+… (13 autres, toutes @autostart.service) …
+Aug 09 18:03:07 … Reached target xdg-desktop-autostart.target …
+```
+**Aucune `app-kitty…@autostart.service` dans cette liste.** Confirmé
+par le contenu du répertoire de sortie du générateur, encore présent
+sur disque (aucun `daemon-reload` n'avait eu lieu depuis) :
+```
+$ ls /run/user/1000/systemd/generator/generator.late/  # (18:03, avant toute intervention)
+app-geoclue\x2ddemo\x2dagent@autostart.service  app-org.kde.discover.notifier@autostart.service  …
+```
+— 14 fichiers, aucun `kitty`. La seule unité `kitty` du démarrage
+date de 18:11:07 (`systemd[2233]: Started app-kitty@716b4d0a…service —
+kitty - Terminal emulator`, nom sans rapport : lancement manuel
+opérateur, PID de session). **L'unité n'a pas échoué : elle n'a jamais
+été générée.**
+
+**Hypothèse de l'opérateur testée et écartée par lecture directe** :
+`systemctl --user show-environment | grep '^PATH='`, exécuté dans
+cette session, montre `PATH=/home/mahieumi/.local/bin:/home/mahieumi/
+bin:/usr/local/bin:/usr/bin:/bin` — `~/.local/bin` y figure bien.
+« Le répertoire n'est pas dans le PATH » est donc **faux**, tel quel.
+
+### 10.2 — Qui traite les `.desktop` d'autostart, à quel moment, avec quel environnement
+
+Établi par lecture (`man systemd-xdg-autostart-generator`, section
+8) : `systemd-xdg-autostart-generator` est un générateur systemd
+utilisateur (`/usr/lib/systemd/user-generators/systemd-xdg-
+autostart-generator`) qui convertit les fichiers XDG autostart en
+unités `.service`, à chaque démarrage du gestionnaire **et à chaque
+rechargement de configuration** (`systemctl --user daemon-reload`) —
+pas seulement à l'ouverture de session. Table des entrées `.desktop`
+traitées, citée du man page :
+
+| Entrée | Traitement |
+|---|---|
+| `Hidden=`, `X-systemd-skip=` | Aucun service généré si vrai |
+| `OnlyShowIn=`, `NotShowIn=` | `ExecCondition=` via un binaire externe |
+| **`TryExec=`** | **Aucun service généré si le binaire n'existe pas ou n'est pas exécutable** |
+| `X-KDE-autostart-condition=` | `ExecCondition=` via `kde-systemd-start-condition` |
+
+Aucune ligne ne prévoit de trace en cas d'échec de `TryExec=` — le
+comportement documenté est silencieux par construction, cohérent avec
+l'absence totale de mention de `kitty` dans le journal à 18:03:07.
+
+`man systemd.generator` (§ NOTES ABOUT WRITING GENERATORS) précise par
+ailleurs que les générateurs système « sont exécutés très tôt … ne
+peuvent parler à aucun autre processus … non-essential filesystems
+like /var/ et /home/ sont montés après leur exécution » — cette
+réserve concerne explicitement les générateurs **système** (PID 1), au
+tout premier démarrage ; elle ne s'applique pas telle quelle à un
+`daemon-reload` **utilisateur** déclenché en session déjà établie
+(`/home` déjà monté). Le man page ne documente cependant, pour aucun
+des deux cas, la composition exacte de l'environnement transmis à un
+générateur — seule une mesure directe permet de trancher (§ 10.3).
+
+### 10.3 — Piège de méthode évité, reproduction en conditions réelles
+
+**Le piège nommé par la demande** : tester le script par chemin absolu
+(alors que l'entrée l'invoque sans chemin), ou fabriquer un `PATH`
+choisi pour produire la conclusion voulue. Une première tentative dans
+cette session a bien failli y retomber sous une troisième forme :
+invoquer directement le binaire du générateur
+(`SYSTEMD_LOG_LEVEL=debug /usr/lib/systemd/user-generators/systemd-
+xdg-autostart-generator <dir>`) depuis le shell interactif de cette
+session — cela **génère bien** l'unité kitty, mais cette invocation
+hérite du `PATH` du shell, pas de celui que voit réellement le
+générateur quand le **gestionnaire réel** (`systemd --user`, PID 2233)
+l'invoque. Conclure de ce test seul aurait reproduit exactement le
+défaut à éviter : une commande substituée (le binaire, oui — mais pas
+son contexte d'invocation réel) prise pour la commande annoncée.
+
+**Reproduction retenue, dans les conditions réelles du générateur** :
+déclencher le générateur **réel**, tel qu'invoqué par le gestionnaire
+utilisateur en cours d'exécution, via `systemctl --user daemon-reload`
+— sans redémarrage, sans déconnexion, sans effet sur les unités déjà
+actives (`daemon-reload` régénère les sorties de générateur mais ne
+démarre rien de nouveau : `xdg-desktop-autostart.target` est déjà
+atteinte depuis l'ouverture de session, une unité qui y apparaît après
+coup n'est pas activée pour autant — vérifié explicitement avant et
+après chaque essai ci-dessous, aucune fenêtre `kitty` parasite à aucun
+moment).
+
+Trois entrées de diagnostic temporaires créées dans
+`~/.config/autostart/` (supprimées immédiatement après chaque essai,
+aucune ne fait partie du dépôt) :
+
+| Entrée (TryExec=/Exec=) | Résultat après `daemon-reload` réel |
+|---|---|
+| `/bin/true` (chemin absolu) | Unité générée (`app-zz\x2ddiag\x2dtest@autostart.service`, présente dans `xdg-desktop-autostart.target` Wants=) |
+| `true` (nom seul, présent dans `/bin` — universellement sur tout `PATH` minimal) | **Aucune unité générée** |
+| `zz-diag-marker` (nom seul, script placé dans `~/.local/bin/`, exécutable, présent au moment du test) | **Aucune unité générée** |
+
+Le cas `true` est le plus instructif : ce nom existe dans `/bin`, un
+répertoire présent dans **tout** `PATH` minimal concevable — son
+absence de résolution n'a donc rien à voir spécifiquement avec
+`~/.local/bin`. **Conclusion directe, par reproduction et non par
+analogie** : dans l'environnement où le générateur réel s'exécute
+(invoqué par le gestionnaire, pas par un shell interactif), un
+`TryExec=`/`Exec=` sans chemin ne se résout pas de façon fiable — y
+compris pour un nom aussi universel que `true`.
+
+**Ce qui n'a pas pu être établi, faute d'outillage sur ce poste** : le
+contenu exact de l'environnement (notamment `$PATH`) vu par le
+processus du générateur au moment précis de son exécution.
+`SYSTEMD_LOG_LEVEL=debug` positionné sur le gestionnaire lui-même
+(`systemctl --user log-level debug`) puis sur son environnement exporté
+(`systemctl --user set-environment SYSTEMD_LOG_LEVEL=debug`) n'a fait
+apparaître, dans le journal du `daemon-reload` correspondant, aucune
+trace interne par fichier `.desktop` traité (comparé au binaire invoqué
+manuellement avec la même variable, qui journalise « symlinking
+app-kitty…@autostart.service … » explicitement) — la verbosité interne
+du générateur ne semble pas suivre le niveau de journalisation du
+gestionnaire ou de son environnement exporté. `strace` est absent de
+ce poste (`command -v strace` : rien — ne pas l'installer pour ce
+diagnostic, hors périmètre de ce livrable) ; un sondage direct de
+`/proc/<pid>/environ` par une boucle shell s'est révélé trop lent face
+à la durée de vie du processus (de l'ordre de 4 ms entre son fork et sa
+sortie, mesuré par les horodatages du journal). **Marqué en
+conséquence** : `@VERIF : contenu exact de l'environnement du
+générateur au moment de l'exécution — nécessiterait strace ou un
+générateur d'appoint instrumenté dans un répertoire de recherche root
+(hors périmètre de ce dépôt/rôle)`.
+
+### 10.4 — Conclusion du § 1
+
+**Cause établie par reproduction directe, pas seulement plausible par
+lecture** : un `TryExec=`/`Exec=` sans chemin dans l'entrée autostart
+ne se résout pas de façon fiable dans l'environnement où le générateur
+réel s'exécute — reproduit à volonté sur ce poste (trois essais,
+tableau ci-dessus), y compris pour un nom présent dans `/bin`. **Ce qui
+reste hypothèse, marqué comme tel** : le mécanisme précis par lequel
+systemd construit cet environnement plus pauvre pour ses générateurs
+(§ 10.3, marqueur de vérification laissé ouvert) — la conclusion
+opérationnelle (chemin absolu requis,
+§ 10.5) ne dépend cependant pas de ce détail : elle tient déjà de la
+reproduction seule.
+
+### 10.5 — Correction : chemin absolu, construit depuis le répertoire personnel
+
+`roles/desktop/templates/kitty-screenpad.desktop.j2` : `Exec=`/
+`TryExec=` portent désormais `desktop_kitty_wait_script_path` (chemin
+absolu, `~/.local/bin/kitty-startup-wait.sh` construit à l'exécution à
+partir de `ansible_facts.env.HOME` — jamais écrit en dur dans le dépôt,
+D1/D4), plus `desktop_kitty_wait_script_file` (nom seul, utilisé
+uniquement dans les commentaires `Comment=`, sans effet fonctionnel).
+`roles/desktop/defaults/main.yml` : commentaire de
+`desktop_local_bin_dir` réécrit avec marqueur `ÉTAIT` (l'ancien motif —
+« résolu par PATH, jamais un chemin absolu » — affirmait exactement le
+contraire de ce que ce livrable établit, CLAUDE.md § un commentaire qui
+énonce une décision se relit à chaque révision de cette décision).
+`roles/desktop/tasks/main.yml` : commentaires des tâches de déploiement
+et du rapport final mis à jour de même.
+
+### 10.6 — Recherche systématique d'autres entrées dépendant d'une résolution par PATH
+
+```
+$ grep -rn "TryExec\|^Exec=" roles/*/templates/ roles/*/files/
+roles/local_ai/templates/ollama.container.j2:86:ExecStartPre={{ local_ai_ansible_playbook_bin }} …
+roles/local_ai/templates/local-ai-cdi-verify.service.j2:27:ExecStart={{ local_ai_ansible_playbook_bin }} …
+roles/local_ai/templates/local-ai-cdi-verify-notify.service.j2:27:ExecStart=/usr/bin/notify-send …
+roles/desktop/templates/kitty-screenpad.desktop.j2:7-8: (ce livrable, corrigé ci-dessus)
+```
+```
+$ find . -iname "*.desktop*" -not -path "./.git/*"
+./roles/desktop/templates/kitty-screenpad.desktop.j2
+```
+**Un seul fichier `.desktop` dans tout le dépôt** — celui corrigé ici,
+aucun autre à traiter. `local_ai_ansible_playbook_bin`
+(`roles/local_ai/defaults/main.yml:183`) est déjà un chemin absolu au
+moment où il s'insère dans `ExecStart=` : `"{{ lookup('pipe', 'command
+-v ansible-playbook') }}"` — résolu **au moment du déploiement**, par
+`command -v`, jamais par le `PATH` de l'unité à l'exécution. Ce n'est
+pas la même surface de risque (systemd services + `ExecStart=` avec un
+nom seul recourent, quand ils le font, à un `PATH` compilé en dur dans
+systemd — pas à celui, potentiellement plus pauvre, d'un générateur
+utilisateur) et le mécanisme retenu ici (résolution au déploiement,
+figée dans l'unité rendue) est déjà la forme correcte. Rien à corriger
+dans `roles/local_ai/` — signalé, pas modifié (hors périmètre déclaré
+de ce livrable).
+
+### 10.7 — Vérification ajoutée au rôle : le générateur réel, jamais la confiance
+
+Trois tâches ajoutées après le déploiement de l'entrée autostart
+(`roles/desktop/tasks/main.yml`) :
+1. `systemd-escape` sur l'identifiant de l'entrée (même échappement que
+   celui produit par le générateur réel — vérifié identique,
+   `kitty-screenpad` → `kitty\x2dscreenpad`) ;
+2. `ansible.builtin.systemd: {daemon_reload: true, scope: user}` —
+   exécute réellement `systemd-xdg-autostart-generator` sur l'entrée
+   déployée, exactement le mécanisme dont l'absence de trace a coûté ce
+   livrable ;
+3. `ansible.builtin.systemd: {name: app-…@autostart.service, scope:
+   user}` sans `state` ni `enabled` — interrogation seule (le module
+   ne fait qu'un `systemctl show` en interne, `changed=false` par
+   construction), suivie d'une assertion sur `status.LoadState ==
+   'loaded'`.
+
+Ce que cette vérification établit, chaque exécution du rôle
+désormais : que le générateur **réel** a produit l'unité à partir de
+l'entrée réellement déployée — pas une supposition sur le chemin
+absolu suffisant en théorie. Exécution réelle de cette série :
+```
+TASK [… Échouer bruyamment si le générateur réel n'a pas produit l'unité autostart …] ***
+ok: [localhost] => {
+    "changed": false,
+    "msg": "Unité app-kitty\\x2dscreenpad@autostart.service confirmée générée par le générateur réel (systemctl --user daemon-reload), LoadState=loaded — la résolution TryExec=/Exec= en chemin absolu fonctionne, par la mesure, pas supposée."
+}
+```
+Confirmé après coup, hors rôle : `systemctl --user cat 'app-kitty\x2d
+screenpad@autostart.service'` montre `ExecStart=:/home/mahieumi/
+.local/bin/kitty-startup-wait.sh` (chemin absolu, généré par le
+générateur réel) ; `ActiveState=inactive` (le `daemon-reload` n'a rien
+démarré, conforme au motif ci-dessus) ; aucun processus `kitty`
+parasite (`pgrep`/`ps -ef` vérifiés immédiatement après).
+
+### 10.8 — Garde `kscreen-doctor` : trou réel, indépendant du reste
+
+**Fait établi, sourcé dans cette session** :
+```
+$ coredumpctl list kscreen-doctor
+TIME                           PID  UID  GID SIG     COREFILE EXE                       SIZE
+Sun 2026-08-09 14:08:23 CEST 14108 1000 1000 SIGABRT present  /usr/bin/kscreen-doctor 516.7K
+```
+```
+$ coredumpctl info kscreen-doctor   # extrait
+Command Line: kscreen-doctor -o
+Boot ID: 919b274361ec450fbddbd431805c28bb
+```
+Ce Boot ID est celui du démarrage **précédent** (`journalctl
+--list-boots` : `-1 919b274361ec450fbddbd431805c28bb … 12:13:52 →
+18:02:06`), pas le démarrage courant (`0`, depuis 18:02:34). Les lignes
+`drkonqi-coredump-launcher` à 18:04:02–03 dans le journal du démarrage
+courant (`… Launch DrKonqi for a systemd-coredump crash (PID
+3008/UID 1000) …`, puis `drkonqi-coredump-launcher[5854]: Unable to
+find file for pid 14108 …`) référencent explicitement ce même PID
+14108 — confirmé, ce sont bien le traitement différé (mécanisme de
+ramassage des vidages en attente, `drkonqi-coredump-pickup.service`) de
+ce plantage antérieur, pas un plantage pendant le démarrage courant.
+
+**Défaut trouvé dans la garde de l'enveloppe, avant correction** :
+`sample()` capturait `kscreen-doctor -j | jq -c '…'` en un seul flux,
+sans jamais vérifier le code de retour de `kscreen-doctor` lui-même —
+seule la réussite de `jq` sur ce qu'il recevait comptait. Deux cas
+distincts, un seul traité correctement :
+
+**Cas 1 — sortie vide (déjà correctement traité par construction,
+démontré ici pour la première fois)** : `kscreen-doctor` fictif, rc=0,
+stdout vide, placé en tête de `PATH` pour une exécution isolée du
+script réellement déployé (`~/.local/bin/kitty-startup-wait.sh`, pas
+une copie) :
+```
+kitty-startup-wait: échantillon t=2ms rc=0 (consécutifs identiques: 1/2) : <vide>
+… (25 échantillons, tous « 1/2 », jamais « 2/2 ») …
+kitty-startup-wait: échantillon t=5103ms rc=0 (consécutifs identiques: 1/2) : <vide>
+kitty-startup-wait: AVERTISSEMENT : délai maximal (5000ms) expiré sans topologie stable — lancement DÉGRADÉ (…)
+```
+Fenêtre résultante confirmée (`ps`) : `kitty -T "kitty -- mode degrade
+…" --session …/startup-degraded.session` — délai maximal atteint,
+mode dégradé, trace visible, comme attendu.
+
+**Cas 2 — code de retour non nul avec sortie non vide (jamais démontré
+avant ce livrable, et la garde échouait réellement ce test)** :
+`kscreen-doctor` fictif rejouant un relevé réel et complet (capturé une
+fois depuis le vrai `kscreen-doctor -j` de ce poste) sur stdout, puis
+`exit 1` — même exécution isolée du script réellement déployé :
+```
+kitty-startup-wait: échantillon t=3ms rc=1 (consécutifs identiques: 1/2) : <vide>
+… (26 échantillons, tous rc=1, tous « 1/2 », jamais « 2/2 ») …
+kitty-startup-wait: AVERTISSEMENT : délai maximal (5000ms) expiré sans topologie stable — lancement DÉGRADÉ (…)
+```
+Malgré une sortie non vide et parfaitement valide à chaque appel, la
+garde corrigée ne compte **jamais** cet échantillon — `rc=1` neutralise
+`SAMPLE_OUT` avant que sa validité JSON ne soit même examinée.
+
+**Contraste avant/après, rejoué avec le même `kscreen-doctor` fictif
+(cas 2), sur la version du script telle que déployée par BUR-4 avant ce
+correctif** (reconstruite depuis `git show HEAD:roles/desktop/
+templates/kitty-startup-wait.sh.j2`, rendue avec les mêmes valeurs de
+variables, jamais un extrait réécrit à la main) :
+```
+kitty-startup-wait: échantillon t=3ms (consécutifs identiques: 1/2) : [{"name":"DP-3",...}]
+kitty-startup-wait: échantillon t=208ms (consécutifs identiques: 2/2) : [{"name":"DP-3",...}]
+kitty-startup-wait: topologie stable après 208ms — lancement nominal (plein écran, session …/startup.session)
+```
+**L'ancienne garde se trompait réellement** : `kscreen-doctor` en échec
+à chaque appel (rc=1 systématique) produisait malgré tout une décision
+« nominal » en 208 ms — exactement le trou que la demande soupçonnait,
+maintenant démontré des deux côtés (avant : faux positif reproduit ;
+après : neutralisé, reproduit avec le même déclencheur).
+
+Toutes les fenêtres de test (trois, une par démonstration) fermées par
+leur PID isolé immédiatement après lecture du journal — aucune fenêtre
+de l'opérateur touchée, aucun `kscreen-doctor`/`kitty` fictif laissé en
+place, `~/.config/autostart/` et `~/.local/bin/` revérifiés dans l'état
+attendu après nettoyage.
+
+### 10.9 — Ce que ce livrable peut prouver, et ce qu'il ne peut pas
+
+**Prouvé en session** : chemin absolu présent dans l'entrée déployée
+(§ 10.5) ; le script réellement déployé, invoqué sans chemin depuis un
+`PATH` réduit à l'essentiel dans les tests du § 10.3 (bare name jamais
+résolu par le générateur réel, y compris pour `true`) ; les deux
+démonstrations du § 10.8, avec leurs traces et le contraste avant/après ;
+génération réelle de l'unité par le générateur réel via `daemon-reload`
+(§ 10.7 — plus que ce qui semblait accessible sans redémarrage) ;
+seconde exécution du rôle à `changed=0`.
+
+**Non prouvé, marqué comme tel** : la génération de l'unité **à
+l'ouverture de session** elle-même (le mécanisme précis diffère peut-être
+légèrement d'un `daemon-reload` en session déjà établie — même réserve
+que celle déjà posée pour l'ordre des processus vs l'état interne,
+§ 2.4) ; le contenu exact de l'environnement du générateur (§ 10.3,
+marqueur de vérification laissé ouvert). **Session non déconnectée,
+aucun redémarrage** — les deux
+seront confirmés à la prochaine ouverture de session réelle par
+l'opérateur (§ 9.4, procédure mise à jour avec cette quatrième issue en
+tête de liste).
+
+**Sans rapport avec le gel de `eDP-1` (BUR-3)** : kitty ne s'étant pas
+lancé du tout cette fois, le plein écran n'a jamais été atteint —
+cette ouverture de session n'apporte **aucune** information, ni pour
+ni contre, sur l'hypothèse de concurrence encore ouverte
+(`docs/machine-facts.md` § Points ouverts). Ne pas lire l'absence de
+gel de ce livrable comme une confirmation de la temporisation BUR-4 :
+le mécanisme qu'elle protège n'a simplement jamais été exercé.
 
 ## Voir aussi
 

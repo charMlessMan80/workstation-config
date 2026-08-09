@@ -541,7 +541,15 @@
       supposé.
   when: not ansible_check_mode
 
-# --- Autostart : fichier .desktop généré, sans chemin propre à cette machine
+# --- Autostart : fichier .desktop généré, chemin absolu construit depuis
+# le répertoire personnel — jamais un nom seul résolu par PATH (BUR-5,
+# docs/desktop.md § 10 : le générateur réel, systemd-xdg-autostart-generator,
+# n'a pas résolu de façon fiable un TryExec=/Exec= sans chemin, y compris
+# pour un nom aussi universel que `true`, dans l'environnement où il
+# s'exécute réellement — établi par reproduction directe du générateur,
+# pas par lecture seule). desktop_kitty_wait_script_path (defaults/main.yml)
+# n'est jamais écrit en dur ici : il se construit à l'exécution à partir
+# de ansible_facts.env.HOME (D1/D4).
 
 - name: "S'assurer que le répertoire autostart existe : {{ desktop_autostart_dir }}"
   ansible.builtin.file:
@@ -551,12 +559,70 @@
   when: not ansible_check_mode
 
 - name: >-
-    Déployer l'entrée autostart (Exec=le script de temporisation,
-    résolu par PATH — aucun chemin absolu propre à cette machine)
+    Déployer l'entrée autostart (Exec=/TryExec= : chemin absolu du script
+    de temporisation, jamais un nom seul résolu par PATH — BUR-5)
   ansible.builtin.template:
     src: kitty-screenpad.desktop.j2
     dest: "{{ desktop_autostart_desktop_file }}"
     mode: "0644"
+  when: not ansible_check_mode
+
+# --- Vérification par le générateur réel, jamais par confiance (BUR-5,
+# docs/desktop.md § 10) : c'est précisément la confusion entre
+# `systemctl --user show-environment` (rapporte un PATH riche) et
+# l'environnement réellement vu par systemd-xdg-autostart-generator
+# quand le gestionnaire l'invoque (où même `true`, présent dans /bin,
+# ne se résout pas) qui a produit le bug — cette étape rejoue
+# l'invocation réelle du générateur (`systemctl --user daemon-reload`,
+# pas une copie du binaire) plutôt que de supposer que le chemin absolu
+# suffit. `daemon-reload` seul ne démarre rien : `xdg-desktop-autostart
+# .target` est déjà atteinte depuis l'ouverture de session, une unité
+# qui y apparaît après coup n'est pas activée pour autant — confirmé en
+# session avant d'écrire cette tâche (aucune fenêtre kitty parasite).
+
+- name: "Calculer l'identifiant d'unité que le générateur réel attribue à cette entrée (même échappement, systemd-escape)"
+  ansible.builtin.command:
+    argv:
+      - systemd-escape
+      - "{{ desktop_autostart_desktop_file | basename | regex_replace('\\.desktop$', '') }}"
+  register: desktop_autostart_unit_instance
+  changed_when: false
+  check_mode: false
+
+- name: "Recharger la configuration du gestionnaire utilisateur (exécute réellement systemd-xdg-autostart-generator sur l'entrée déployée)"
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  when: not ansible_check_mode
+
+- name: "Relever l'état de chargement de l'unité autostart après ce rechargement réel (interrogation seule : ni state ni enabled fournis)"
+  ansible.builtin.systemd:
+    name: "app-{{ desktop_autostart_unit_instance.stdout }}@autostart.service"
+    scope: user
+  register: desktop_autostart_unit_state
+  when: not ansible_check_mode
+
+- name: >-
+    Échouer bruyamment si le générateur réel n'a pas produit l'unité
+    autostart à partir de cette entrée — TryExec=/Exec= ne résout
+    probablement pas dans l'environnement du générateur (BUR-5)
+  ansible.builtin.assert:
+    that:
+      - desktop_autostart_unit_state.status.LoadState == 'loaded'
+    fail_msg: >-
+      systemd-xdg-autostart-generator n'a pas produit
+      app-{{ desktop_autostart_unit_instance.stdout }}@autostart.service
+      à partir de {{ desktop_autostart_desktop_file }}
+      (LoadState={{ desktop_autostart_unit_state.status.LoadState }}) —
+      le TryExec=/Exec= déployé ne se résout probablement pas dans
+      l'environnement réel du générateur. Ce rôle s'arrête plutôt que de
+      laisser croire l'autostart en place sans l'avoir vérifié.
+    success_msg: >-
+      Unité app-{{ desktop_autostart_unit_instance.stdout }}@autostart.service
+      confirmée générée par le générateur réel
+      (systemctl --user daemon-reload), LoadState=loaded — la résolution
+      TryExec=/Exec= en chemin absolu fonctionne, par la mesure, pas
+      supposée.
   when: not ansible_check_mode
 
 # --- Rapport -----------------------------------------------------------
@@ -599,6 +665,6 @@
           dans cette session déjà établie.
       - >-
           Autostart déployé dans {{ desktop_autostart_desktop_file }}
-          (Exec={{ desktop_kitty_wait_script_file }}) —
+          (Exec={{ desktop_kitty_wait_script_path }}, chemin absolu — BUR-5) —
           effectif à la prochaine ouverture de session, pas vérifié ici.
   when: not ansible_check_mode

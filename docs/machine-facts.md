@@ -1611,6 +1611,30 @@ froid), non établi.
   reproduit malgré la temporisation, l'issue à retenir (posée à froid,
   `docs/desktop.md` § 9.4) est le retrait du plein écran — pas une
   nouvelle tentative de calibrage.
+  **[MISE À JOUR le 2026-08-09, livrable suivant (BUR-5)] Ouverture de
+  session sans aucune information sur ce point, ni pour ni contre.**
+  L'autostart kitty ne s'est pas lancé du tout à cette ouverture de
+  session — bug distinct, sans rapport (unité systemd jamais générée,
+  faute de chemin absolu dans `Exec=`/`TryExec=` ; corrigé,
+  `docs/desktop.md` § 10). Kitty n'ayant jamais atteint le plein écran
+  cette fois, le mécanisme que la temporisation BUR-4 protège n'a
+  simplement pas été exercé — ce livrable ne confirme ni n'infirme
+  l'hypothèse de concurrence, il ne l'a pas testée. **Ce point reste
+  ouvert**, inchangé par BUR-5.
+- **Nouveau point ouvert (2026-08-09, BUR-5) — contenu exact de
+  l'environnement vu par `systemd-xdg-autostart-generator` au moment de
+  son exécution réelle.** Établi seulement par ses effets (un nom seul
+  dans `Exec=`/`TryExec=` ne s'y résout jamais, un chemin absolu s'y
+  résout toujours — reproduit à volonté via `systemctl --user
+  daemon-reload`, `docs/desktop.md` § 10.3), pas par lecture directe de
+  la table d'environnement du processus lui-même : `strace` absent de
+  ce poste, un sondage `/proc/<pid>/environ` par boucle shell trop lent
+  face à la durée de vie du processus (~4 ms). Marqueur de vérification
+  posé dans `docs/desktop.md` § 10.3. Sans conséquence opérationnelle
+  (la correction retenue, chemin absolu, ne dépend pas de ce détail) —
+  se fermerait par `strace` disponible sur ce poste, ou par lecture du
+  code source de `systemd-xdg-autostart-generator` établissant
+  explicitement la construction de cet environnement.
 
 ## Journal des séries
 
@@ -3456,3 +3480,92 @@ froid), non établi.
   toute exécution réelle) ; aucune déconnexion de session, aucun
   redémarrage. Divergence § « Points ouverts » ci-dessus mise à jour en
   conséquence, pas fermée.
+- **2026-08-09 (livrable suivant) — autostart totalement absent, kitty
+  ne se lance pas du tout (BUR-5), `roles/desktop/`.** Quatrième issue
+  à l'ouverture de session suivant BUR-4, non anticipée : ni nominal,
+  ni dégradé, ni gel de `eDP-1` (aucun gel constaté cette fois) — kitty
+  ne s'est pas lancé du tout. Fait établi par le journal : à 18:03:07,
+  toutes les entrées d'autostart démarrent en `app-<nom>@autostart
+  .service` (`journalctl --user -b0`), aucune `app-kitty…`. Hypothèse
+  de l'opérateur (« le répertoire n'est pas dans le `PATH` ») écartée
+  par lecture directe : `systemctl --user show-environment` rapportait
+  déjà `~/.local/bin` en tête de `PATH` à l'instant du diagnostic.
+  **Cause établie par reproduction directe du générateur réel**
+  (`systemd-xdg-autostart-generator`, invoqué via `systemctl --user
+  daemon-reload` — jamais une copie, jamais le binaire lancé depuis un
+  shell interactif dont le `PATH` ne représente pas celui du
+  générateur, piège de méthode nommé par la demande et évité, détail
+  complet `docs/desktop.md` § 10.1–10.4) : un `Exec=`/`TryExec=` sans
+  chemin ne se résout pas de façon fiable dans l'environnement où ce
+  générateur s'exécute réellement — démontré y compris pour un nom
+  aussi universel que `true` (présent dans `/bin`, sur tout `PATH`
+  minimal concevable), alors que `systemctl --user show-environment`,
+  interrogé au même instant, rapportait toujours ce `PATH` riche.
+  Contenu exact de cet environnement non instrumenté (`strace` absent
+  de ce poste, sondage `/proc/<pid>/environ` trop lent face à la durée
+  de vie du processus, ~4 ms) — marqué en conséquence, nouveau point
+  ouvert ci-dessus ; la correction retenue ne dépend pas de ce détail.
+  **Correction** : `Exec=`/`TryExec=` de `kitty-screenpad.desktop.j2`
+  portent désormais un chemin absolu (`desktop_kitty_wait_script_path`,
+  construit depuis `ansible_facts.env.HOME` à l'exécution, jamais en
+  dur dans le dépôt — D1/D4), jamais le nom seul retenu par erreur en
+  BUR-4 (commentaire correspondant réécrit avec marqueur `ÉTAIT`).
+  Recherche systématique (`docs/desktop.md` § 10.6) : un seul fichier
+  `.desktop` dans tout le dépôt, celui-ci ; `roles/local_ai/` référence
+  `ansible_playbook_bin` déjà résolu en chemin absolu au déploiement
+  (`command -v`), aucune autre entrée concernée.
+  **Vérification ajoutée au rôle** (`docs/desktop.md` § 10.7) :
+  `systemd-escape` sur l'identifiant de l'entrée, puis
+  `systemctl --user daemon-reload` réel (module `ansible.builtin
+  .systemd`, `scope: user`), puis interrogation de `LoadState` (même
+  module, sans `state` ni `enabled` fournis — lecture seule,
+  `changed=false` par construction) — confirme, à chaque exécution du
+  rôle, que le générateur réel a produit l'unité à partir de l'entrée
+  réellement déployée. `daemon-reload` seul ne démarre rien
+  (`xdg-desktop-autostart.target` déjà atteinte depuis l'ouverture de
+  session) — confirmé sans fenêtre `kitty` parasite à aucun moment de
+  cette série.
+  **Garde `kscreen-doctor` corrigée, trou réel et indépendant du reste**
+  (`docs/desktop.md` § 10.8) : le script de temporisation ne vérifiait
+  pas le code de retour de `kscreen-doctor` lui-même, seulement la
+  réussite de `jq` sur ce qu'il recevait — une commande en échec
+  (rc≠0) mais produisant une sortie valide aurait été comptée comme un
+  échantillon légitime. Démontré des deux côtés avec un
+  `kscreen-doctor` fictif rejouant une capture réelle et complète :
+  ancienne logique (reconstruite depuis `git show HEAD:…`, jamais
+  réécrite à la main), faux positif « nominal » en 208 ms malgré un
+  échec systématique (rc=1) ; logique corrigée, jamais compté, délai
+  maximal atteint (5 s), mode dégradé. Sortie vide (rc=0) déjà
+  correctement traitée par l'ancienne logique, démontrée ici pour la
+  première fois (25 échantillons, jamais stables, dégradé après 5 s).
+  Plantage réel de `kscreen-doctor` établi et daté, sourcé dans cette
+  session : `coredumpctl list kscreen-doctor` — SIGABRT, PID 14108,
+  2026-08-09 14:08:23, corefile présent ; ce boot (`919b274361ec…`,
+  `journalctl --list-boots`) est le **précédent**, pas le démarrage
+  courant — les lignes `drkonqi-coredump-launcher` de 18:04
+  référencent explicitement ce même PID 14108, traitement différé
+  confirmé, pas un plantage pendant le démarrage courant.
+  `ansible-lint --profile production roles/desktop/` : 0 défaut.
+  `--check` : `changed=0`. Exécution réelle : `changed=2` (script de
+  temporisation, entrée autostart — `kitty`/`jq` déjà présents depuis
+  BUR-1/BUR-4). Second passage réel : `changed=0`.
+  **Actions privilégiées** : installation de `kitty`/`jq` (`dnf`,
+  `become: true`, inchangées depuis BUR-1/BUR-4) — toutes deux déjà
+  présentes, aucun changement produit. Tableau « tentative sans
+  privilège : résultat » : **Non applicable pour les deux —
+  installation `dnf`, écriture système intrinsèque, aucune voie non
+  privilégiée n'existe par construction** (patron établi SUD-1/D9).
+  Aucune autre action privilégiée cette série : `systemctl --user
+  daemon-reload`, `log-level debug`/`info`, `set`/`unset-environment`
+  s'exécutent tous en `--user`, sans `become`.
+  **Confirmations** : `kwinrulesrc` inchangé ; `sudoers`, `terra.repo`,
+  `/etc/cdi/`, `gpu_mux_mode` non touchés (hors périmètre, jamais
+  référencés) ; `site.yml` non exécuté ; aucune déconnexion de
+  session, aucun redémarrage. Entrées de diagnostic temporaires créées
+  puis supprimées pendant l'investigation (`~/.config/autostart/
+  zz-diag-test*.desktop`, `~/.local/bin/zz-diag-marker`, jamais
+  versionnées) — confirmées absentes en fin de série. Point ouvert
+  eDP-1 (BUR-3) mis à jour ci-dessus : cette série n'apporte aucune
+  information dessus, ni pour ni contre (plein écran jamais atteint).
+  Nouveau point ouvert ajouté ci-dessus (contenu exact de
+  l'environnement du générateur), non bloquant.

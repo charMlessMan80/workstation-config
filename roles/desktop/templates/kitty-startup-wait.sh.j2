@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Généré par roles/desktop/ (BUR-4, 2026-08-09) — jamais écrit à la
-# main. Invoqué par l'entrée autostart (kitty-screenpad.desktop.j2) à
-# la place de kitty directement.
+# Généré par roles/desktop/ (BUR-4, 2026-08-09 ; garde kscreen-doctor
+# étendue en BUR-5, même date) — jamais écrit à la main. Invoqué par
+# l'entrée autostart (kitty-screenpad.desktop.j2) à la place de kitty
+# directement.
 #
 # Motif et choix, détaillés dans docs/desktop.md § 9 :
 # - Condition, pas un délai fixe : attend que
@@ -49,10 +50,32 @@ now_ms() {
 # champs volatils sans rapport) — trié par nom de sortie pour que
 # l'ordre de la liste ne fasse pas croire à une instabilité qui
 # n'existe pas.
+#
+# Dépose le résultat dans SAMPLE_OUT/SAMPLE_RC (variables globales),
+# jamais mélangés dans un seul flux capturé par $(...) — pour distinguer
+# explicitement deux cas que CLAUDE.md § Sourcing des faits traite
+# différemment : une sortie vide (rien à lire, pas de conclusion) et une
+# commande qui ÉCHOUE EN PRODUISANT quelque chose (un cas distinct,
+# jamais démontré avant ce livrable — kscreen-doctor a planté en SIGABRT
+# sur ce poste le 2026-08-09, docs/desktop.md § 10). Le code de retour de
+# kscreen-doctor lui-même est vérifié explicitement : un échantillon
+# n'est jamais compté sur la seule foi que jq a réussi à parser sa
+# sortie — jq peut réussir sur un fragment produit avant un plantage.
 sample() {
-  kscreen-doctor -j 2>/dev/null \
+  SAMPLE_OUT=$(kscreen-doctor -j 2>/dev/null)
+  SAMPLE_RC=$?
+  if [ "$SAMPLE_RC" -ne 0 ] || [ -z "$SAMPLE_OUT" ]; then
+    # Ne jamais faire confiance à une sortie produite malgré un rc non
+    # nul, vide ou non : elle ne compte pas comme un échantillon.
+    SAMPLE_OUT=""
+    return
+  fi
+  SAMPLE_OUT=$(printf '%s' "$SAMPLE_OUT" \
     | jq -c '[.outputs[] | {name, connected, enabled, currentModeId, scale, priority}] | sort_by(.name)' \
-    2>/dev/null
+    2>/dev/null)
+  # jq peut lui-même échouer (sortie non-JSON malgré rc=0 côté
+  # kscreen-doctor) — même traitement en aval : SAMPLE_OUT vide n'est
+  # jamais compté, qu'il le soit ici ou plus haut.
 }
 
 start_ms=$(now_ms)
@@ -60,7 +83,8 @@ prev=""
 count=0
 
 while :; do
-  cur=$(sample)
+  sample
+  cur="$SAMPLE_OUT"
   elapsed_ms=$(( $(now_ms) - start_ms ))
 
   if [ -n "$cur" ] && [ "$cur" = "$prev" ]; then
@@ -70,7 +94,7 @@ while :; do
   fi
   prev="$cur"
 
-  log "échantillon t=${elapsed_ms}ms (consécutifs identiques: ${count}/${STABLE_N}) : ${cur:-<vide>}"
+  log "échantillon t=${elapsed_ms}ms rc=${SAMPLE_RC} (consécutifs identiques: ${count}/${STABLE_N}) : ${cur:-<vide>}"
 
   if [ "$count" -ge "$STABLE_N" ]; then
     log "topologie stable après ${elapsed_ms}ms — lancement nominal (plein écran, session ${SESSION_NOMINAL})"

@@ -195,13 +195,32 @@ desktop_kitty_wait_max_seconds: 5
 # que le rôle ne présume pas sa présence sur une autre machine.
 desktop_jq_package: jq
 
-# Répertoire personnel standard pour les scripts utilisateur, déjà dans
-# le PATH hérité par les unités systemd utilisateur (donc par
-# l'autostart XDG, § 2.1) — confirmé par lecture, pas supposé :
-# `systemctl --user show-environment | grep '^PATH='` inclut
-# ~/.local/bin en tête. Permet à l'entrée .desktop de référencer le
-# script par son seul nom (résolu par PATH, comme `Exec=kitty`
-# aujourd'hui) — jamais un chemin absolu propre à cette machine.
+# Répertoire personnel standard pour les scripts utilisateur (D1/D4 :
+# jamais un chemin propre à cette machine en dur, construit à partir du
+# répertoire personnel). L'entrée autostart référence
+# desktop_kitty_wait_script_path (chemin ABSOLU, plus bas) dans
+# Exec=/TryExec=, jamais desktop_kitty_wait_script_file seul.
+#
+# ÉTAIT (BUR-4) : « Permet à l'entrée .desktop de référencer le script
+# par son seul nom (résolu par PATH, comme Exec=kitty aujourd'hui) —
+# jamais un chemin absolu propre à cette machine. » Faux, corrigé le
+# 2026-08-09 (BUR-5, docs/desktop.md § 10) : kitty ne s'est pas lancé du
+# tout à l'ouverture de session suivante — aucune unité
+# app-kitty…@autostart.service générée, sans trace au niveau de journal
+# par défaut. Cause établie par reproduction directe du générateur réel
+# (systemd-xdg-autostart-generator, invoqué via `systemctl --user
+# daemon-reload`, jamais une copie ni un script qui l'imite) : un
+# `TryExec=`/`Exec=` sans chemin n'est pas résolu de façon fiable dans
+# l'environnement que voit le générateur à l'exécution — y compris pour
+# un nom aussi universel que `true` (présent dans /bin sur ce poste),
+# alors que `systemctl --user show-environment`, interrogé au même
+# instant, rapporte un PATH qui contient bien ~/.local/bin. Les deux
+# lectures (show-environment vs générateur réellement invoqué)
+# décrivent donc deux environnements différents — confondre les deux
+# est justement l'erreur corrigée ici (CLAUDE.md § Modes d'échec qui
+# imitent le sourcing, mode 2, transposition entre interfaces). Un
+# `TryExec=`/`Exec=` en chemin absolu, lui, a été confirmé généré de
+# façon fiable par ce même générateur réel, avec ou sans PATH utile.
 desktop_local_bin_dir: "{{ ansible_facts.env.HOME }}/.local/bin"
 desktop_kitty_wait_script_file: kitty-startup-wait.sh
 desktop_kitty_wait_script_path: "{{ desktop_local_bin_dir }}/{{ desktop_kitty_wait_script_file }}"
