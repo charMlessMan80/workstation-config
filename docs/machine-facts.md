@@ -1682,15 +1682,74 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   requise) : dépendances transitives des 15 paquets déclarés, base de
   l'image d'installation (catégorie « média d'installation » ci-dessus,
   D23 — 1170 à elle seule), et paquets installés manuellement au fil
-  des livrables (`asusctl`, `asusctl-rog-gui`, `supergfxctl`,
-  `terra-gpg-keys`/`terra-release` en dehors de ce que `bootstrap`
-  déclare lui-même, entre autres). **Ce qu'il faudrait pour traiter ce
-  point** : un inventaire qui distingue, paquet par paquet, ce qui est
-  strictement une dépendance transitive résolue par `dnf` (attendu,
-  pas une dérive) de ce qui a été installé par une commande manuelle
-  jamais reproduite dans un rôle (candidat à devenir un second
-  `cardwire` silencieux) — non entrepris ici, sujet en soi
-  (`docs/repositories.md` § 9).
+  des livrables (`asusctl`, `asusctl-rog-gui`, `terra-gpg-keys`/
+  `terra-release` en dehors de ce que `bootstrap` déclare lui-même,
+  entre autres — **ÉTAIT** cité ici : `supergfxctl`, dont ce point
+  ouvert ignorait, faute de l'avoir cherché, qu'il n'était déjà plus
+  installé à cette date, cf. **[TRAITÉ]** ci-dessous). **Ce qu'il
+  faudrait pour traiter ce point** : un inventaire qui distingue,
+  paquet par paquet, ce qui est strictement une dépendance transitive
+  résolue par `dnf` (attendu, pas une dérive) de ce qui a été installé
+  par une commande manuelle jamais reproduite dans un rôle (candidat à
+  devenir un second `cardwire` silencieux) — non entrepris ici, sujet
+  en soi (`docs/repositories.md` § 9).
+  **[TRAITÉ le 2026-08-09, PKG-2]** L'inventaire demandé ci-dessus a
+  été fait, en se restreignant volontairement aux **décisions
+  d'installation** (l'historique `dnf`, pas `rpm -qa`) plutôt qu'à la
+  distinction dépendance/manuel à l'échelle des ~2 490 paquets, jugée
+  hors de portée d'un seul livrable et pas nécessaire à répondre à la
+  question réelle (« qu'est-ce que `site.yml` ne reproduirait pas ? »)
+  — détail complet, méthode et tableaux dans `docs/packages.md`.
+  Résultat : 33 paquets relèvent d'une décision d'installation vivante
+  hors socle, dont 15 déjà reproduits par un rôle, 9 nécessaires mais
+  non reproduits (dont trois jamais documentés avant ce livrable —
+  `asusctl`, `claude-code`, `htop`, nouveau point ouvert ci-dessous),
+  0 candidat au retrait comme `cardwire` l'était, et 9 de confort
+  personnel ou d'outillage de développement du dépôt, jamais discutés
+  avant ce livrable (chaîne multimédia, `NetworkManager-tui`,
+  `asusctl-rog-gui`, `python3-pip`) — légitimes, maintenant nommés
+  plutôt que subis. **Découverte non cherchée, signalée plutôt que
+  corrigée en silence** (`CLAUDE.md` § Avant d'agir) : `supergfxctl`
+  n'est plus installé sur ce poste, retiré silencieusement par `dnf`
+  le 2026-08-07 (transaction 30, mise à jour de masse) via
+  l'obsolescence déclarée par `terra-obsolete` — pas par l'opérateur,
+  jamais un conflit visible comme pour `cardwire`. Rend périmée la
+  composition détaillée (pas le compte) de la ligne `terra` dans
+  `docs/repositories.md` § 4/§ 9 (PKG-1) — non corrigée ici, hors
+  périmètre strict de PKG-2, signalée pour le prochain livrable qui y
+  touchera (`docs/packages.md` § 2.3).
+- **Nouveau point ouvert (2026-08-09, PKG-2) — trois paquets
+  nécessaires à ce que `site.yml` promet, jamais reproduits par aucun
+  rôle, jamais documentés avant ce livrable.** Détail complet, preuves
+  et argumentaire dans `docs/packages.md` § 2.2/§ 3 — résumé ici pour
+  que ce fichier reste la source unique des points non résolus.
+  **`asusctl`** : `roles/gpu_mux/` a abandonné `asusctl armoury set`
+  pour une écriture sysfs directe (D2ter révoquée en partie,
+  2026-08-05), mais l'**application réelle** de `gpu_mux_mode` au
+  redémarrage passe par `asus-shutdown.service`
+  (`Applying deferred GPU attribute gpu_mux_mode = 1`, § Points
+  ouverts, entrée « Rôle exact d'`asus-shutdown.service` ») —
+  fourni exclusivement par le paquet `asusctl` (`rpm -qf
+  /usr/lib/systemd/system/asus-shutdown.service` →
+  `asusctl-6.3.11-2.fc44.x86_64`), jamais déclaré par
+  `roles/bootstrap/`. Sur une machine neuve sans `asusctl`, l'écriture
+  sysfs réussirait et `pending_reboot` basculerait quand même (porté
+  par le pilote noyau `asus_armoury`, indépendant d'`asusctl`) — la
+  bascule réelle échouerait silencieusement jusqu'au redémarrage,
+  seulement rattrapée alors par les `post_tasks` de `site.yml`
+  (`docs/orchestration.md` § 2). **`claude-code`** et **`htop`** :
+  `roles/desktop/tasks/main.yml` porte une garde explicite
+  (`ansible.builtin.assert`) qui échoue bruyamment si `claude`/`htop`
+  sont absents du `PATH` avant de déployer la session de démarrage
+  kitty — garde qui fonctionne comme prévu, mais aucun rôle
+  n'installe l'un ou l'autre : sur une machine neuve, `site.yml`
+  s'arrêterait à ce point, immédiatement et explicitement. Recommandation
+  de PKG-2, pas une décision prise ici (`CLAUDE.md` § Avant d'agir —
+  ce livrable était en lecture seule, aucun rôle modifié) : ajouter
+  `asusctl` aux paquets Terra de `roles/bootstrap/`, et choisir
+  explicitement pour `claude-code`/`htop` entre les déclarer dans un
+  rôle (`desktop`, aux côtés de `kitty`/`jq`) ou documenter leur
+  absence de `site.yml` comme un choix assumé.
 
 ## Journal des séries
 
@@ -3647,3 +3706,41 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   Aucun paquet installé, aucun rôle Ansible touché, `terra` toujours
   activé, aucune modification de `sudoers`/`terra.repo`/`/etc/cdi/`/
   `gpu_mux_mode`/`kwinrulesrc`, aucun redémarrage, aucune déconnexion.
+- **2026-08-09 — intention d'installation : ce que `site.yml` promet
+  contre ce qu'il livre (PKG-2, entièrement en lecture seule).** Suite
+  directe de PKG-1 § Points ouverts. Parcouru l'historique complet des
+  41 transactions `dnf` (`dnf history list --reverse`/`dnf history
+  info`, aucun privilège requis — vérifié, pas supposé, `whoami` UID
+  1000 sur toute la session), écarté la construction de l'image
+  live/anaconda (transactions 1-2) et les mises à jour de masse
+  (3, 30, 39), plus les reconstructions automatiques de `kmod-nvidia`
+  par `akmods` (11, 31, 40, ni l'une ni l'autre catégorie mais sans
+  décision propre — signalé comme ajout, pas glissé en silence).
+  29 décisions distinctes restantes ; 3 déjà closes par l'opérateur
+  lui-même (`cardwire`, `wtype`, `ydotool`) ; 25 vivantes, résolues en
+  33 paquets actuellement installés : 15 déjà reproduits par un rôle
+  (confirme exactement le chiffre de PKG-1, lu dans l'autre sens), 9
+  nécessaires mais non reproduits (six déjà documentés en prérequis
+  externes, `docs/orchestration.md` § 0 ; trois inédits — `asusctl`,
+  `claude-code`, `htop`, nouveau point ouvert ci-dessus), 0 candidat au
+  retrait comme `cardwire` l'était, 9 de confort personnel ou
+  d'outillage de développement du dépôt, jamais nommés avant ce
+  livrable (chaîne multimédia transactions 12-19, `NetworkManager-tui`,
+  `asusctl-rog-gui`, `python3-pip`). Détail complet, tableaux,
+  argumentaire de la recommandation : `docs/packages.md` (nouveau).
+  **Découverte non cherchée, signalée plutôt qu'exploitée ou
+  ignorée** (`CLAUDE.md` § Avant d'agir) : `supergfxctl`, installé
+  manuellement le 2026-08-04 par le mécanisme `command-not-found` de
+  `dnf` (fait déjà connu), s'est révélé **ne plus être installé** —
+  retiré silencieusement par `dnf` le 2026-08-07 via l'obsolescence
+  déclarée par `terra-obsolete` (`Obsoletes: supergfxctl < 5.2.7-3`),
+  sans conflit visible contrairement à `cardwire`. Rend périmée la
+  composition détaillée (pas le compte, resté juste par coïncidence)
+  de la ligne `terra` dans `docs/repositories.md` § 4/§ 9 — non
+  corrigée ici, `docs/repositories.md` hors périmètre strict de ce
+  livrable, signalée pour le prochain qui y touchera. Aucun paquet
+  installé ni retiré, aucune mise à jour appliquée (`dnf update` non
+  rejoué), aucun rôle Ansible modifié, `terra` toujours activé
+  (revérifié), `sudoers`/`terra.repo`/`/etc/cdi/`/`gpu_mux_mode`/
+  `kwinrulesrc`/`site.yml` non touchés, aucun redémarrage, aucune
+  déconnexion.
