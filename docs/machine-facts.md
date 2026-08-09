@@ -1557,6 +1557,21 @@ froid), non établi.
   se ferme et l'exécution réelle de `roles/gpu_cdi/` peut reprendre sans
   `--ask-become-pass`) ou qu'elle doit être corrigée avant toute autre
   écriture privilégiée sur ce poste.
+- **Nouveau point ouvert (2026-08-09) — mécanisme exact du gel de
+  `eDP-1` à l'ouverture de session suivant BUR-2, non établi par les
+  journaux.** Diagnostic complet dans `docs/desktop.md` § 8 : démarrage
+  fautif identifié (`-3`, `19f9256bdefb4b6db1b49a4aa44b1e12`,
+  2026-08-09 10:40:35–10:45:47 CEST), causes noyau/saturation/extinction
+  de sortie éliminées, hypothèse de l'interaction plein écran hors
+  composition/validation atomique de la sortie sœur non confirmée faute
+  de trace journalisée pendant la fenêtre du gel. `startup.session`
+  renommé en `.bak` à la main, hors dépôt — `roles/desktop/`/`site.yml`
+  **ne pas rejouer** avant résolution (recréeraient l'état fautif).
+  Reproduction contrôlée (phase B, `docs/desktop.md` § 8.5) **en
+  attente de confirmation explicite de l'opérateur**, TTY testé au
+  préalable inclus — non entamée dans ce livrable. Se ferme soit par
+  reproduction concluante, soit par abandon assumé du plein écran au
+  profit des seuls volets (`docs/desktop.md` § 8.8).
 
 ## Journal des séries
 
@@ -3235,3 +3250,62 @@ froid), non établi.
   connexion** — commande de vérification préparée
   (`docs/desktop.md` § 7.4), pas rejouée ici (aucune déconnexion sans
   demande explicite).
+- **2026-08-09 — régression : gel de `eDP-1` à l'ouverture de session
+  suivante, diagnostic en lecture seule (`docs/desktop.md` § 8).**
+  Le comportement laissé ouvert par l'entrée ci-dessus s'est révélé
+  défaillant : à la première ouverture de session authentique après
+  BUR-2, `eDP-1` (dalle principale) a cessé de présenter de nouvelles
+  images (image statique, curseur immobile — rapporté par l'opérateur,
+  classe « observation rapportée », `docs/desktop.md` § 8.1) pendant que
+  `DP-3` restait vivant et interactif. Récupéré à la main par
+  l'opérateur (renommage de `~/.config/kitty/startup.session` en
+  `.bak`, redémarrage tapé depuis `DP-3`), hors dépôt, hors périmètre de
+  ce livrable.
+  **Démarrage fautif identifié par recoupement** (pas le plus récent au
+  moment de l'investigation) : `-3`, `19f9256bdefb4b6db1b49a4aa44b1e12`,
+  2026-08-09 10:40:35–10:45:47 CEST — détail du recoupement (commit
+  BUR-2, `ctime` du fichier renommé, vie des trois volets jusqu'au
+  redémarrage tapé) dans `docs/desktop.md` § 8.2, avec l'écart constaté
+  et signalé plutôt qu'absorbé entre le nombre de redémarrages énoncé
+  dans la demande (deux) et le nombre réellement mesuré depuis (trois).
+  **Journaux consultés en lecture seule, aucune écriture** :
+  `journalctl -b -3 -k` (noyau, mot-clé `amdgpu`/`drm`, intégral) —
+  aucune anomalie dans la fenêtre où la régression a été observée,
+  contre une anomalie réelle mais datée deux jours plus tôt et sans
+  rapport temporel (`REG_WAIT timeout … dcn31_program_compbuf_size`,
+  démarrage `-5`, 2026-08-07) ; `journalctl -b -3` filtré `kwin_wayland` —
+  deux lignes anormales seulement (`Applying output configuration
+  failed!`, `PipeWire remote error`), toutes deux à l'instant de l'arrêt
+  du compositeur (redémarrage tapé), pas pendant la fenêtre du gel ;
+  aucune trace d'extinction de sortie (DPMS, rétroéclairage) ; aucune
+  saturation CPU/mémoire, aucun `oom`/`hung task`. **Cause exacte non
+  établie par les journaux** — silence total pendant la fenêtre du gel,
+  cohérent avec une présentation arrêtée sans erreur plutôt qu'une
+  sortie éteinte, mais pas une preuve positive du mécanisme. Détail
+  complet, hypothèse à tester (interaction plein écran hors
+  composition / validation atomique de la sortie sœur) et phase de
+  reproduction contrôlée (non entamée, en attente de confirmation de
+  l'opérateur) dans `docs/desktop.md` § 8.4–8.5.
+  **Divergence d'état assumée et temporaire** : `startup.session.bak`
+  laissé tel quel hors dépôt — `roles/desktop/`/`site.yml` non rejoués,
+  recréeraient l'état à l'origine de la régression (`docs/desktop.md`
+  § 8.6, cas concret du quatrième mode d'échec, `CLAUDE.md` § Modes
+  d'échec qui imitent le sourcing).
+  **État courant relu** (démarrage `0`, sans rapport causal avec la
+  régression, pour mémoire) : `kscreen-doctor -o` — `DP-3` et `eDP-1`
+  tous deux `enabled`/`connected`, aucune anomalie ;
+  `/sys/class/drm/card1-{eDP-1,DP-3}/status` — `connected` pour les
+  deux.
+  **Aucune action privilégiée** — tout ce livrable s'exécute en lecture
+  seule (`journalctl`, `stat`, `kscreen-doctor -o`, lecture de
+  `/sys/class/drm/`) ; aucune tentative de `sudo` n'a eu lieu, aucune
+  colonne « tentative sans privilège » n'est donc applicable
+  (`CLAUDE.md` § Avant d'agir — restriction du 2026-08-09).
+  **Confirmations** : ni `roles/desktop/` ni `site.yml` rejoués ; aucun
+  renommage, aucun déploiement, aucune configuration modifiée
+  (`kwinrulesrc` compris) ; aucune déconnexion de session déclenchée ;
+  aucun redémarrage déclenché. Jeton de vérification § 6.7 de
+  `docs/desktop.md` mis à jour par vérification effective (pas retiré,
+  reformulé sur ce qui reste réellement ouvert — voir `docs/desktop.md`
+  § 8.7) ; décompte inchangé (trois marqueurs actionnables avant comme
+  après, un seul reformulé).

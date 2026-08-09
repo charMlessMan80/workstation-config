@@ -718,10 +718,17 @@ $ busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "<uuid à r
 # attendu : "x" d 0 "y" d 1067 "width" d 2560 "height" d 734 (valeurs à
 # comparer à `kscreen-doctor -o` relevé au moment du test, pas figées)
 ```
-`@VERIF : effet réel de l'entrée autostart à la prochaine ouverture de
-session — non testable dans cette série sans déconnecter la session,
-interdit sans demande explicite ; commande de vérification ci-dessus
-prête à l'emploi.`
+**[PARTIELLEMENT VÉRIFIÉ le 2026-08-09, § 8.2–8.3/8.7]** Le déclenchement
+réel de l'entrée autostart à une ouverture de session authentique est
+désormais établi — trois démarrages distincts où
+`app-kitty\x2dscreenpad@autostart.service` démarre et positionne des
+fenêtres, journal à l'appui. Reste ouvert, faute d'avoir jamais pu
+exécuter la commande `busctl getWindowInfo` ci-dessus sur une fenêtre
+autostart réellement vivante (la seule fenêtre d'observation, démarrage
+`-3`, s'est terminée par la régression documentée § 8 avant toute
+lecture) : `@VERIF : géométrie D-Bus (getWindowInfo) d'une fenêtre
+autostart à une ouverture de session authentique — commande ci-dessus
+toujours prête à l'emploi, jamais exécutée avec succès à ce jour.`
 
 ### 6.8 — Démonstrations (point 5), géométries enregistrées
 
@@ -1163,6 +1170,258 @@ par ce livrable — les trois marqueurs actionnables de BUR-1 restent
 ouverts (§ 1.3, § 6.3, § 6.7), aucun nouveau marqueur ajouté ici
 (l'interaction plein écran/règle KWin, seul point qui aurait pu en
 porter un, a été tranchée par la mesure plutôt que laissée ouverte).
+
+## 8. Régression — gel de `eDP-1` à l'ouverture de session (2026-08-09)
+
+### 8.1 — Rapport initial
+
+**Classe « observation rapportée par l'opérateur »** (`CLAUDE.md` § Sourcing
+des faits) — datée du 2026-08-09, attribuée à l'opérateur de ce poste, non
+recoupée par une trace journalisée directe pour la partie visuelle (aucune
+capture d'écran, aucun outil de traçage du contenu affiché n'existe sur ce
+poste) :
+
+- le découpage en volets et le plein écran, déployés par BUR-2, **ont
+  fonctionné sur `DP-3`** à une ouverture de session réelle (pas dans une
+  session déjà établie, contrairement à la preuve de BUR-2 elle-même,
+  § 7.4 et § 8.7 plus bas) ;
+- **`eDP-1` (dalle principale) s'est figée** : image statique, curseur
+  immobile ;
+- **`DP-3` est resté vivant et interactif** — l'opérateur s'est débloqué en
+  tapant dans la fenêtre `kitty` de `DP-3` ;
+- aucun raccourci clavier n'a été testé pendant l'épisode ;
+- renommage à la main de `~/.config/kitty/startup.session` en
+  `startup.session.bak`, puis redémarrage — retour à la normale.
+
+### 8.2 — Indices de démarrage réels, et démarrage retenu pour l'analyse
+
+`journalctl --list-boots` (exécutée telle quelle, sans option de formatage
+ajoutée ou retirée) donne, pour les démarrages pertinents :
+
+```
+ -5 56a2fe0f26aa4a0492f5f67548ea2e2d Fri 2026-08-07 12:19:48 CEST Sun 2026-08-09 10:37:43 CEST
+ -4 97422a135fe14ee9be4b088c8f4fde9b Sun 2026-08-09 10:38:09 CEST Sun 2026-08-09 10:40:04 CEST
+ -3 19f9256bdefb4b6db1b49a4aa44b1e12 Sun 2026-08-09 10:40:35 CEST Sun 2026-08-09 10:45:47 CEST
+ -2 bb63b22b5f804cffb21dae565d7c92e6 Sun 2026-08-09 10:46:14 CEST Sun 2026-08-09 10:50:10 CEST
+ -1 32c1b1de0f9a462d8508f94168f29f75 Sun 2026-08-09 10:50:36 CEST Sun 2026-08-09 11:07:50 CEST
+  0 919b274361ec450fbddbd431805c28bb Sun 2026-08-09 12:13:52 CEST — courant
+```
+
+**Démarrage retenu pour l'analyse : `-3`, identifiant
+`19f9256bdefb4b6db1b49a4aa44b1e12`, du 2026-08-09 10:40:35 au 2026-08-09
+10:45:47 CEST — pas `-1`, conformément à l'indication reçue.** Établi par
+recoupement de trois faits indépendants, tous lus sur la machine :
+
+1. **`git log -1 --format='%cI' -- roles/desktop`** situe le commit BUR-2 à
+   `2026-08-09T01:43:45+02:00` ; les tâches `ansible-legacy.copy`/`file`
+   qui écrivent `startup.session` apparaissent dans le journal du
+   démarrage `-5` entre `01:36:36` et `01:39:35` — ce démarrage est celui
+   du **déploiement**, pas celui de la régression : `journalctl -b -5`
+   montre `plasma-kwin_wayland.service` (le compositeur de la session
+   réelle, pas celui du greeter) démarré une seule fois, à
+   `2026-08-07T12:46:03`, **avant** l'écriture de BUR-2 — l'instance
+   `kitty` de `ScreenPad Plus` déjà active depuis cette heure-là
+   (`kitty-15445-0.scope`, § 8.3) n'a jamais été relancée dans ce
+   démarrage, donc n'a jamais lu la nouvelle session. Le commit
+   lui-même le documente : « le comportement à l'ouverture de session
+   réelle reste à prouver à la prochaine connexion — aucune déconnexion
+   déclenchée ». Le démarrage `-5` se termine par un redémarrage
+   délibéré à `10:37:43`, cohérent avec ce constat (tester la session
+   réelle exige une ouverture de session neuve).
+2. **`stat --format='%z' ~/.config/kitty/startup.session.bak`** donne un
+   `ctime` (heure de changement d'inode — un renommage la met à jour,
+   contrairement au `mtime`, préservé par `mv` et resté à `01:36:36`,
+   heure de l'écriture initiale par Ansible) de
+   `2026-08-09 10:45:39.982484656 +0200` — strictement à l'intérieur de
+   la fenêtre du démarrage `-3` (`10:40:35`–`10:45:47`), à 5 secondes de
+   sa fin.
+3. **`journalctl -b -3`** montre les trois volets de la session
+   (`kitty-3740-0.scope`, `-1.scope`, `-2.scope`, lancés à `10:41:08`)
+   restés vivants jusqu'à `10:45:44` — arrêtés **au même instant** que
+   `app-kitty\x2dscreenpad@autostart.service` et que
+   `systemd-logind[…]: The system will reboot now!`, **sans** passer par
+   la boîte de dialogue graphique de déconnexion KDE (`LogoutPrompt`/
+   `org.kde.Shutdown`, absente du journal de ce démarrage) — signature
+   d'une commande tapée directement (`reboot`/`systemctl reboot`), pas
+   d'un clic dans l'interface. Cohérent avec « débloqué en tapant dans
+   kitty ».
+
+Les trois faits se recoupent sur la même minute : renommage à `10:45:39`,
+redémarrage tapé à `10:45:44`, dans une session ouverte à `10:41:08` — soit
+une fenêtre de session vécue de 4 min 36 s pendant laquelle la disposition
+BUR-2 tournait réellement pour la première fois.
+
+**Écart non résolu, signalé plutôt que forcé** (`CLAUDE.md` § Avant
+d'agir — contradiction à signaler, pas à absorber en silence) : la demande
+énonçait « deux redémarrages ont eu lieu depuis » le démarrage fautif.
+Entre la fin de `-3` et le démarrage courant (`0`), **trois** transitions
+sont mesurées (`-3→-2`, `-2→-1`, `-1→0`), pas deux. Le démarrage `-4`
+(10:38:09–10:40:04, **avant** `-3`) montre une anomalie distincte et plus
+courte — la session s'ouvre, les trois volets se lancent à `10:38:47`,
+mais `app-kitty\x2dscreenpad@autostart.service` s'arrête de lui-même 35 s
+plus tard (`10:39:22`, avant tout redémarrage), et le redémarrage qui suit
+passe cette fois par la boîte de dialogue graphique KDE (`LogoutPrompt`
+à `10:39:54`) — signature différente de « taper dans kitty ». Si
+l'opérateur comptait `-4` comme faisant partie du même épisode que `-3`
+plutôt que comme un redémarrage distinct qui le précède, le compte
+« deux » se rapprocherait sans se vérifier exactement ; aucune des deux
+lectures ne rend le compte exact. Retenu ici : le fait mesurable (`ctime`
+du fichier renommé, trois volets vivants jusqu'au redémarrage tapé) prime
+sur le décompte rapporté — voir § 8.1.
+
+### 8.3 — Chronologie reconstruite
+
+| Démarrage | Fenêtre | Ce qui s'y passe |
+|---|---|---|
+| `-5` | 07/08 12:19 → 09/08 10:37 | Session ouverte le 07/08 à 12:46 (`kitty-15445-*`, ScreenPad Plus **sans** la disposition BUR-2, jamais relancée). BUR-2 développé et déployé 01:36–01:43 le 09/08, vérifié par des fenêtres de test isolées (fermées proprement à 01:40:06) — jamais via l'autostart réel. Redémarrage délibéré à 10:37:43 pour tester l'autostart à froid. |
+| `-4` | 09/08 10:38 → 10:40 | Première ouverture de session avec BUR-2 actif. Trois volets lancés à 10:38:47 ; l'autostart s'arrête de lui-même à 10:39:22 (35 s), sans lien établi avec `-3`. Redémarrage via la boîte de dialogue KDE à 10:39:54–10:40:02. |
+| **`-3`** | 09/08 10:40:35 → 10:45:47 | **Démarrage retenu.** Session ouverte 10:41:07, trois volets lancés 10:41:08, vivants 4 min 36 s. Régression rapportée par l'opérateur (§ 8.1) pendant cette fenêtre. Renommage `startup.session` → `.bak` à 10:45:39, redémarrage tapé à 10:45:44. |
+| `-2` | 09/08 10:46 → 10:50 | Fichier de session déjà absent (renommé). Autostart en repli — deux fenêtres seulement (`kitty-3761-0/1.scope`), cohérent avec le second échec forcé déjà documenté § 7.4 (disposition `fat` + fenêtre d'erreur `kitten __show_error__`, pas trois volets nommés). |
+| `-1` | 09/08 10:50 → 11:07 | Même repli, session plus longue (16 min 38 s). |
+| `0` (courant) | 09/08 12:13 → — | Même repli. `kscreen-doctor -o` (relu pour cette section) : `DP-3` et `eDP-1` tous deux `enabled`/`connected`, aucune anomalie. |
+
+### 8.4 — Phase A, journaux (démarrage `-3` sauf mention contraire)
+
+**A.1 — Noyau, `amdgpu`/affichage.** `journalctl -b -3 -k` (intégral,
+toutes priorités, mot-clé `amdgpu`/`drm`) : uniquement la séquence
+d'initialisation normale du pilote à 10:40:38–10:40:43 (chargement
+firmware, énumération des connecteurs, PSR — rien après). **Aucune**
+occurrence de délai de basculement de page, d'échec de validation de
+commit atomique, de réinitialisation GPU ou d'erreur de connecteur entre
+l'ouverture de session (10:41:07) et l'arrêt (10:45:44) — fenêtre vide de
+tout message noyau `amdgpu`/`drm`. Comparé au démarrage `-5` : la seule
+anomalie noyau trouvée dans toute la série (`REG_WAIT timeout … dcn31_
+program_compbuf_size`, avec trace complète `WARNING` et pile d'appel
+`amdgpu_dm_commit_planes`/`amdgpu_dm_atomic_commit_tail`) se produit le
+**2026-08-07 à 12:46–12:48**, à l'ouverture de la session longue de `-5`
+— deux jours avant BUR-2, sans rapport temporel possible avec cette
+régression. Écart entre les deux démarrages : c'est l'écart, néant contre
+une anomalie connue mais datée ailleurs.
+
+**A.2 — `kwin_wayland`.** Aucune ligne concernant la présentation directe
+au balayage (« direct scanout »), les plans matériels, ou un changement de
+mode de rendu au passage en plein écran — kwin, à la verbosité par
+défaut, n'émet rien sur ce chemin (nécessiterait `KWIN_DRM_…`/
+`QT_LOGGING_RULES` non positionnés sur ce poste). **L'hypothèse de
+l'énoncé (fenêtre plein écran présentée hors composition, perturbant la
+validation atomique de l'autre sortie de la même carte) reste une
+hypothèse — ni confirmée ni infirmée par ce journal**, faute
+d'instrumentation. Les deux seules lignes anormales de tout le
+démarrage `-3` sont `kwin_wayland[2609]: Applying output configuration
+failed!` et `PipeWire remote error: connection error`, toutes deux à
+**10:45:44** — au moment même où `plasma-kwin_wayland.service` s'arrête
+(déconnexion déclenchée par le redémarrage tapé), pas pendant la fenêtre
+où le gel a été observé (10:41–10:45:39). Le plus probable, sans
+certitude : un artefact de la perte du rôle maître DRM à l'extinction du
+compositeur, pas un indice du mécanisme du gel lui-même.
+
+**A.3 — État des sorties.** Aucune trace, dans tout le démarrage `-3`, de
+désactivation de `eDP-1`, de changement de mode forcé, ou de gestion
+d'énergie déclenchée (`org_kde_powerdevil[…]: Watching for DPMS state
+changes unimplemented` est un message statique de capacité, émis une
+fois à l'ouverture de session à 10:41:07, pas un événement). **Absence de
+toute trace d'extinction confirme, sans la prouver positivement, la
+distinction que l'opérateur décrit** : une sortie éteinte (DPMS off,
+rétroéclairage coupé) aurait laissé une trace côté noyau ou
+`systemd-backlight` ; une présentation simplement arrêtée (dernier flux
+d'images non renouvelé, compositeur par ailleurs vivant) n'en laisse
+aucune par construction — silence cohérent avec « image figée, curseur
+immobile », pas avec un écran noir.
+
+**A.4 — Autres causes.** `claude`, `htop` et l'interpréteur démarrent
+ensemble à 10:41:08 (trois handles systemd distincts,
+`kitty-3740-{0,1,2}.scope`). Charge et mémoire mesurées à l'arrêt des
+volets (`systemd[…]: … Consumed …`) : `kitty-3740-0.scope` 1,096 s CPU /
+381,2 Mo pic sur 4 min 36 s ; `kitty-3740-1.scope` 6,079 s CPU / 12,2 Mo
+pic — négligeable. `systemd-oomd` actif tout le long du démarrage, aucun
+déclenchement (`journalctl -b -3 -k` : aucune occurrence `oom`/`hung
+task`/`soft lockup`/`blocked for more than`). **Éliminées** : saturation
+CPU/mémoire, capture d'entrées par l'un des trois volets (le clavier
+restait fonctionnel dans `kitty` sur `DP-3`, rapporté par l'opérateur),
+OOM-kill.
+
+### 8.5 — Conclusion de la phase A
+
+**Les journaux ne tranchent pas le mécanisme exact du gel — ils éliminent
+la plupart des causes énumérées par l'énoncé sans en confirmer
+positivement aucune.** Aucune erreur noyau, aucune erreur `kwin_wayland`,
+aucune extinction de sortie, aucune saturation ne coïncide avec la fenêtre
+où la régression a été observée (10:41:08–10:45:39 dans le démarrage
+`-3`) : le gel n'a laissé **aucune trace journalisée**, positive ou
+négative, pendant qu'il se produisait — seul un silence total, ce qui est
+cohérent avec « présentation arrêtée sans erreur » (A.3) mais ne le
+prouve pas. L'hypothèse à tester de l'énoncé (A.2 : interaction entre le
+plein écran hors composition d'une sortie et la validation atomique de
+l'autre sortie de la même carte `amdgpu`) reste la plus plausible par
+élimination des autres causes explicitement recherchées, mais **n'est
+confirmée par aucune ligne de journal** — elle resterait à démontrer par
+reproduction contrôlée (phase B) pour être autre chose qu'une hypothèse
+par défaut.
+
+**Phase B non entamée dans ce livrable.** Elle suppose de reproduire un
+facteur qui a déjà figé la dalle principale, sans session SSH disponible
+et avec un seul chemin de secours local jamais testé (TTY) — la demande
+exige une confirmation explicite de l'opérateur avant de l'entamer, TTY
+testé au préalable inclus ; ce livrable s'arrête donc ici côté
+investigation active et attend cette confirmation.
+
+### 8.6 — Divergence consignée : `startup.session.bak`
+
+**État courant assumé et temporaire** : `~/.config/kitty/startup.session`
+a été renommé à la main en `startup.session.bak` par l'opérateur
+(§ 8.1–8.2), **hors du dépôt** — aucun commit ne le documente, c'est un
+changement d'état de la machine seule. `roles/desktop/` (donc `site.yml`
+qui l'inclut) **recréerait** `startup.session` à sa prochaine exécution,
+restaurant l'état à l'origine de cette régression. **Ne pas rejouer ce
+rôle avant résolution** (abandon du plein écran, ou confirmation par
+reproduction contrôlée que le facteur réel est ailleurs).
+
+Cas concret du **quatrième mode d'échec** du bilan de série (`CLAUDE.md`
+§ Modes d'échec qui imitent le sourcing) : un rôle correct et idempotent
+(`ansible-lint --profile production` : 0 défaut, `changed=0` confirmé en
+second passage, § « Validation — BUR-2 » ci-dessus) dont la réexécution
+restaurerait un état désormais connu comme défaillant — pas un défaut du
+rôle lui-même, un changement de régime de ce qu'il produit.
+
+### 8.7 — Leçon de méthode
+
+BUR-2 avait prouvé structure, géométrie et dimensions par lancement
+manuel d'une fenêtre de test **dans une session déjà établie** (§ 7.4) —
+et l'avait dit explicitement : « le comportement à l'ouverture de session
+réelle reste à prouver à la prochaine connexion ». Le jeton de
+vérification associé (§ 6.7, posé lors de BUR-1) portait déjà ce constat
+pour le placement seul. Ce qui manquait n'était pas le marqueur — il existait,
+il était honnête — mais son **statut** : rien ne le rendait bloquant
+avant l'intégration d'un comportement de démarrage automatique
+supplémentaire (le plein écran de BUR-2, construit par-dessus). Une
+fonctionnalité qui s'exécute à l'ouverture d'une session ne peut pas être
+validée depuis une session déjà démarrée ; un tel marqueur doit être
+**bloquant** avant toute intégration ultérieure, pas seulement honnête
+sur son statut ouvert.
+
+**Mise à jour partielle du marqueur § 6.7** (vérification effective, pas
+nettoyage — `CLAUDE.md` § Avant d'agir) : le déclenchement réel de
+l'autostart à une ouverture de session authentique est désormais établi
+(§ 8.2–8.3, trois démarrages distincts où `app-kitty\x2dscreenpad@
+autostart.service` démarre et positionne des fenêtres) — la partie
+« jamais testé faute de déconnexion » du marqueur de BUR-1 ne tient plus.
+Ce qui reste non vérifié, et donc **toujours ouvert** : aucune
+introspection D-Bus (`getWindowInfo`) n'a été faite sur une fenêtre
+autostart réellement vivante — la géométrie exacte à l'ouverture de
+session authentique (par opposition à la fenêtre de test de § 6.8/7.4)
+n'a jamais été lue, la session `-3` s'étant terminée par le gel avant
+qu'une telle lecture soit entreprise — jeton de vérification reformulé en
+ce sens § 6.7, pas dupliqué ici.
+
+### 8.8 — Issue à garder ouverte
+
+Si la reproduction contrôlée (phase B, non entamée) désigne le plein
+écran comme facteur, **renoncer à celui-ci et conserver la disposition en
+volets avec la géométrie imposée par la règle KWin est une réponse
+légitime** — le coût se limite à la barre de titre visible. Si le
+diagnostic pointe plutôt vers un défaut du pilote `amdgpu`/`amdgpu_dm`
+qui ne sera pas corrigé depuis ce dépôt, ne pas s'acharner : consigner et
+s'arrêter.
 
 ## Voir aussi
 
