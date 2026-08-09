@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Généré par roles/desktop/ (BUR-4, 2026-08-09) — jamais écrit à la
+# main. Invoqué par l'entrée autostart (kitty-screenpad.desktop.j2) à
+# la place de kitty directement.
+#
+# Motif et choix, détaillés dans docs/desktop.md § 9 :
+# - Condition, pas un délai fixe : attend que
+#   `kscreen-doctor -j` (connected, enabled, currentModeId, scale,
+#   priority par sortie) rapporte {{ desktop_kitty_wait_stable_samples }}
+#   échantillons consécutifs identiques, espacés de
+#   {{ desktop_kitty_wait_interval_seconds }} s, borné à
+#   {{ desktop_kitty_wait_max_seconds }} s au total.
+# - Aucun signal D-Bus propre trouvé pour « configuration de sorties
+#   appliquée » (org.kde.KScreen activé à la demande, org.kde.KWin
+#   n'expose rien sur la topologie, ~/.config/kwinoutputconfig.json lu
+#   en interne sans notification) — stabilité échantillonnée retenue
+#   comme approximation assumée, pas un signal franc.
+# - Emplacement retenu pour l'attente : cette enveloppe, invoquée par
+#   l'entrée .desktop existante (docs/desktop.md § 9.1, comparaison des
+#   trois voies) — pas une unité systemd utilisateur distincte (aucun
+#   service n'expose l'état interne qu'on attend, l'ordonnancement seul
+#   ne suffit pas) ni les clés X-KDE-autostart-phase/-after (même
+#   réserve, déjà écartées sans besoin en BUR-1).
+#
+# Condition déjà satisfaite : lance kitty en plein écran (nominal).
+# Délai expiré sans condition satisfaite : lance kitty SANS plein écran
+# (dégradé, volets conservés) — jamais un repli silencieux, trace dans
+# ce journal (stderr, capturé par l'unité autostart générée par
+# systemd) et dans le volet shell lui-même (kitty-startup-degraded.session.j2).
+
+set -uo pipefail
+
+INTERVAL="{{ desktop_kitty_wait_interval_seconds }}"
+STABLE_N={{ desktop_kitty_wait_stable_samples }}
+MAX_MS=$(( {{ desktop_kitty_wait_max_seconds }} * 1000 ))
+SESSION_NOMINAL="{{ desktop_kitty_session_path }}"
+SESSION_DEGRADED="{{ desktop_kitty_session_degraded_path }}"
+
+log() {
+  echo "kitty-startup-wait: $*" >&2
+}
+
+now_ms() {
+  date +%s%3N
+}
+
+# Sous-ensemble de kscreen-doctor -j pertinent pour la question posée
+# (mode/échelle/priorité appliqués, pas la luminosité ni d'autres
+# champs volatils sans rapport) — trié par nom de sortie pour que
+# l'ordre de la liste ne fasse pas croire à une instabilité qui
+# n'existe pas.
+sample() {
+  kscreen-doctor -j 2>/dev/null \
+    | jq -c '[.outputs[] | {name, connected, enabled, currentModeId, scale, priority}] | sort_by(.name)' \
+    2>/dev/null
+}
+
+start_ms=$(now_ms)
+prev=""
+count=0
+
+while :; do
+  cur=$(sample)
+  elapsed_ms=$(( $(now_ms) - start_ms ))
+
+  if [ -n "$cur" ] && [ "$cur" = "$prev" ]; then
+    count=$((count + 1))
+  else
+    count=1
+  fi
+  prev="$cur"
+
+  log "échantillon t=${elapsed_ms}ms (consécutifs identiques: ${count}/${STABLE_N}) : ${cur:-<vide>}"
+
+  if [ "$count" -ge "$STABLE_N" ]; then
+    log "topologie stable après ${elapsed_ms}ms — lancement nominal (plein écran, session ${SESSION_NOMINAL})"
+    exec kitty --start-as=fullscreen --session "$SESSION_NOMINAL"
+  fi
+
+  if [ "$elapsed_ms" -ge "$MAX_MS" ]; then
+    log "AVERTISSEMENT : délai maximal (${MAX_MS}ms) expiré sans topologie stable — lancement DÉGRADÉ (sans plein écran, volets conservés, session ${SESSION_DEGRADED})"
+    exec kitty -T "kitty -- mode degrade (voir journal --user)" --session "$SESSION_DEGRADED"
+  fi
+
+  sleep "$INTERVAL"
+done

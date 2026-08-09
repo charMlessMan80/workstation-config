@@ -1596,6 +1596,21 @@ froid), non établi.
   facteur suffisant par une preuve directe (`docs/desktop.md` § 8.10).
   `startup.session.bak` inchangé, `roles/desktop/`/`site.yml` toujours
   pas rejoués.
+  **[MISE À JOUR le 2026-08-09, livrable suivant] `roles/desktop/`
+  rejoué délibérément — mécanisme mitigé, pas fermé.** Décision de
+  l'opérateur : garder le plein écran, temporiser le démarrage sur la
+  stabilité des sorties (`kscreen-doctor -j`, échantillonnage,
+  `docs/desktop.md` § 9). `roles/desktop/` exécuté réellement avec ce
+  nouveau mécanisme — `startup.session.bak` désormais un résidu
+  historique sans effet, le fichier actif est de nouveau celui déployé
+  par le rôle. **Ce point reste ouvert** : ce livrable mitige une
+  hypothèse (le facteur de concurrence à l'ouverture de session), il ne
+  l'établit pas comme cause — seule une ouverture de session
+  authentique le dira, non entreprise ici pour la même raison qu'en
+  phase B (reproduire le risque déjà rencontré). Si le gel se
+  reproduit malgré la temporisation, l'issue à retenir (posée à froid,
+  `docs/desktop.md` § 9.4) est le retrait du plein écran — pas une
+  nouvelle tentative de calibrage.
 
 ## Journal des séries
 
@@ -3370,3 +3385,74 @@ froid), non établi.
   configuration modifiée ; fenêtres de test toutes fermées par leur PID
   isolé, aucune fenêtre de l'opérateur touchée ; aucune déconnexion,
   aucun redémarrage.
+- **2026-08-09 (livrable suivant) — temporisation du démarrage kitty
+  sur la stabilité des sorties (BUR-4), `roles/desktop/`.** Décision de
+  l'opérateur : garder le plein écran plutôt que d'y renoncer,
+  temporiser plutôt que courir contre une topologie de sorties encore
+  en cours d'application à l'ouverture de session (`docs/desktop.md`
+  § 9). Deux réserves posées avec la décision : mitige une hypothèse,
+  pas une cause établie ; un échec malgré la temporisation ne prouve
+  pas la concurrence hors de cause.
+  **Critère et emplacement (§ 1 de la demande)** : aucun signal D-Bus
+  propre trouvé pour « configuration de sorties appliquée » (établi
+  par lecture — `org.kde.KScreen` activé à la demande, sans
+  ordonnancement utile ; `org.kde.KWin` sans signal de topologie ;
+  `~/.config/kwinoutputconfig.json` lu en interne, sans notification) —
+  repli assumé sur la stabilité échantillonnée de `kscreen-doctor -j`
+  (mode/échelle/priorité par sortie), 2 échantillons consécutifs
+  identiques par défaut, intervalle 0,2 s, borné à 5 s. Emplacement :
+  enveloppe lancée par l'entrée `.desktop` existante (script
+  `~/.local/bin/kitty-startup-wait.sh`, déployé par le rôle), pas une
+  unité systemd distincte ni les clés `X-KDE-autostart-phase`/`-after`
+  — comparées et écartées, aucune n'exprime l'état interne attendu
+  (même réserve que § 2.4 de `docs/desktop.md`, jamais levée depuis
+  BUR-0).
+  **Comportement en cas d'expiration (§ 2 de la demande)** : lance
+  `kitty` sans plein écran, volets conservés, avec une trace — journal
+  (`kitty-startup-wait: AVERTISSEMENT : délai maximal …`) et titre de
+  fenêtre (`kitty -- mode degrade (voir journal --user)`), impossible
+  à confondre avec le nominal.
+  **Preuve (§ 4 de la demande)** : temps d'attente réel en session déjà
+  établie mesuré à 284–286 ms (plancher par construction : `(N-1) ×
+  intervalle`, ~85 ms de coût réel au-delà) — proche de zéro, pas
+  littéralement zéro, borné à 5 s. Démonstration d'échec forcé
+  (condition rendue insatisfiable par variable,
+  `desktop_kitty_wait_stable_samples=1000000`) : délai maximal atteint
+  (5146–5182 ms selon la mesure), fenêtre dégradée confirmée
+  (`fullscreen b false`, position `DP-3` inchangée, titre et journal
+  conformes) — trace indispensable rejouée, pas seulement souhaitée.
+  Structure/géométrie/écran confirmées par la méthode déjà établie
+  (BUR-2, étendue avec `--start-as=fullscreen`). Une race condition a
+  été trouvée et corrigée **dans le harnais de vérification**, pas dans
+  le script déployé (`getWindowInfo` lu avant que KWin ait fini
+  d'appliquer l'état plein écran) — signalée explicitement, pas
+  corrigée en silence.
+  `ansible-lint --profile production roles/desktop/` : 0 défaut.
+  `--check` : `changed=0`. Exécution réelle : `changed=3` (sessions +
+  script) puis `changed=1` (autostart, après correction de la race
+  condition ci-dessus) ; second passage réel : `changed=0` —
+  idempotence confirmée, y compris après le cycle de démonstration
+  d'échec forcé (`-e …=1000000` puis restauration des valeurs par
+  défaut, chacun revérifié).
+  **Actions privilégiées** : installation de `kitty` (inchangée depuis
+  BUR-1) et de `jq` (nouvelle, BUR-4) — toutes deux `dnf`, `become:
+  true`. Tableau : « tentative sans privilège : résultat » — **Non
+  applicable pour les deux — installation `dnf`, écriture système
+  intrinsèque, aucune voie non privilégiée n'existe par construction**
+  (même motif que l'installation de `kitty` en BUR-1/BUR-2, patron
+  établi en SUD-1/D9). **Troisième occurrence signalée, pas
+  omise** : une lecture annexe de `gpu_mux_mode/current_value` (hors
+  périmètre de ce livrable, simple vérification de clôture) a été
+  tentée avec `sudo -n` sans essai préalable sans privilège — rejouée
+  aussitôt sans `sudo` : `exit=0`, valeur identique (`1`), aucune
+  conséquence. `sudo` n'était pas nécessaire — l'attribut est lisible
+  sans élévation. Lapsus de la même famille que ceux déjà recensés
+  (IA-0, CMP-0, KAT-1, `CLAUDE.md` § Avant d'agir).
+  **Confirmations** : `kwinrulesrc` inchangé (contenu relu, identique
+  avant/après) ; `sudoers`, `terra.repo`, `/etc/cdi/`, `gpu_mux_mode`
+  non touchés (hors périmètre de ce rôle, jamais référencés) ;
+  `site.yml` non exécuté (seul `roles/desktop/desktop.yml` a tourné) ;
+  aucun paquet installé sans simulation préalable (`--check` avant
+  toute exécution réelle) ; aucune déconnexion de session, aucun
+  redémarrage. Divergence § « Points ouverts » ci-dessus mise à jour en
+  conséquence, pas fermée.

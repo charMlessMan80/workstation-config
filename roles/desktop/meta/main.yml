@@ -12,7 +12,10 @@ galaxy_info:
     correspondance sur l'app_id Wayland réel (relevé par introspection
     D-Bus, pas déduit), placement forcé sur l'index d'écran établi par
     essai contrôlé et vérifié à chaque exécution par la mesure (pas
-    supposé stable). Autostart XDG généré, sans chemin propre à cette
+    supposé stable). Disposition de démarrage plein écran + volets
+    conditionnée à la stabilité des sorties (jq, script de
+    temporisation, repli dégradé annoncé si le délai expire — BUR-4).
+    Autostart XDG généré, sans chemin propre à cette
     machine. Ne touche jamais kwinrc, sudoers, /etc/cdi/, gpu_mux_mode,
     dgpu_disable. Ne change jamais de mode d'affichage ni d'échelle. Ne
     redémarre jamais la machine, ne déconnecte jamais la session.

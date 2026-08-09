@@ -1171,7 +1171,12 @@ ouverts (§ 1.3, § 6.3, § 6.7), aucun nouveau marqueur ajouté ici
 (l'interaction plein écran/règle KWin, seul point qui aurait pu en
 porter un, a été tranchée par la mesure plutôt que laissée ouverte).
 
-## 8. Régression — gel de `eDP-1` à l'ouverture de session (2026-08-09)
+## 8. Régression — gel de `eDP-1` à l'ouverture de session (BUR-3, 2026-08-09)
+
+**Étiquette `BUR-3` ajoutée après coup** (le 2026-08-09, dans le
+livrable suivant) pour aligner ce document sur la numérotation retenue
+par l'opérateur pour cette série de livrables — cette section elle-même
+n'employait aucun numéro `BUR-N` à sa rédaction, seulement `§ 8`.
 
 ### 8.1 — Rapport initial
 
@@ -1368,14 +1373,24 @@ phase et non testable sans reproduire le risque déjà rencontré.
 
 ### 8.6 — Divergence consignée : `startup.session.bak`
 
-**État courant assumé et temporaire** : `~/.config/kitty/startup.session`
-a été renommé à la main en `startup.session.bak` par l'opérateur
-(§ 8.1–8.2), **hors du dépôt** — aucun commit ne le documente, c'est un
-changement d'état de la machine seule. `roles/desktop/` (donc `site.yml`
-qui l'inclut) **recréerait** `startup.session` à sa prochaine exécution,
-restaurant l'état à l'origine de cette régression. **Ne pas rejouer ce
-rôle avant résolution** (abandon du plein écran, ou confirmation par
-reproduction contrôlée que le facteur réel est ailleurs).
+**[RÉSOLUE le 2026-08-09, § 9]** `roles/desktop/` a été rejoué
+délibérément, avec le mécanisme de temporisation de BUR-4 — pas par
+inadvertance, et pas avant que la décision (garder le plein écran,
+temporiser le démarrage) n'ait été prise explicitement par l'opérateur.
+`startup.session.bak` reste sur le disque, désormais un résidu
+historique sans effet (le fichier actif, `startup.session`, est de
+nouveau celui déployé par le rôle — sans la ligne `os_window_state
+fullscreen`, § 9.2) — ni supprimé ni référencé par aucun mécanisme
+actif, hors périmètre de ce livrable.
+
+**ÉTAIT** : « État courant assumé et temporaire : `~/.config/kitty/
+startup.session` a été renommé à la main en `startup.session.bak` par
+l'opérateur (§ 8.1–8.2), hors du dépôt... `roles/desktop/` (donc
+`site.yml` qui l'inclut) recréerait `startup.session` à sa prochaine
+exécution, restaurant l'état à l'origine de cette régression. Ne pas
+rejouer ce rôle avant résolution (abandon du plein écran, ou
+confirmation par reproduction contrôlée que le facteur réel est
+ailleurs). »
 
 Cas concret du **quatrième mode d'échec** du bilan de série (`CLAUDE.md`
 § Modes d'échec qui imitent le sourcing) : un rôle correct et idempotent
@@ -1524,7 +1539,266 @@ contexte d'autostart réel, seulement que ce n'est pas un facteur suffisant
 en dehors de ce contexte. `startup.session.bak` reste en l'état,
 `roles/desktop/`/`site.yml` **toujours pas rejoués** — cette phase ne
 lève pas la divergence consignée § 8.6, elle ne fait que retirer un
-argument à une des deux résolutions possibles.
+argument à une des deux résolutions possibles. **[MISE À JOUR § 9]**
+La résolution retenue par l'opérateur est la troisième option, ni
+« abandon du plein écran » ni « confirmation que le facteur est
+ailleurs » : garder le plein écran, temporiser le démarrage sur la
+stabilité des sorties — voir § 9.
+
+## 9. Temporisation du démarrage sur la stabilité des sorties (BUR-4, 2026-08-09)
+
+Décision de l'opérateur, prise à froid, hors session : garder le plein
+écran plutôt que d'y renoncer, et temporiser le démarrage plutôt que de
+le laisser courir contre une topologie de sorties encore en cours
+d'application. **Deux réserves posées avec la décision, à ne pas
+perdre** : ceci mitige une *hypothèse* (§ 8.10 : le facteur de
+concurrence à l'ouverture de session n'est ni confirmé ni infirmé),
+pas une cause établie ; et si la temporisation ne suffit pas, cela ne
+prouvera pas que la concurrence est hors de cause — seulement que le
+délai était mal placé ou mal conditionné. Le repli documenté § 8.8
+(retirer le plein écran, garder les volets) reste la réponse
+disponible si ce livrable ne suffit pas.
+
+### 9.1 — Une condition, pas un délai fixe : critère, emplacement, comparaison
+
+**Critère retenu — stabilité échantillonnée, pas un signal franc.**
+Établi par lecture, pas supposé : aucun signal D-Bus propre n'existe
+pour « configuration de sorties appliquée » sur ce poste.
+- `busctl --user introspect org.kde.KScreen /` : seules trois méthodes
+  (`backend`, `quit`, `requestBackend`), aucun signal, et le service
+  est **activé à la demande** (`(activatable)` dans `busctl --user
+  list` — son unité, `plasma-kscreen.service`, n'a aucun `Before=`/
+  `After=` vis-à-vis de `xdg-desktop-autostart.target` ou d'une autre
+  unité utile ici, `Type=dbus`/`BusName=org.kde.KScreen` : il démarre
+  quand quelque chose l'appelle, pas selon un ordre propre). Pas
+  utilisable comme signal d'achèvement.
+- `busctl --user tree org.kde.KWin` (arbre complet des chemins D-Bus,
+  lecture seule) : rien sur la topologie des sorties — `/Compositor`,
+  `/Effects/OutputLocator1` (l'OSD « identifier les écrans », sans
+  rapport) et consorts, aucun signal de type « sorties stables ».
+- La configuration réellement appliquée vit dans
+  `~/.config/kwinoutputconfig.json`, lue par KWin en interne, sans
+  notification externe au moment où c'est fait.
+
+**Repli retenu, assumé comme une approximation, pas un signal franc** :
+stabilité échantillonnée de `kscreen-doctor -j`, restreinte aux champs
+pertinents à la question posée (mode, échelle, priorité — pas la
+luminosité ni d'autres champs volatils sans rapport) :
+```
+$ kscreen-doctor -j | jq -c '[.outputs[] | {name, connected, enabled, currentModeId, scale, priority}] | sort_by(.name)'
+[{"name":"DP-3","connected":true,"enabled":true,"currentModeId":"1","scale":1.5,"priority":2},{"name":"eDP-1","connected":true,"enabled":true,"currentModeId":"19","scale":1.5,"priority":1}]
+```
+Deux lectures consécutives, en session établie, sont déjà identiques
+(confirmé par répétition) — condition : `desktop_kitty_wait_stable_samples`
+(défaut 2) lectures consécutives identiques, espacées de
+`desktop_kitty_wait_interval_seconds` (défaut 0,2 s), bornées à
+`desktop_kitty_wait_max_seconds` (défaut 5 s) au total.
+
+**Emplacement de l'attente — trois voies comparées, une retenue.**
+1. **Enveloppe lancée par le `.desktop`** (retenue) : `Exec=` invoque un
+   script au lieu de `kitty` directement. Réutilise l'autostart déjà en
+   place (§ 2.1), déjà journalisé automatiquement (`app-kitty\x2d
+   screenpad@autostart.service` capture stdout/stderr du processus
+   exécuté — confirmé dès BUR-1/BUR-2, § 6.7/7.4).
+2. **Unité systemd utilisateur avec ordonnancement explicite** :
+   écartée. La réserve posée § 2.4 s'applique ici littéralement —
+   « l'ordre des processus n'équivaut pas à la disponibilité de leur
+   état interne ». Aucune unité systemd n'a d'état actif qui corresponde
+   à « sorties stables » (établi ci-dessus : `plasma-kscreen.service`
+   est activé à la demande, sans rapport avec le moment où KWin a fini
+   d'appliquer sa propre configuration) — un `After=` explicite
+   n'exprimerait donc rien de plus que l'ordre déjà garanti par défaut
+   (§ 2.4 : `kwin_wayland` démarre avant tout le reste). La boucle
+   d'échantillonnage devrait de toute façon vivre **dans** le script de
+   l'unité — aucun gain sur l'enveloppe, un fichier de plus à
+   maintenir.
+3. **Clés `X-KDE-autostart-phase`/`-after`** : même réserve — elles
+   ordonnent des applications autostart entre elles, pas contre un état
+   interne de KWin qu'aucune d'elles ne signale. Déjà écartées sans
+   besoin en BUR-1 (§ 2.1) ; rien ici ne change ce constat.
+
+**Retenue : l'enveloppe (option 1)** — la logique de condition doit de
+toute façon vivre dans un script quelle que soit l'option choisie ;
+autant réutiliser le mécanisme d'autostart déjà en place, déjà
+journalisé, plutôt qu'ajouter une unité systemd qui n'apporterait
+aucune garantie supplémentaire sur la question posée.
+
+### 9.2 — Implémentation
+
+- `roles/desktop/templates/kitty-startup-wait.sh.j2` (nouveau, déployé
+  dans `~/.local/bin/kitty-startup-wait.sh`, mode `0755`) : boucle
+  d'échantillonnage ci-dessus ; journalise chaque échantillon sur
+  stderr (`kitty-startup-wait: échantillon t=…ms …`) ; en cas nominal,
+  `exec kitty --start-as=fullscreen --session <nominale>` ; en cas de
+  délai expiré, `exec kitty -T "kitty -- mode degrade (voir journal
+  --user)" --session <dégradée>`, précédé d'une ligne `AVERTISSEMENT`
+  sur stderr. Toutes les bornes (`INTERVAL`, `STABLE_N`, `MAX_MS`) sont
+  interpolées depuis les variables du rôle à la génération, aucune
+  constante en dur.
+- `roles/desktop/templates/kitty-startup.session.j2` (modifié) : la
+  ligne `os_window_state fullscreen` retirée — l'état plein écran est
+  désormais appliqué par `--start-as=fullscreen` (script), jamais par
+  le fichier, pour que le même fichier serve aux deux issues.
+- `roles/desktop/templates/kitty-startup-degraded.session.j2`
+  (nouveau) : mêmes trois volets, sans plein écran par construction
+  (absent du fichier), volet shell précédé d'un avertissement imprimé.
+- `roles/desktop/templates/kitty-screenpad.desktop.j2` (modifié) :
+  `Exec=`/`TryExec=` pointent désormais sur
+  `kitty-startup-wait.sh` — nom seul, résolu par `PATH` (confirmé
+  contenir `~/.local/bin` en tête pour l'environnement hérité par
+  l'autostart : `systemctl --user show-environment | grep '^PATH='`,
+  lecture seule) — jamais un chemin absolu propre à cette machine.
+- `roles/desktop/defaults/main.yml` : `desktop_kitty_wait_interval_seconds`
+  (0,2), `desktop_kitty_wait_stable_samples` (2),
+  `desktop_kitty_wait_max_seconds` (5), `desktop_jq_package` (jq),
+  `desktop_local_bin_dir`, `desktop_kitty_session_degraded_file`/`_path`.
+- `roles/desktop/tasks/main.yml` : installation de `jq` (même patron
+  que `kitty`, seule autre action privilégiée du rôle) ; déploiement
+  des deux sessions et du script ; vérifications étendues (§ 9.3).
+
+**Fragilité découverte et testée, pas supposée** — le message du volet
+shell dégradé a d'abord été écrit avec des codes couleur ANSI
+(`\033[…m`) et une apostrophe française. Testé directement contre le
+tokeniseur de session de kitty (`kitty.utils.shlex_split`, importé en
+Python, lecture du code source packagé) avant d'être déployé :
+- une apostrophe ou une parenthèse non protégée, une fois désimbriquée
+  jusqu'à `bash -c "…"`, casse la syntaxe bash (`bash -n` sur la
+  commande reconstituée a servi de garde) ;
+- un antislash (`\n`, `\033[…m`) à l'intérieur d'une chaîne entre
+  guillemets doubles est **réécrit par le tokeniseur de kitty
+  lui-même** avant que bash ne le voie (`\n` devient `n`, `\033[1;33m`
+  devient `033[1;33m`) — pas le comportement POSIX habituel des
+  guillemets doubles, propre à ce tokeniseur.
+Message final : texte simple, sans antislash, sans apostrophe, sans
+parenthèse, sans code couleur — vérifié par ces deux essais avant
+d'être écrit dans le fichier versionné, pas après coup.
+
+### 9.3 — Preuve
+
+**Structure, géométrie, écran** : même méthode qu'en BUR-2 (§ 7.4),
+étendue avec `--start-as=fullscreen` (le fichier de session seul ne
+porte plus cet état) — confirmé : `fullscreen b true`, `x=0 y=1067
+width=2560 height=733.333` (`DP-3`), trois volets `splits`, commandes
+`claude`/`htop`/`shell` conformes (`kitten @ ls`).
+
+**Race condition trouvée et corrigée dans le harnais de vérification
+lui-même (pas dans le script déployé)** : le premier passage a échoué
+— `fullscreen b false` alors que `--start-as=fullscreen` était bien
+passé. Cause établie : la fenêtre de test est trouvée par
+`WindowsRunner.Match` **avant** que KWin ait fini d'appliquer l'état
+plein écran ; `getWindowInfo` appelé à cet instant précis rapporte
+encore l'état transitoire. Corrigé par une re-vérification bornée (12
+tentatives, 0,25 s d'intervalle, jusqu'à 3 s) avant la lecture finale —
+appliquée aux deux tâches de vérification concernées. Signalé ici
+explicitement : ce correctif touche uniquement la mesure, pas le
+comportement réel de kitty ni du script déployé.
+
+**Temps d'attente réel, session déjà établie** (topologie déjà
+stable) — mesuré par le script lui-même (`kitty-startup-wait.sh`
+compte ses propres échantillons), pas recalculé côté Ansible :
+```
+Script de temporisation confirmé : décision « nominal » en 284 ms (session déjà établie), fenêtre résultante plein écran sur DP-3.
+```
+Reproduit trois fois (284 ms, 285 ms, 286 ms) sur des exécutions
+distinctes du rôle. **Proche de zéro, pas littéralement zéro** — un
+plancher existe par construction :
+`(desktop_kitty_wait_stable_samples - 1) × desktop_kitty_wait_interval_seconds`,
+soit 0,2 s aux valeurs par défaut ; le reste (~85 ms) est le coût réel
+de deux invocations de `kscreen-doctor -j`/`jq`. Petit devant la borne
+de 5 s (moins de 6 %) et devant la durée réelle d'une ouverture de
+session (dizaines de secondes, § 8.2).
+
+**Démonstration du mode dégradé, avec sa trace — condition rendue
+insatisfiable par variable** (§ 4 de la demande, indispensable, pas
+seulement souhaitable) :
+```
+$ ansible-playbook roles/desktop/desktop.yml -e desktop_kitty_wait_stable_samples=1000000
+...
+fatal: [localhost]: FAILED! => "assertion": "'\"fullscreen\" b true' in desktop_verify_wait_windowinfo" …
+msg: "Le script de temporisation n'a pas décidé « nominal » comme attendu … (délai relevé : 5146 ms, borné à 5 s) …"
+```
+L'échec de cette assertion (écrite pour le cas nominal) **est** la
+démonstration — même patron que les échecs forcés de BUR-2 (§ 7.4).
+Rejoué directement (script réellement déployé, PID isolé, jamais une
+fenêtre de l'opérateur) pour inspecter le résultat en détail :
+- 22 échantillons journalisés (stderr), tous identiques (aucune
+  instabilité réelle — la condition est rendue insatisfiable par le
+  seuil, pas par une topologie qui change), jusqu'à
+  `t=5182ms` ;
+- ligne finale : `AVERTISSEMENT : délai maximal (5000ms) expiré sans
+  topologie stable — lancement DÉGRADÉ (sans plein écran, volets
+  conservés, session …/startup-degraded.session)` ;
+- fenêtre résultante : `fullscreen b false`, géométrie **inchangée**
+  (`x=0 y=1067 width=2560 height=734` — la règle KWin position+size
+  s'applique indépendamment de l'état plein écran) ;
+- **trace visible, impossible à confondre avec le nominal** :
+  `caption s "kitty -- mode degrade (voir journal --user)"` — le titre
+  de la fenêtre lui-même (confirmé par introspection D-Bus), en plus
+  du journal et de l'avertissement imprimé dans le volet shell (§ 9.2 ;
+  son rendu exact n'a pas été relu à l'écran — `allow_remote_control`
+  n'est jamais activé pour le script déployé, seulement pour les
+  fenêtres de test isolées — mais sa syntaxe a été vérifiée avant
+  déploiement, § 9.2).
+Fenêtre de démonstration fermée par son PID isolé, valeurs par défaut
+restaurées immédiatement après (`ansible-playbook roles/desktop/
+desktop.yml`, sans `-e`).
+
+**Idempotence** : `ansible-lint --profile production` (0 défaut),
+`--check` (`changed=0`), exécution réelle (`changed=3` : les deux
+sessions et le script, la première fois — puis `changed=1` (l'entrée
+autostart, dernière touchée) une fois le bug de la race condition
+corrigé), seconde exécution réelle (`changed=0`). Cycle rejoué en
+entier pour la démonstration d'échec forcé : `-e …=1000000`
+(`changed=1`, le script avec le seuil impossible), restauration
+(`changed=1`), nouvelle exécution (`changed=0`) — confirmé.
+
+### 9.4 — Ce que l'opérateur devra faire, à la prochaine ouverture de session
+
+**À avoir sous la main avant** :
+- TTY déjà testé et fonctionnel dans les deux sens (BUR-3, § 8.9) —
+  toujours valable, rien dans ce livrable ne change le mécanisme de
+  bascule.
+- Commande de récupération établie en BUR-3, vérifiée depuis le TTY
+  (§ 8.9) :
+  ```
+  QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY=wayland-0 kscreen-doctor output.eDP-1.disable output.eDP-1.enable
+  ```
+
+**À vérifier au retour** :
+- État de `eDP-1` — vivant (curseur mobile) ou figé.
+- Mode nominal (plein écran) ou dégradé (barre de titre visible,
+  titre `kitty -- mode degrade (voir journal --user)`, avertissement
+  dans le volet shell) — les deux se distinguent au premier coup d'œil,
+  par construction (§ 2 de la demande).
+- Temps d'attente réel de cette ouverture de session, dans le journal :
+  ```
+  journalctl --user -u app-kitty\\x2dscreenpad@autostart.service --no-pager | grep kitty-startup-wait
+  ```
+
+**Repli en une commande, si le gel se reproduit** — la même qu'en
+BUR-3 (§ 8.1), depuis le volet shell (nominal ou dégradé, l'un des
+deux reste vivant si `DP-3` est encore interactif) :
+```
+mv ~/.config/kitty/startup.session ~/.config/kitty/startup.session.bak && reboot
+```
+
+**Issue à retenir dans ce cas, écrite maintenant, à froid** : si le gel
+se reproduit malgré la temporisation, le facteur n'est **pas** la seule
+concurrence de démarrage — l'hypothèse mitigée par ce livrable serait
+alors infirmée, pas seulement le délai mal calé. La réponse devient le
+retrait du plein écran, volets seuls (§ 8.8) — pas une nouvelle
+tentative de calibrer le délai autrement, qui répéterait le risque déjà
+pris sans raison nouvelle de croire que ça marcherait.
+
+### 9.5 — Calibration du risque
+
+Risque **borné et prouvé récupérable**, pas la catégorie d'une règle
+`sudoers` cassée ou d'une bascule MUX ratée : `DP-3` reste vivant dans
+les deux épisodes de gel observés à ce jour (BUR-3), le TTY est testé
+(§ 8.9), le pire cas coûte quelques minutes et un redémarrage — jamais
+une perte de données ni un état non récupérable. La prudence par
+défaut de ce dépôt (`CLAUDE.md` § Avant d'agir) reste juste ; elle doit
+rester **proportionnée** à ce que ce risque représente réellement.
 
 ## Voir aussi
 

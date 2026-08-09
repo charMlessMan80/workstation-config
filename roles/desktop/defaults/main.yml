@@ -164,3 +164,53 @@ desktop_kitty_vsplit_bias: 50
 # décision prise à sa place (§ 2 de la demande, « donne-lui le
 # chiffre »).
 desktop_kitty_htop_bias: 30
+
+# --- Temporisation du démarrage sur la stabilité des sorties (BUR-4,
+# 2026-08-09) ---------------------------------------------------------
+# Motif complet : docs/desktop.md § 8 (gel de eDP-1 constaté à
+# l'ouverture de session suivant BUR-2, non reproduit en session
+# établie — phase B) et § 9 (ce livrable). Résumé : à l'ouverture de
+# session, KScreen/KWin appliquent encore la configuration des sorties
+# (mode, échelle, priorité) quand l'autostart se déclenche — un passage
+# en plein écran pendant ce changement n'est pas équivalent à un
+# passage en plein écran sur une topologie déjà établie (§ 8.10/9,
+# hypothèse mitigée, pas une cause confirmée).
+#
+# Aucun signal D-Bus propre trouvé pour « configuration de sorties
+# appliquée » (établi par lecture, pas supposé — docs/desktop.md § 9.1) :
+# org.kde.KScreen n'expose que backend/quit/requestBackend, activé à la
+# demande (pas d'ordonnancement proactif utilisable) ; org.kde.KWin
+# n'expose aucun signal de topologie ; la configuration réelle vit dans
+# ~/.config/kwinoutputconfig.json, lue en interne par KWin, sans
+# notification externe. Repli retenu, assumé comme une approximation :
+# stabilité échantillonnée de `kscreen-doctor -j` (connected, enabled,
+# currentModeId, scale, priority par sortie).
+desktop_kitty_wait_interval_seconds: 0.2
+desktop_kitty_wait_stable_samples: 2
+desktop_kitty_wait_max_seconds: 5
+
+# jq : nécessaire au script de temporisation pour extraire les champs
+# pertinents de `kscreen-doctor -j` sans dépendre d'un analyseur ad hoc
+# en shell — déjà présent sur ce poste (`rpm -q jq`), installé ici pour
+# que le rôle ne présume pas sa présence sur une autre machine.
+desktop_jq_package: jq
+
+# Répertoire personnel standard pour les scripts utilisateur, déjà dans
+# le PATH hérité par les unités systemd utilisateur (donc par
+# l'autostart XDG, § 2.1) — confirmé par lecture, pas supposé :
+# `systemctl --user show-environment | grep '^PATH='` inclut
+# ~/.local/bin en tête. Permet à l'entrée .desktop de référencer le
+# script par son seul nom (résolu par PATH, comme `Exec=kitty`
+# aujourd'hui) — jamais un chemin absolu propre à cette machine.
+desktop_local_bin_dir: "{{ ansible_facts.env.HOME }}/.local/bin"
+desktop_kitty_wait_script_file: kitty-startup-wait.sh
+desktop_kitty_wait_script_path: "{{ desktop_local_bin_dir }}/{{ desktop_kitty_wait_script_file }}"
+
+# Session dégradée : mêmes trois volets que la session nominale, volet
+# « shell » précédé d'un avertissement imprimé — jamais silencieux
+# (§ 2 de la demande BUR-4). Fichier distinct, jamais généré à
+# l'exécution : les deux variantes sont versionnées, le script de
+# temporisation choisit laquelle passer à `--session` selon le résultat
+# de l'attente, il n'écrit jamais de fichier lui-même.
+desktop_kitty_session_degraded_file: startup-degraded.session
+desktop_kitty_session_degraded_path: "{{ desktop_kitty_config_dir }}/{{ desktop_kitty_session_degraded_file }}"

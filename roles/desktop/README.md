@@ -35,17 +35,35 @@ ce README ne duplique pas ce contenu.
    correspond pas à la géométrie mesurée à l'étape 3.
 7. **Vérifie l'existence de `claude`, `htop` et l'interpréteur de
    commandes** (`command -v`, BUR-2) — échec bruyant si l'un manque.
-8. Déploie la disposition de démarrage
-   (`~/.config/kitty/startup.session`, BUR-2) : plein écran, `claude` à
-   gauche, `htop` en haut à droite, un interpréteur en bas à droite —
-   puis **revérifie par la mesure** : lance une fenêtre de test avec
-   cette session réellement déployée, confirme l'état plein écran et
-   la géométrie (`getWindowInfo`, comme à l'étape 6) et la structure
+8. Déploie deux dispositions de démarrage — `claude` à gauche, `htop`
+   en haut à droite, un interpréteur en bas à droite dans les deux
+   cas :
+   - **nominale** (`~/.config/kitty/startup.session`, BUR-2) — le
+     fichier ne porte plus l'état plein écran depuis BUR-4 (déplacé au
+     script de temporisation, point 10, § motif ci-dessous) ;
+   - **dégradée** (`~/.config/kitty/startup-degraded.session`, BUR-4) —
+     mêmes volets, sans plein écran, avertissement imprimé dans le
+     volet shell.
+   Puis **revérifie par la mesure** : lance une fenêtre de test avec la
+   session nominale et `--start-as=fullscreen` (la combinaison que le
+   script applique en cas nominal), confirme l'état plein écran et la
+   géométrie (`getWindowInfo`, comme à l'étape 6) et la structure
    interne — trois volets, disposition `splits`, bonnes commandes
    (`kitten @ ls`, mécanisme propre à kitty).
-9. Déploie `~/.config/autostart/kitty-screenpad.desktop`
-   (`Exec=kitty --session startup.session`, aucun chemin absolu propre
-   à cette machine).
+9. Installe `jq` (dépôts `fedora`/`updates`) et déploie le script de
+   temporisation `~/.local/bin/kitty-startup-wait.sh` (BUR-4) — attend
+   que `kscreen-doctor -j` (mode/échelle/priorité par sortie) soit
+   stable sur plusieurs échantillons consécutifs, borné à un délai
+   maximal, puis lance la session nominale en plein écran si la
+   condition est satisfaite à temps, sinon la session dégradée. Motif
+   complet : `docs/desktop.md` § 8 (gel de `eDP-1` constaté après BUR-2)
+   et § 9 (ce mécanisme). Puis **revérifie par la mesure** : lance le
+   script réellement déployé, confirme que la décision « nominal »
+   survient quasi immédiatement (session déjà établie) et que la
+   fenêtre qui en résulte est plein écran sur `DP-3`.
+10. Déploie `~/.config/autostart/kitty-screenpad.desktop`
+    (`Exec=kitty-startup-wait.sh`, résolu par `PATH` — aucun chemin
+    absolu propre à cette machine).
 
 ## Ce que ce rôle ne fait jamais
 
@@ -57,7 +75,8 @@ ce README ne duplique pas ce contenu.
 - Il ne change jamais de mode d'affichage ni d'échelle.
 - **Il ne redémarre jamais la machine, ne déconnecte jamais la
   session.**
-- Il n'installe aucun autre paquet que `kitty`.
+- Il n'installe aucun autre paquet que `kitty` et `jq` (BUR-4, requis
+  par le script de temporisation pour lire `kscreen-doctor -j`).
 
 ## Mécanisme de placement — pas un index d'écran
 
@@ -92,6 +111,17 @@ sur ce poste) ne laisse que 4 lignes de processus visibles sur `DP-3`,
 à 30 il en laisse 12 — détail complet et méthode de mesure,
 `docs/desktop.md` § 7.2).
 
+**Temporisation du démarrage (BUR-4)** : `desktop_kitty_wait_interval_seconds`
+(intervalle entre deux échantillons, défaut 0,2 s) ;
+`desktop_kitty_wait_stable_samples` (nombre d'échantillons consécutifs
+identiques exigé, défaut 2 — le plancher de latence du cas nominal vaut
+par construction `(N-1) × intervalle`) ; `desktop_kitty_wait_max_seconds`
+(délai maximal avant repli dégradé, défaut 5 s — approximation assumée,
+aucun signal D-Bus propre trouvé pour « configuration de sorties
+appliquée », `docs/desktop.md` § 9.1). Aucune de ces trois variables
+n'est figée en dur dans le script — voir
+`roles/desktop/templates/kitty-startup-wait.sh.j2`.
+
 ## Utilisation
 
 ```
@@ -104,4 +134,11 @@ ansible-playbook -e desktop_target_output=sortie-inexistante roles/desktop/deskt
 
 # Démonstration d'échec forcé (garde sur les commandes de la disposition de démarrage, BUR-2) :
 ansible-playbook -e desktop_kitty_htop_cmd=htop-inexistant-garanti roles/desktop/desktop.yml
+
+# Démonstration du repli dégradé (condition d'attente rendue insatisfiable
+# par variable, BUR-4, docs/desktop.md § 9.4) — déploie un script dont le
+# critère de stabilité ne peut jamais être atteint dans le délai imparti :
+ansible-playbook -e desktop_kitty_wait_stable_samples=1000000 roles/desktop/desktop.yml
+# Revenir aux valeurs par défaut ensuite :
+ansible-playbook roles/desktop/desktop.yml
 ```

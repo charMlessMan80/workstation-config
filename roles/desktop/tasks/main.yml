@@ -13,7 +13,8 @@
 # (`screen`/`screenrule=Force` testé et abandonné, confondu avec
 # `activeOutputName`) et docs/desktop.md § 3.
 
-# --- Installation (seule action privilégiée du rôle) ----------------------
+# --- Installation (seules actions privilégiées du rôle : kitty et jq,
+# BUR-4) ---------------------------------------------------------------
 
 - name: "Installer kitty (dépôts fedora/updates uniquement, aucun autre paquet demandé)"
   ansible.builtin.dnf:
@@ -21,6 +22,16 @@
     state: present
   become: true
   register: desktop_kitty_install
+  when: not ansible_check_mode
+
+- name: >-
+    Installer jq (BUR-4, dépôts fedora/updates — nécessaire au script de
+    temporisation pour lire kscreen-doctor -j, § 9 de docs/desktop.md)
+  ansible.builtin.dnf:
+    name: "{{ desktop_jq_package }}"
+    state: present
+  become: true
+  register: desktop_jq_install
   when: not ansible_check_mode
 
 # --- Configuration kitty : fichier sobre, versionné, déployé tel quel -----
@@ -280,32 +291,65 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: "Déployer la session de démarrage kitty : {{ desktop_kitty_session_path }}"
+- name: "Déployer la session de démarrage kitty (nominale) : {{ desktop_kitty_session_path }}"
   ansible.builtin.template:
     src: kitty-startup.session.j2
     dest: "{{ desktop_kitty_session_path }}"
     mode: "0644"
   when: not ansible_check_mode
 
+- name: >-
+    Déployer la session de démarrage kitty (dégradée, BUR-4) :
+    {{ desktop_kitty_session_degraded_path }}
+  ansible.builtin.template:
+    src: kitty-startup-degraded.session.j2
+    dest: "{{ desktop_kitty_session_degraded_path }}"
+    mode: "0644"
+  when: not ansible_check_mode
+
+# --- Script de temporisation (BUR-4) : condition de stabilité des
+# sorties avant plein écran, délai maximal, repli dégradé annoncé —
+# motif complet docs/desktop.md § 9.
+
+- name: "S'assurer que le répertoire de scripts utilisateur existe : {{ desktop_local_bin_dir }}"
+  ansible.builtin.file:
+    path: "{{ desktop_local_bin_dir }}"
+    state: directory
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: "Déployer le script de temporisation : {{ desktop_kitty_wait_script_path }}"
+  ansible.builtin.template:
+    src: kitty-startup-wait.sh.j2
+    dest: "{{ desktop_kitty_wait_script_path }}"
+    mode: "0755"
+  when: not ansible_check_mode
+
 # Vérification par la mesure, même patron que la règle KWin plus haut :
-# lance une fenêtre de test AVEC la session réellement déployée
-# (contrôle distant activé pour ce seul lancement de test — jamais
-# écrit dans kitty.conf), relève son état plein écran et sa géométrie
-# par introspection D-Bus de KWin (comme ci-dessus), et sa structure
+# lance une fenêtre de test AVEC la session réellement déployée ET le
+# même --start-as=fullscreen que le script de temporisation applique en
+# cas nominal (BUR-4 : le fichier de session lui-même ne porte plus
+# l'état plein écran, § 9 de docs/desktop.md — cette combinaison est
+# donc nécessaire pour vérifier la même chose qu'avant BUR-4) (contrôle
+# distant activé pour ce seul lancement de test — jamais écrit dans
+# kitty.conf), relève son état plein écran et sa géométrie par
+# introspection D-Bus de KWin (comme ci-dessus), et sa structure
 # interne (volets, disposition, commandes) par le mécanisme propre de
 # kitty (kitten @ ls, docs/desktop.md § 4).
 
 - name: >-
     Lancer une fenêtre kitty de test AVEC la session de démarrage
-    réellement déployée et relever son état plein écran, sa géométrie
-    (introspection D-Bus de KWin) et sa structure interne (kitten @ ls)
+    réellement déployée (plus --start-as=fullscreen, appliqué par le
+    script en cas nominal) et relever son état plein écran, sa
+    géométrie (introspection D-Bus de KWin) et sa structure interne
+    (kitten @ ls)
   ansible.builtin.shell:
     cmd: |
       set -euo pipefail
       SOCK_BASE="/tmp/desktop-verify-session-$$.sock"
       rm -f "$SOCK_BASE"*
       kitty -o allow_remote_control=yes -o "listen_on=unix:$SOCK_BASE" \
-        --session "{{ desktop_kitty_session_path }}" >/dev/null 2>&1 &
+        --start-as=fullscreen --session "{{ desktop_kitty_session_path }}" >/dev/null 2>&1 &
       TEST_PID=$!
       # kitty ajoute toujours "-<pid>" au chemin de listen_on donné
       # (constaté à l'essai, docs/desktop.md § 4) — jamais le chemin nu.
@@ -329,6 +373,20 @@
       fi
       for i in $(seq 1 20); do
         [ -S "$SOCK" ] && break
+        sleep 0.25
+      done
+      # L'état plein écran (--start-as=fullscreen) n'est pas
+      # nécessairement déjà rapporté par getWindowInfo au premier
+      # instant où la fenêtre est trouvée par WindowsRunner — constaté
+      # à l'essai (BUR-4) : la fenêtre existe avant que KWin ait fini
+      # d'appliquer cet état. Revérifié jusqu'à 3 s avant de lire la
+      # valeur finale, plutôt que de figer un délai fixe qui casserait
+      # de la même façon qu'une temporisation fixe casserait le
+      # problème que ce livrable résout par ailleurs (§ 1 de la
+      # demande BUR-4).
+      for i in $(seq 1 12); do
+        INFO=$(busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$UUID" 2>/dev/null || true)
+        echo "$INFO" | grep -q '"fullscreen" b true' && break
         sleep 0.25
       done
       echo "===WINDOWINFO==="
@@ -382,6 +440,107 @@
       supposé.
   when: not ansible_check_mode
 
+# --- Vérification du script de temporisation lui-même (BUR-4, § 4 de
+# la demande) : en session déjà établie, la topologie est déjà stable —
+# le script doit donc décider « nominal » quasi immédiatement. Lance le
+# script réellement déployé (pas une commande reconstituée), PID isolé,
+# mesure le temps écoulé jusqu'à sa propre décision (lu dans son propre
+# journal stderr, pas recalculé côté Ansible) et confirme par
+# introspection D-Bus que la fenêtre qui en résulte est bien plein
+# écran sur DP-3 — la structure interne a déjà été confirmée ci-dessus
+# avec la même combinaison de drapeaux.
+
+- name: >-
+    Lancer le script de temporisation réellement déployé (PID isolé) et
+    relever son délai réel de décision (stderr) et l'état de la fenêtre
+    qui en résulte (introspection D-Bus de KWin)
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      "{{ desktop_kitty_wait_script_path }}" >/tmp/desktop-verify-wait-$$.out 2>/tmp/desktop-verify-wait-$$.err &
+      TEST_PID=$!
+      UUID=""
+      for i in $(seq 1 40); do
+        sleep 0.25
+        MATCHES=$(busctl --user call org.kde.KWin /WindowsRunner org.kde.krunner1 Match s "kitty" 2>/dev/null || true)
+        for candidate in $(echo "$MATCHES" | grep -oE '\{[0-9a-f-]+\}' || true); do
+          INFO=$(busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$candidate" 2>/dev/null || true)
+          if echo "$INFO" | grep -q "\"pid\" i $TEST_PID "; then
+            UUID="$candidate"
+            break 2
+          fi
+        done
+      done
+      if [ -z "$UUID" ]; then
+        kill "$TEST_PID" 2>/dev/null || true
+        echo "ÉCHEC : fenêtre issue du script de temporisation introuvable par introspection D-Bus après 10s" >&2
+        cat "/tmp/desktop-verify-wait-$$.err" >&2 || true
+        exit 1
+      fi
+      # Même stabilisation que la vérification de session ci-dessus :
+      # l'état plein écran n'est pas nécessairement déjà rapporté au
+      # premier instant où la fenêtre est trouvée.
+      for i in $(seq 1 12); do
+        INFO=$(busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$UUID" 2>/dev/null || true)
+        echo "$INFO" | grep -q '"fullscreen" b true' && break
+        sleep 0.25
+      done
+      echo "===WINDOWINFO==="
+      busctl --user call org.kde.KWin /KWin org.kde.KWin getWindowInfo s "$UUID"
+      echo "===LOG==="
+      cat "/tmp/desktop-verify-wait-$$.err"
+      kill "$TEST_PID" 2>/dev/null || true
+      rm -f "/tmp/desktop-verify-wait-$$.out" "/tmp/desktop-verify-wait-$$.err"
+  register: desktop_verify_wait_raw
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Séparer la géométrie/état (D-Bus) du journal du script dans la sortie de vérification"
+  ansible.builtin.set_fact:
+    desktop_verify_wait_windowinfo: "{{ desktop_verify_wait_raw.stdout.split('===LOG===')[0] }}"
+    desktop_verify_wait_log: "{{ desktop_verify_wait_raw.stdout.split('===LOG===')[1] }}"
+    # Dernière valeur "t=…ms" du journal du script — son propre relevé,
+    # pas un chronométrage recalculé côté Ansible (qui inclurait la
+    # latence de l'introspection D-Bus, sans rapport avec la question
+    # posée : le temps que LE SCRIPT a mis à décider).
+    desktop_verify_wait_elapsed_ms: >-
+      {{ (desktop_verify_wait_raw.stdout.split('===LOG===')[1]
+          | regex_findall('t=([0-9]+)ms') | last) | int }}
+  when: not ansible_check_mode
+
+- name: >-
+    Échouer bruyamment si le script de temporisation n'a pas décidé
+    « nominal » quasi immédiatement en session déjà établie, ou si la
+    fenêtre qui en résulte n'est pas plein écran sur DP-3
+  ansible.builtin.assert:
+    that:
+      - "'\"fullscreen\" b true' in desktop_verify_wait_windowinfo"
+      - (desktop_verify_wait_windowinfo | regex_search('\"x\" d ([0-9.]+)', '\\1') | first | float - desktop_dp3_x | float) | abs < 5
+      - (desktop_verify_wait_windowinfo | regex_search('\"y\" d ([0-9.]+)', '\\1') | first | float - desktop_dp3_y | float) | abs < 5
+      - "'lancement nominal' in desktop_verify_wait_log"
+      # Proche de zéro, pas littéralement zéro : au moins un intervalle
+      # d'échantillonnage sépare deux lectures consécutives par
+      # construction (desktop_kitty_wait_stable_samples ≥ 2) — borne
+      # lâche ici (la moitié du délai maximal) pour distinguer un délai
+      # normal d'un délai qui a dérivé vers le cas dégradé sans échouer
+      # au test ci-dessus par ailleurs.
+      - desktop_verify_wait_elapsed_ms | int < ((desktop_kitty_wait_max_seconds | float * 1000 / 2) | int)
+    fail_msg: >-
+      Le script de temporisation n'a pas décidé « nominal » comme
+      attendu en session déjà établie (délai relevé :
+      {{ desktop_verify_wait_elapsed_ms }} ms, borné à
+      {{ desktop_kitty_wait_max_seconds }} s) — voir
+      desktop_verify_wait_log et desktop_verify_wait_windowinfo pour le
+      détail. Ce rôle s'arrête plutôt que de déployer l'autostart sur
+      cette base.
+    success_msg: >-
+      Script de temporisation confirmé : décision « nominal » en
+      {{ desktop_verify_wait_elapsed_ms }} ms (session déjà établie),
+      fenêtre résultante plein écran sur DP-3 — par la mesure, pas
+      supposé.
+  when: not ansible_check_mode
+
 # --- Autostart : fichier .desktop généré, sans chemin propre à cette machine
 
 - name: "S'assurer que le répertoire autostart existe : {{ desktop_autostart_dir }}"
@@ -391,7 +550,9 @@
     mode: "0755"
   when: not ansible_check_mode
 
-- name: "Déployer l'entrée autostart (Exec=kitty, aucun chemin absolu propre à cette machine)"
+- name: >-
+    Déployer l'entrée autostart (Exec=le script de temporisation,
+    résolu par PATH — aucun chemin absolu propre à cette machine)
   ansible.builtin.template:
     src: kitty-screenpad.desktop.j2
     dest: "{{ desktop_autostart_desktop_file }}"
@@ -403,28 +564,41 @@
 - name: "Rapporter l'état (mode simulation --check)"
   ansible.builtin.debug:
     msg: >-
-      --check : aucune écriture réalisée. kitty serait installé, la
-      règle KWin ({{ desktop_kwin_rule_id }}) écrite avec la géométrie
-      de DP-3 mesurée à cet instant, la session de démarrage déployée
-      dans {{ desktop_kitty_session_path }} (claude | htop / interpréteur,
-      plein écran), l'autostart déployé dans
+      --check : aucune écriture réalisée. kitty et jq seraient
+      installés, la règle KWin ({{ desktop_kwin_rule_id }}) écrite avec
+      la géométrie de DP-3 mesurée à cet instant, les sessions de
+      démarrage (nominale et dégradée) déployées dans
+      {{ desktop_kitty_config_dir }}, le script de temporisation dans
+      {{ desktop_kitty_wait_script_path }}, l'autostart déployé dans
       {{ desktop_autostart_desktop_file }}.
   when: ansible_check_mode
 
 - name: "Rapporter l'état (exécution réelle)"
   ansible.builtin.debug:
     msg:
-      - "kitty installé, configuration sobre déployée dans {{ desktop_kitty_config_dir }}/kitty.conf."
+      - "kitty et jq installés, configuration sobre déployée dans {{ desktop_kitty_config_dir }}/kitty.conf."
       - "Règle KWin {{ desktop_kwin_rule_id }} écrite par clé nommée dans {{ desktop_kwinrulesrc_path }} — kwinrc jamais touché."
       - "Géométrie DP-3 confirmée par la mesure : {{ desktop_dp3_x }},{{ desktop_dp3_y }} {{ desktop_dp3_w }}x{{ desktop_dp3_h }}."
       - >-
-          Session de démarrage déployée dans
-          {{ desktop_kitty_session_path }} — plein écran, claude | htop
-          ({{ desktop_kitty_htop_bias }}% pour l'interpréteur) —
-          confirmée par une fenêtre de test (plein écran sur DP-3,
-          trois volets, disposition splits).
+          Sessions de démarrage déployées : nominale
+          ({{ desktop_kitty_session_path }}, claude | htop
+          ({{ desktop_kitty_htop_bias }}% pour l'interpréteur), plein
+          écran appliqué par le script — pas par ce fichier) et dégradée
+          ({{ desktop_kitty_session_degraded_path }}, mêmes volets, sans
+          plein écran, avertissement imprimé dans le volet shell) —
+          confirmées par une fenêtre de test (trois volets, disposition
+          splits).
+      - >-
+          Script de temporisation déployé dans
+          {{ desktop_kitty_wait_script_path }} — attend
+          {{ desktop_kitty_wait_stable_samples }} échantillons
+          consécutifs identiques de kscreen-doctor -j (intervalle
+          {{ desktop_kitty_wait_interval_seconds }} s), borné à
+          {{ desktop_kitty_wait_max_seconds }} s ; décision « nominal »
+          confirmée en {{ desktop_verify_wait_elapsed_ms | default('n/d') }} ms
+          dans cette session déjà établie.
       - >-
           Autostart déployé dans {{ desktop_autostart_desktop_file }}
-          (Exec=kitty --session {{ desktop_kitty_session_file }}) —
+          (Exec={{ desktop_kitty_wait_script_file }}) —
           effectif à la prochaine ouverture de session, pas vérifié ici.
   when: not ansible_check_mode

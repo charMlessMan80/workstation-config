@@ -1,0 +1,43 @@
+
+# Session de démarrage kitty — variante DÉGRADÉE (BUR-4, 2026-08-09).
+# Choisie par kitty-startup-wait.sh.j2 quand le délai maximal
+# ({{ desktop_kitty_wait_max_seconds }} s) expire sans que la topologie
+# des sorties soit constatée stable (docs/desktop.md § 9) — jamais
+# choisie directement par l'entrée autostart. Mêmes trois volets que la
+# session nominale (kitty-startup.session.j2), **sans plein écran**
+# (appliqué par le script, pas par ce fichier — absent ici par
+# construction) et avec un avertissement imprimé dans le volet shell :
+# le mode dégradé doit être impossible à confondre avec le nominal
+# (§ 2 de la demande BUR-4), pas seulement l'absence de plein écran
+# (repérable, mais pas un message explicite).
+#
+# Message du volet shell testé directement contre le tokeniseur de
+# session de kitty (kitty.utils.shlex_split) avant d'être écrit ici —
+# ni apostrophe, ni parenthèse, ni antislash dans le texte : les deux
+# premiers cassent la syntaxe bash une fois désimbriqués (parenthèse
+# non protégée dans le contexte `bash -c "…"` — la double apostrophe
+# n'est là que pour le tokeniseur de kitty, pas pour bash), le
+# troisième est réécrit par ce même tokeniseur avant que bash ne le
+# voie (`\n`/`\033[…m` deviennent `n`/`033[…m`, constaté à l'essai —
+# pas de code couleur ANSI dans ce message pour cette raison).
+#
+# Format et directives : voir kitty-startup.session.j2 et
+# docs/desktop.md § 1.1 pour le détail commun aux deux fichiers.
+
+layout splits
+
+cd {{ desktop_kitty_session_cwd }}
+
+# Volet 1 — claude, inchangé.
+launch --title=claude {{ desktop_kitty_claude_cmd }}
+focus
+
+# Volet 2 — htop, inchangé (même répartition que le cas nominal).
+launch --location=vsplit --bias={{ desktop_kitty_vsplit_bias }} --title=htop {{ desktop_kitty_htop_cmd }}
+
+# Volet 3 — shell, précédé d'un avertissement imprimé (pas un repli
+# silencieux). `bash -c` enveloppe la commande configurée quelle
+# qu'elle soit ({{ desktop_kitty_shell_cmd }}) puis lui cède la place
+# (`exec`) — l'avertissement s'affiche une fois, l'interpréteur reste
+# ensuite celui réellement configuré, sans rien d'autre changé.
+launch --location=hsplit --bias={{ desktop_kitty_htop_bias }} --title=shell bash -c "echo; echo AVERTISSEMENT : MODE DEGRADE; echo Delai de {{ desktop_kitty_wait_max_seconds }} s atteint avant que la stabilite des sorties ne soit constatee.; echo Plein ecran NON applique, volets conserves.; echo Voir docs/desktop.md section 9 et le journal utilisateur : journalctl --user.; echo; exec {{ desktop_kitty_shell_cmd }}"

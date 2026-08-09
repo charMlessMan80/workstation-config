@@ -6,12 +6,17 @@
 # une commande reconnue par kitty.session.parse_session — voir
 # docs/desktop.md § 1.1 pour le détail et les renvois.
 #
-# os_window_state fullscreen : état de fenêtre, distinct de la règle
-# KWin position+size (une géométrie). Interaction testée empiriquement
-# avant d'écrire cette ligne (docs/desktop.md § 1.2) — le plein écran
-# cible la sortie où la fenêtre se trouve déjà (celle que la règle
-# Apply-initially vient de lui donner), jamais org.kde.KWin.activeOutputName.
-os_window_state fullscreen
+# os_window_state fullscreen : PAS ici depuis BUR-4 (2026-08-09). État
+# de fenêtre, distinct de la règle KWin position+size (une géométrie) —
+# l'interaction plein écran/règle KWin reste tranchée par le test
+# empirique de BUR-2 (docs/desktop.md § 7.1 : le plein écran cible la
+# sortie où la fenêtre se trouve déjà, jamais activeOutputName). Ce qui
+# a changé : le plein écran est désormais conditionné à la stabilité
+# des sorties à l'ouverture de session (gel de eDP-1 constaté après
+# BUR-2, non reproduit en session établie — docs/desktop.md § 8/9) —
+# appliqué par kitty-startup-wait.sh.j2 (--start-as=fullscreen), jamais
+# par ce fichier de session, pour que le même fichier serve aux deux
+# issues (nominale et dégradée, docs/desktop.md § 9).
 
 # layout splits : seule disposition kitty permettant des séparations
 # arbitraires (verticale puis horizontale) — les autres (tall, fat,
