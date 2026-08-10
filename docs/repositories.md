@@ -535,10 +535,92 @@ faire disparaître en silence. Aucune action entreprise sur cette base
 ici — fait consigné, pas de nouvelle garde ajoutée à un rôle pour ce
 livrable.
 
+## 11. npm — sixième surface d'approvisionnement, D24
+
+**npm devient la sixième surface distincte de ce dépôt**, après les
+dépôts `dnf` (§ 4), les registres de conteneurs (§ 6), `crates.io`
+(§ 7) et le registre de modèles Ollama (§ 8) — nommée au même niveau
+d'exigence, comme demandé. Ouverte par D24 (révision de D12,
+`docs/machine-facts.md` § Décisions) pour installer **exclusivement**
+GitHub Copilot CLI (`@github/copilot`), un second agent de code —
+`roles/copilot_cli/`. D12 elle-même reste en vigueur, resserrée plutôt
+que retirée (`docs/editor.md` § Copilot CLI) : aucun serveur de
+langage pour Helix/Kate ne provient de ce canal.
+
+**Empreinte réelle du paquet, vérifiée localement, pas supposée** —
+`npm audit signatures` (exécuté depuis `~/.local/lib`, où
+`copilot_cli_npm_prefix` installe) :
+```
+$ npm audit signatures
+audited 2 packages in 0s
+
+2 packages have verified registry signatures
+1 package has a verified attestation
+```
+Trois mécanismes distincts, empilés, pas un seul :
+1. **Intégrité de contenu par paquet** (`dist.integrity`, sha512) —
+   vérifiée automatiquement par npm à chaque téléchargement, échoue
+   plutôt que d'accepter un tarball ne correspondant pas à l'empreinte
+   publiée par le registre à cet instant.
+2. **Signature du registre** (« registry signatures », 2 des 3 paquets
+   installés) — le registre npm signe lui-même les métadonnées de
+   paquet avec sa propre clé, vérifiable par `npm audit signatures`
+   sans dépendre d'une clé d'auteur individuelle.
+3. **Attestation de provenance Sigstore** (1 des 3 paquets) — le
+   paquet principal (`@github/copilot`) est publié via un « trusted
+   publisher » OIDC (GitHub Actions, `_npmUser.trustedPublisher.id:
+   "github"`, relevé dans les métadonnées du registre) : une preuve
+   cryptographique vérifiable reliant l'artefact publié au workflow de
+   build exact qui l'a produit, pas seulement à un compte npm.
+
+| Ce qui est récupéré | Provenance | Ancrage de confiance réel | Écart résiduel assumé |
+|---|---|---|---|
+| `@github/copilot@1.0.78` (paquet principal, ~13 Kio décompressés — un simple lanceur) | Registre public npm (`registry.npmjs.org`) | Intégrité de contenu + signature du registre + **attestation de provenance Sigstore** (build GitHub Actions identifié) — le plus fort des trois paquets de cette installation | Aucun audit de code indépendant du contenu lui-même — l'ancrage garantit que l'artefact correspond exactement à ce que le workflow de build a produit, pas l'absence de défaut dans ce code |
+| `@github/copilot-linux-x64@1.0.78` (binaire réel, ~375 Mio décompressés, 228 fichiers, sélectionné automatiquement par npm via `optionalDependencies`/`os`/`cpu`/`libc`) | Registre public npm | Intégrité de contenu + signature du registre (pas d'attestation Sigstore constatée pour ce sous-paquet — vérifié, pas supposé) | Binaire opaque, aucune lecture de code possible avant exécution (contrairement à `crates.io`, § 7, qui distribue du source) — écart structurel de toute distribution binaire précompilée |
+| `detect-libc@^2.1.2` (dépendance transitive, sélection glibc/musl) | Registre public npm | Intégrité de contenu + signature du registre | Aucun fichier de verrouillage pour une installation globale (`npm install -g` ne génère jamais de `package-lock.json`, vérifié par essai réel) — la résolution de cette plage de version n'est pas reproductible bit à bit d'une installation à l'autre, contrairement à `crates.io`/`Cargo.lock` |
+
+**Différence avec `crates.io` (§ 7)** : npm distribue des **binaires
+précompilés** pour le paquet qui compte réellement
+(`@github/copilot-linux-x64`, 375 Mio) — l'inverse du choix fait pour
+`lsp-ai` (D19, code source compilé localement, précisément parce
+qu'aucune somme de contrôle n'était publiée pour son binaire
+précompilé). Ici, le binaire précompilé **porte** une empreinte de
+contenu, une signature de registre, et pour le paquet principal une
+attestation de provenance — l'ancrage que D19 jugeait absent pour
+`lsp-ai` est présent pour `@github/copilot`. Les deux décisions
+restent cohérentes entre elles une fois ce fait établi, pas
+contradictoires.
+
+**Absence de fichier de verrouillage, écrite plutôt que tue** (§ 1 de
+la demande) : `npm install -g` **n'épingle rien** par lui-même —
+`package-lock.json` est un artefact de projet (`npm install` sans
+`-g`, à l'intérieur d'un répertoire contenant un `package.json`),
+jamais généré par une installation globale. Vérifié par essai réel
+avant ce livrable (installation dans `~/.local`, aucun fichier de
+verrouillage produit), pas supposé. Seule voie d'épinglage disponible
+pour ce cas : fixer la version exacte dans la commande d'installation
+elle-même (`@github/copilot@1.0.78`, jamais `@latest` ni le nom de
+paquet nu) — retenue, `roles/copilot_cli/defaults/main.yml`
+(`copilot_cli_version`). Un changement de version est donc toujours un
+changement délibéré de cette valeur, jamais un `npm update -g`
+silencieux (ce rôle ne lance jamais `npm update`/`copilot update`).
+
+**Ce que ce dépôt ne fait jamais avec cette surface** : aucun autre
+paquet npm installé (`roles/copilot_cli/` installe exactement
+`@github/copilot`, à sa version épinglée, rien d'autre) ; aucune
+écriture dans `/usr` ou `/usr/local` au-delà du runtime Node.js
+lui-même (paquet système, `dnf`) — le paquet npm va exclusivement dans
+le domaine utilisateur (`~/.local`, même discipline que `lsp-ai` et le
+venv `ansible-lint`) ; aucun jeton d'authentification stocké dans ce
+dépôt (`COPILOT_GITHUB_TOKEN`/`GH_TOKEN`/`GITHUB_TOKEN` — authentification
+interactive par `copilot login`, jamais scriptée, `docs/editor.md` §
+Copilot CLI, `docs/orchestration.md`).
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — D10, D7 (COPR), D5
-  (Claude Code), D23 (retrait `cardwire`), inventaire GPU et Ansible.
+  (Claude Code), D23 (retrait `cardwire`), D24 (npm, révision de D12),
+  inventaire GPU et Ansible.
 - [`docs/gpu-containers.md`](gpu-containers.md) — D7, ancrage de
   confiance du COPR `@ai-ml`, même discipline de sourcing appliquée ici
   à Terra.

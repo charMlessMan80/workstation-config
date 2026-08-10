@@ -1,0 +1,15 @@
+---
+# Playbook d'exécution/test du rôle copilot_cli, ciblant localhost —
+# même patron que roles/editor/editor.yml et les rôles précédents.
+# Écrit dans /usr (runtime Node.js, via dnf) et dans $HOME de
+# l'utilisateur courant (~/.local, préfixe npm et binaire copilot) :
+# l'installation du runtime exige une élévation de privilège, le
+# reste non. Ce compte porte une règle NOPASSWD depuis le 2026-08-05
+# (D9, docs/machine-facts.md § Décisions) — la tâche become: true de
+# ce rôle s'exécute donc sans invite.
+- name: Copilot CLI — second agent de code, version épinglée (D24)
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - role: "{{ playbook_dir }}"

@@ -1,0 +1,60 @@
+---
+# Rôle copilot_cli — installe GitHub Copilot CLI comme second agent de
+# code (D24, révision de D12 — docs/machine-facts.md § Décisions),
+# pour répartir la consommation entre l'abonnement GitHub et Claude
+# Code selon les jetons disponibles. Distinct de roles/editor/ et
+# roles/completion/ : ce rôle installe node/npm eux-mêmes (D12 ne les
+# interdit plus depuis D24) ; les deux autres rôles continuent de
+# garder ce que node/npm ne doivent jamais fournir chez eux (aucun
+# serveur de langage récupéré par ce canal, D12 resserrée plutôt que
+# retirée).
+
+# --- Runtime Node.js, système, fedora/updates uniquement -------------------
+# Exigence réelle de @github/copilot lue, pas supposée — documentation
+# amont, externe, nommée : docs.github.com/en/copilot/how-tos/set-up/
+# install-copilot-cli, section prérequis : « Node.js 22 or later ».
+# nodejs22 (paquet Fedora versionné, aucun paquet « nodejs » nu dans les
+# onze dépôts — vérifié `dnf repoquery`) satisfait cette exigence au
+# plus proche de la borne basse annoncée, jamais « la plus récente
+# disponible » par réflexe. `nodejs22-bin`/`nodejs22-npm-bin` seuls
+# suffisent (le paquet réel `nodejs22`/`nodejs22-npm` est tiré en
+# dépendance) — jamais `nodejs22-docs`/`nodejs22-full-i18n` (dépendances
+# faibles, ~81 Mio à eux deux, sans usage ici), exclues par
+# `install_weak_deps: false` dans tasks/main.yml.
+copilot_cli_node_packages:
+  - nodejs22-bin
+  - nodejs22-npm-bin
+
+# --- Préfixe npm dans le domaine utilisateur, jamais /usr ou /usr/local ---
+# Même discipline que lsp-ai (roles/completion/, ~/.local/bin) et le
+# venv ansible-lint (~/.venvs/, D3a) : le préfixe npm par défaut sur ce
+# poste (`npm config get prefix`, vérifié avant tout changement) est
+# `/usr/local`, `root:root 0755` — un `npm install -g` par défaut
+# exigerait soit `sudo npm install -g` (mélange de fichiers root-owned
+# dans une arborescence système, l'anti-patron que la documentation npm
+# elle-même déconseille), soit une élévation à chaque mise à jour du
+# paquet. Préfixe utilisateur retenu, documenté comme LA voie
+# recommandée par npm lui-même pour ce cas précis (source externe,
+# nommée) :
+# docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally
+# — « npm config set prefix '~/.local/' ». `~/.local/bin` est déjà sur
+# le PATH de ce compte (vérifié, pas supposé) : aucune modification de
+# profil shell nécessaire, contrairement à la procédure générique
+# documentée par npm (qui suppose que ce chemin n'y est pas encore).
+copilot_cli_npm_prefix: "{{ ansible_facts.env.HOME }}/.local"
+copilot_cli_bin_dir: "{{ copilot_cli_npm_prefix }}/bin"
+copilot_cli_bin_name: copilot
+
+# --- Paquet et version épinglée -------------------------------------------
+# `npm install -g` seul (nom de paquet sans version) n'épingle rien :
+# aucun fichier de verrouillage n'existe pour une installation globale
+# (`package-lock.json` est un artefact de PROJET, jamais généré par
+# `npm install -g`) — vérifié par essai réel avant ce livrable, pas
+# supposé. Seule voie d'épinglage disponible pour une install globale :
+# fixer la version exacte dans la commande elle-même
+# (`@github/copilot@<version>`), consignée ici, jamais `@latest` ni le
+# nom de paquet nu. Toute mise à jour est donc un changement délibéré
+# de cette valeur, jamais un `npm update -g` silencieux — ce rôle ne
+# lance jamais `npm update`/`copilot update`.
+copilot_cli_npm_package: "@github/copilot"
+copilot_cli_version: "1.0.78"

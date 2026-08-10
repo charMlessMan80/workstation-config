@@ -6,42 +6,78 @@
 # templates/languages.toml.j2). Complétion à la demande, pas résidente
 # (D20, requalifie D15) — ce rôle ne charge et ne choisit aucun modèle.
 #
-# Interdits, comme roles/editor/ et roles/local_ai/ : jamais node/npm
-# (D12, garde ci-dessous), jamais un binaire lsp-ai précompilé (D19 —
-# seule la compilation depuis crates.io est retenue), jamais
-# d'installation hors du domaine utilisateur à l'exception de la chaîne
-# de compilation elle-même (rust/cargo, fedora/updates uniquement,
-# jamais terra). Ne modifie jamais SELinux, sudoers, aucun dépôt. Ne
-# redémarre jamais et ne déconnecte jamais la session.
+# Interdits, comme roles/editor/ : jamais un serveur de langage npm
+# (D12 resserrée par D24, garde ci-dessous — npm lui-même est ouvert
+# ailleurs, roles/copilot_cli/, pas ici), jamais un binaire lsp-ai
+# précompilé (D19 — seule la compilation depuis crates.io est
+# retenue), jamais d'installation hors du domaine utilisateur à
+# l'exception de la chaîne de compilation elle-même (rust/cargo,
+# fedora/updates uniquement, jamais terra). Ne modifie jamais SELinux,
+# sudoers, aucun dépôt. Ne redémarre jamais et ne déconnecte jamais la
+# session.
 
-# --- Garde 1/4 — node/npm absents du PATH (D12 reste en vigueur) -----------
-# Même patron que roles/editor/ (garde D12, substituable pour la
-# démonstration d'échec forcé sans jamais installer node/npm réellement).
+# --- Garde 1/4 (resserrée, D24) — aucun serveur de langage npm sur le PATH -
+# [RESSERRÉE le 2026-08-10, D24] ÉTAIT : vérifiait l'absence totale de
+# node/npm — motif complet du resserrement, defaults/main.yml, même
+# patron que roles/editor/ (garde D12, seconde occurrence indépendante
+# du même mécanisme, découverte en écrivant D24).
 
-- name: "Garde 1/4 — vérifier qu'aucun des binaires interdits n'est sur le PATH : {{ completion_forbidden_binaries | join(', ') }}"
+- name: "Garde 1/4 (resserrée) — vérifier qu'aucun serveur de langage interdit n'est sur le PATH : {{ completion_forbidden_lsp_servers | join(', ') }}"
   ansible.builtin.command:
     argv:
       - sh
       - -c
-      - "{{ completion_forbidden_binaries | map('regex_replace', '^(.*)$', 'command -v \\1') | join(' || ') }}"
+      - "{{ completion_forbidden_lsp_servers | map('regex_replace', '^(.*)$', 'command -v \\1') | join(' || ') }}"
   register: completion_forbidden_check
   changed_when: false
   failed_when: false
   check_mode: false
 
-- name: "Échouer bruyamment si un binaire interdit par D12 est présent (npm n'est pas rouvert par ce rôle)"
+- name: "Échouer bruyamment si un serveur de langage interdit par D12 est présent (npm reste ouvert pour Copilot CLI, pas pour ça)"
   ansible.builtin.assert:
     that:
       - completion_forbidden_check.rc != 0
     fail_msg: >-
-      Un binaire parmi {{ completion_forbidden_binaries | join(', ') }}
+      Un binaire parmi {{ completion_forbidden_lsp_servers | join(', ') }}
       est présent sur le PATH ({{ completion_forbidden_check.stdout | trim }}) —
-      D12 (docs/machine-facts.md § Décisions) interdit node/npm comme
-      surface d'approvisionnement, sous quelque forme que ce soit. Ce
-      rôle s'arrête plutôt que de continuer sur une prémisse violée.
+      D12 (docs/machine-facts.md § Décisions, resserrée D24) interdit
+      tout serveur de langage récupéré par npm, que npm lui-même soit
+      présent ou non. Ce rôle s'arrête plutôt que de continuer sur une
+      prémisse violée.
     success_msg: >-
-      Aucun des binaires interdits par D12 ({{ completion_forbidden_binaries | join(', ') }})
+      Aucun serveur de langage interdit par D12 ({{ completion_forbidden_lsp_servers | join(', ') }})
       n'est présent sur le PATH — garde vérifiée.
+
+# --- Garde 1/4bis (D24) — lsp-ai, s'il est sur le PATH, reste le binaire compilé
+# Note d'intégrité, pas une dépendance fonctionnelle — motif complet,
+# defaults/main.yml (languages.toml et le client LSP de Kate invoquent
+# déjà lsp-ai par chemin absolu, jamais via le PATH).
+
+- name: "Garde 1/4bis — vérifier que lsp-ai, s'il est sur le PATH, résout bien vers le binaire compilé attendu"
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "command -v {{ completion_bin_name }}"
+  register: completion_lsp_ai_which
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Échouer bruyamment si lsp-ai résout ailleurs qu'au binaire compilé attendu (D19)"
+  ansible.builtin.assert:
+    that:
+      - completion_lsp_ai_which.rc != 0 or (completion_lsp_ai_which.stdout | trim) == completion_lsp_ai_expected_path
+    fail_msg: >-
+      {{ completion_bin_name }} résout vers
+      {{ completion_lsp_ai_which.stdout | trim }}, pas
+      {{ completion_lsp_ai_expected_path }} — D19 exige le binaire
+      compilé depuis les sources, jamais un substitut (ex. un paquet
+      npm global du même nom). Ce rôle s'arrête plutôt que de
+      continuer sur une prémisse violée.
+    success_msg: >-
+      lsp-ai absent du PATH, ou présent exactement au chemin attendu
+      ({{ completion_lsp_ai_expected_path }}) — garde vérifiée.
 
 # --- Chaîne Rust : tentative sans privilège avant toute élévation ----------
 # CLAUDE.md § toute élévation de privilège doit être précédée d'une
@@ -577,7 +613,7 @@
 - name: "Rapporter l'état (exécution réelle)"
   ansible.builtin.debug:
     msg:
-      - "Gardes vérifiées : node/npm absents (D12), chaîne Rust fonctionnelle, service d'inférence local joignable."
+      - "Gardes vérifiées : aucun serveur de langage npm (D12 resserrée), lsp-ai au chemin compilé, chaîne Rust OK, service local joignable."
       - "Empreinte de commit compilée (D19) : {{ completion_lsp_ai_commit }}"
       - "Chaîne Rust utilisée : {{ completion_cargo_version.stdout | trim }}"
       - "Empreinte du binaire produit : {{ completion_binary_sha256.stdout | default('non recalculée, idempotent') | trim }}"

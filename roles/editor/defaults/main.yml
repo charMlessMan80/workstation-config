@@ -13,23 +13,49 @@
 editor_helix_package: helix
 editor_kate_package: kate
 
-# [CORRIGÉ le 2026-08-08, COR-2] ÉTAIT « D11 renumérotée » — D12
-# (docs/machine-facts.md § Décisions ; demande d'origine « D11 », déjà
-# pris par le placement de fenêtre KWin, renumérotée D12) : npm n'est
-# pas ouvert comme surface d'approvisionnement. Ni yaml-language-server, ni
-# ansible-language-server, ni aucun serveur de langage récupéré par ce
-# canal — aucun des deux n'est empaqueté dans les onze dépôts (constaté
-# en EDI-0, docs/editor.md § 1.2), les installer supposerait node/npm
-# (absents de ce poste) et un modèle de dépendances transitives hors du
-# contrôle rpm. Contrepartie assumée : pas de complétion ni de
-# diagnostic YAML/Ansible dans l'éditeur — ansible-lint et yamllint
-# (venv D3a) appelés en ligne de commande ou via outil externe Kate
-# pointant explicitement ce binaire, jamais un second binaire installé.
-# Ces deux noms sont les cibles de la garde (tasks/main.yml) — jamais
-# installés par ce rôle, vérifiés absents après exécution.
-editor_forbidden_binaries:
-  - node
-  - npm
+# [RESSERRÉE le 2026-08-10, D24] ÉTAIT : garde D12 vérifiant l'absence
+# totale de `node`/`npm` sur le PATH — cassait dès l'installation de
+# GitHub Copilot CLI (D24, révision de D12, docs/machine-facts.md §
+# Décisions), qui ouvre npm sur ce poste pour un usage légitime et
+# distinct (roles/copilot_cli/). npm lui-même n'a jamais été la
+# préoccupation réelle de D12 : ce qui devait rester fermé, c'est
+# qu'AUCUN SERVEUR DE LANGAGE ne provienne de ce canal pour Helix/Kate,
+# et que `lsp-ai` reste le binaire compilé depuis les sources (D19),
+# jamais un substitut installé par npm. Cette contrainte a plus de sens
+# maintenant que npm est légitimement présent : la tentation de
+# résoudre `yaml-language-server`/`ansible-language-server` par
+# `npm install -g` devient réelle, alors qu'elle ne l'était pas tant
+# que npm était absent du système. Ni l'un ni l'autre n'est empaqueté
+# dans les onze dépôts (constaté en EDI-0, docs/editor.md § 1.2) — les
+# installer supposerait toujours un modèle de dépendances transitives
+# hors du contrôle rpm, npm présent ou non. Contrepartie assumée,
+# inchangée : pas de complétion ni de diagnostic YAML/Ansible dans
+# l'éditeur — `ansible-lint`/`yamllint` (venv D3a) appelés en ligne de
+# commande ou via outil externe Kate pointant explicitement ce binaire.
+# Démontrée dans les deux sens après resserrement — docs/editor.md §
+# Copilot CLI (les deux démonstrations d'origine, § 2.3, ne portaient
+# que sur `node`/`npm`, invalidées par cette révision, pas rejouables
+# telles quelles).
+editor_forbidden_lsp_servers:
+  - yaml-language-server
+  - ansible-language-server
+
+# Chemin attendu du binaire lsp-ai compilé (D19) — même valeur que
+# `completion_bin_dir`/`completion_bin_name` dans
+# `roles/completion/defaults/main.yml`, jamais importée directement
+# (rôles autonomes, pas de dépendance croisée déclarée) : dupliquée ici
+# à dessein, comme une constante nommée deux fois plutôt qu'un couplage
+# implicite entre rôles. Si les deux divergent un jour, chacune casse
+# sa propre garde plutôt que de se référencer silencieusement l'une
+# l'autre.
+editor_lsp_ai_expected_path: "{{ ansible_facts.env.HOME }}/.local/bin/lsp-ai"
+
+# [RETIRÉE le 2026-08-10, D24] La variable portait ici le nom
+# `editor_forbidden_binaries` ([node, npm]) — remplacée par
+# `editor_forbidden_lsp_servers` ci-dessus, motif complet dans le
+# commentaire qui le précède. Marqué ici, pas supprimé sans trace, pour
+# qu'une recherche de l'ancien nom retrouve l'explication plutôt qu'un
+# silence.
 
 # Binaire ansible-lint faisant autorité (D3a, docs/ansible-chain.md) —
 # jamais un second `ansible-lint`/`yamllint` installé en paquet système

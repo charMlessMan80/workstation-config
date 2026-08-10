@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  role_name: copilot_cli
+  author: Mickael Mahieu
+  description: >-
+    Installe GitHub Copilot CLI (@github/copilot, version épinglée)
+    comme second agent de code, pour répartir la consommation entre
+    l'abonnement GitHub et Claude Code (D24, révision de D12 —
+    docs/machine-facts.md § Décisions). Installe le runtime Node.js
+    requis depuis fedora/updates (jamais terra), configure npm pour
+    installer dans le domaine utilisateur (~/.local, jamais /usr ni
+    /usr/local). N'authentifie jamais (`copilot login` reste un geste
+    manuel de l'opérateur, docs/orchestration.md). Ne touche jamais
+    sudoers, /etc/cdi/, kwinrc, kwinrulesrc, gpu_mux_mode. Ne redémarre
+    jamais, ne déconnecte jamais la session.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

@@ -48,8 +48,9 @@ duplique pas ce contenu.
 - Il ne télécharge **aucun binaire `lsp-ai` précompilé**, sous aucune
   forme (D19 — seule la compilation depuis les sources est retenue).
 - Il ne charge et ne choisit **aucun modèle** (D17/D20).
-- Il n'installe jamais `node`, `npm`, ni aucun serveur de langage par
-  ce canal (D12).
+- Il n'installe jamais aucun serveur de langage npm, ni n'accepte de
+  substitut à `lsp-ai` (D12 resserrée, D24) — npm lui-même est ouvert
+  ailleurs (`roles/copilot_cli/`), pas ici.
 - Il n'installe rien hors du domaine utilisateur, à l'exception de la
   chaîne de compilation Rust (`fedora`/`updates` uniquement, jamais
   `terra`).
@@ -63,8 +64,8 @@ duplique pas ce contenu.
 Voir `defaults/main.yml` — chaque variable y porte son motif en
 commentaire. Substituables pour les démonstrations d'échec forcé, sans
 jamais changer l'état réel du système :
-`completion_forbidden_binaries`, `completion_rust_check_binaries`,
-`completion_ollama_url_check`.
+`completion_forbidden_lsp_servers`, `completion_lsp_ai_expected_path`,
+`completion_rust_check_binaries`, `completion_ollama_url_check`.
 
 ## Utilisation
 
@@ -75,7 +76,9 @@ ansible-playbook roles/completion/completion.yml                 # écriture ré
 
 # Démonstrations d'échec forcé (docs/completion.md § 3) :
 ansible-playbook roles/completion/completion.yml \
-  -e completion_forbidden_binaries='["sh"]'
+  -e completion_forbidden_lsp_servers='["sh"]'
+ansible-playbook roles/completion/completion.yml \
+  -e completion_lsp_ai_expected_path='/nonexistent'
 ansible-playbook roles/completion/completion.yml \
   -e completion_rust_check_binaries='["cargo_absent_garanti"]'
 ansible-playbook roles/completion/completion.yml \

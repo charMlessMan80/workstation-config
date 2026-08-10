@@ -9,8 +9,9 @@
 #   ansible-playbook --ask-become-pass site.yml
 #
 # Étiquettes pour rejouer un rôle seul : bootstrap, recovery, gpu_cdi,
-# gpu_mux, local_ai, editor, completion — voir docs/orchestration.md
-# pour l'usage complet, y compris la reprise après le point d'arrêt.
+# gpu_mux, local_ai, editor, completion, copilot_cli — voir
+# docs/orchestration.md pour l'usage complet, y compris la reprise
+# après le point d'arrêt.
 #
 # Ne redémarre JAMAIS lui-même — s'arrête explicitement (post_tasks,
 # plus bas) si un redémarrage est encore requis, avec le message exact
@@ -82,6 +83,14 @@
     - role: completion
       tags: ['completion']
 
+    # Indépendant de tout ce qui précède, comme editor — placé après
+    # editor/completion par regroupement (agents/outillage de
+    # développement, D24), pas par dépendance réelle. N'authentifie
+    # jamais (copilot login reste un geste manuel de l'opérateur,
+    # docs/orchestration.md) — ce rôle ne fait qu'installer le binaire.
+    - role: copilot_cli
+      tags: ['copilot_cli']
+
   post_tasks:
     # --- Point d'arrêt — jamais un redémarrage déclenché ici -----------
     # Un seul redémarrage couvre gpu_mux_mode (D2bis/D2ter) ET le
@@ -116,7 +125,7 @@
       changed_when: false
       check_mode: false
 
-    - name: "ARRÊT — redémarrage requis avant de poursuivre (editor/completion ne sont pas concernés, déjà exécutés ci-dessus)"
+    - name: "ARRÊT — redémarrage requis avant de poursuivre (editor/completion/copilot_cli ne sont pas concernés, déjà exécutés ci-dessus)"
       ansible.builtin.fail:
         msg: >-
           Redémarrage requis avant de considérer cette reconstruction

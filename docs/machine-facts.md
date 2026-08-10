@@ -1399,6 +1399,97 @@ normaux par mises à jour depuis, § détail dans `docs/repositories.md`
 qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
 à toute recherche par dépôt configuré.
 
+**D24 (2026-08-10) — révision de D12 : npm ouvert pour GitHub Copilot
+CLI, installation directe sur l'hôte.** Besoin : un second agent de
+code (`@github/copilot`), pour répartir la consommation entre
+l'abonnement GitHub et Claude Code. Copilot CLI se distribue par npm —
+collision directe avec D12 (§ ci-dessus, `docs/editor.md` § 2). Deux
+décisions de l'opérateur consignées ici : npm ouvert (voie
+conteneurisée examinée et écartée) ; authentification interactive
+(D25, ci-dessous).
+
+**Ce qui reste vrai de D12, ce qui change** : le motif d'origine — npm
+échappe à l'ancrage de confiance de `docs/repositories.md`, modèle de
+dépendances transitives sans commune mesure avec rpm — reste
+**intégralement vrai**. Ce qui change est l'arbitrage : la
+contrepartie (second agent de code) est jugée acceptable. `lsp-ai`
+reste compilé depuis les sources (D19, motif indépendant — absence de
+somme de contrôle publiée sur son binaire précompilé, sans rapport
+avec npm) : **pas rouvert** par cette révision.
+
+**Garde D12 resserrée, pas retirée** — dans `roles/editor/` et
+`roles/completion/` (seconde occurrence indépendante du même
+mécanisme, découverte en écrivant D24, hors périmètre initialement
+annoncé, corrigée avec l'accord explicite de l'opérateur) : ce que D12
+protégeait réellement n'a jamais été « npm absent », mais qu'aucun
+serveur de langage (`yaml-language-server`, `ansible-language-server`)
+ne provienne de ce canal, et que `lsp-ai` reste le binaire compilé.
+Démontrée dans les deux sens, dans les deux rôles indépendamment,
+`docs/editor.md` § Copilot CLI.
+
+**npm : sixième surface d'approvisionnement** (`docs/repositories.md`
+§ 11) — ancrage réel supérieur à ce que D19 avait constaté pour
+`lsp-ai` précompilé : intégrité de contenu (sha512) + signature du
+registre + attestation de provenance Sigstore pour le paquet principal
+(`npm audit signatures`, vérifié localement). Aucun fichier de
+verrouillage possible pour une installation globale
+(`npm install -g` n'en génère jamais) — version épinglée dans la
+commande d'installation elle-même retenue comme seule voie
+d'épinglage disponible (`@github/copilot@1.0.78`, jamais `@latest`).
+
+**Installé, vérifié, version épinglée** : runtime Node.js 22
+(`nodejs22-bin`/`nodejs22-npm-bin`, `fedora`/`updates`,
+`install_weak_deps: false` — 5 paquets/88 Mio contre 7/169 Mio avec
+les dépendances faibles, documentation et internationalisation
+complètes sans usage ici), préfixe npm dans le domaine utilisateur
+(`~/.local`, même discipline que `lsp-ai`/venv `ansible-lint`) —
+`/usr/local`, préfixe par défaut sur ce poste, est `root:root 0755`,
+recommandation de npm lui-même (source externe nommée,
+`docs/editor.md` § Copilot CLI) pour éviter `sudo npm install -g`.
+`roles/copilot_cli/` (nouveau rôle — argumentaire du choix contre
+`roles/editor/`/`roles/completion/`, `docs/editor.md` § Copilot CLI),
+inséré dans `site.yml` après `completion`, indépendant.
+
+**D25 (2026-08-10) — authentification Copilot CLI par `copilot login`
+interactif, jamais un jeton d'accès personnel.** `copilot login` ouvre
+un flux OAuth (navigateur ou code d'appareil) et enregistre lui-même
+les identifiants (trousseau système, ou `~/.copilot/` en repli) —
+**jamais lancé par ce dépôt**, geste manuel de l'opérateur ajouté à
+`docs/orchestration.md` § 2bis. Confirmé après l'installation complète
+de ce livrable : `~/.copilot/` n'existe pas.
+
+**Ordre de précédence des jetons** (lu directement dans l'aide
+intégrée du binaire installé, `copilot help environment`, corroboré
+par la documentation amont externe) : `COPILOT_GITHUB_TOKEN` >
+`GH_TOKEN` > `GITHUB_TOKEN` > identifiants enregistrés. **Voie
+écartée, motif écrit** : définir `GH_TOKEN`/`GITHUB_TOKEN`
+**globalement** exposerait un jeton à tout l'outillage du poste, y
+compris aux agents exécutant des commandes arbitraires — surface sans
+commune mesure avec `copilot login`, qui confine le jeton au trousseau
+système. `roles/copilot_cli/` ne lit, n'écrit ni ne vérifie aucune de
+ces variables.
+
+**Vérification non interactive de l'authentification — recherchée,
+absente, pas de substitut inventé** : aucun flag, sous-commande ni
+code de retour documenté (documentation amont externe + aide intégrée
+du binaire, concordantes) ne distingue « authentifié » de « non
+authentifié » sans lancer une session réelle. `roles/copilot_cli/` ne
+garde donc pas cette étape — un agent non authentifié échoue au
+premier usage réel, tardivement, accepté tel quel plutôt que contourné
+par une garde qui ne vérifierait rien de réel.
+
+**Modèles et suivi de consommation — non établis avant
+authentification, marqué comme tel, aucune parité avec Claude Code
+affirmée.** Liste réelle des modèles dépendante de l'abonnement et de
+la région (mentions publiques : Claude Opus 4.6, Claude Sonnet 4.6,
+GPT-5.3-Codex, Gemini 3 Pro, Claude Haiku 4.5 — non vérifiable sans
+authentification, hors périmètre de ce livrable). Commandes préparées,
+toutes deux internes à la session interactive, pas des indicateurs
+shell : `/model` (liste des modèles offerts, après `copilot login` —
+aucun flag CLI documenté ne la donne hors session, recherché) ;
+`/usage` (consommation de la session courante) ou
+`github.com/settings/copilot` (relevé mensuel, hors CLI).
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1836,6 +1927,22 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   explicitement pour `claude-code`/`htop` entre les déclarer dans un
   rôle (`desktop`, aux côtés de `kitty`/`jq`) ou documenter leur
   absence de `site.yml` comme un choix assumé.
+- **Nouveau point ouvert, basse priorité (2026-08-10, D24) — liste
+  réelle des modèles Copilot CLI offerts par cet abonnement.** Non
+  établissable sans authentification (`copilot login`, jamais lancé
+  par ce dépôt) — hors périmètre de ce livrable par construction.
+  Commande préparée (`/model`, interne à la session interactive) mais
+  non exécutée. **N'affirme aucune parité avec Claude Code** : le
+  modèle par défaut documenté (Claude Sonnet 4.5) est une génération
+  antérieure à celle de cette session — se referme quand l'opérateur
+  authentifie et relève la liste réelle.
+- **Découverte annexe, signalée, non traitée (2026-08-10, D24)** :
+  `roles/completion/README.md` affirme encore « Il ne configure jamais
+  Kate — compatibilité jamais testée par personne » — périmé depuis
+  KAT-1 (2026-08-08, greffon LSP de Kate câblé), trouvé en relisant ce
+  fichier pour la révision de sa garde D12, sans rapport avec D24.
+  Signalé pour un prochain livrable qui touchera ce fichier,
+  non corrigé ici (hors périmètre de celui-ci).
 
 ## Journal des séries
 
@@ -3893,3 +4000,52 @@ qu'un compte pour mémoire : sans elle, ce paquet aurait été invisible
   partiellement prouvée (plancher structurel 268 ms, jamais eu à
   attendre réellement) ; pilote, `supergfxctl`, `cardwire` rafraîchis.
   Aucune action privilégiée cette série — confirmé, pas supposé.
+- **2026-08-10 — GitHub Copilot CLI, second agent de code, npm
+  rouvert (D24/D25).** Besoin de l'opérateur : répartir la
+  consommation entre l'abonnement GitHub et Claude Code. Fait
+  commandant tout : Copilot CLI se distribue par npm, collision
+  directe avec D12. Deux décisions de l'opérateur : npm ouvert,
+  installation directe sur l'hôte (voie conteneurisée examinée et
+  écartée) ; authentification interactive (`copilot login`), jamais
+  un jeton d'accès personnel.
+  D12 révisée, pas effacée : motif d'origine toujours vrai (ancrage de
+  confiance absent, dépendances transitives hors rpm), seul
+  l'arbitrage change. `lsp-ai` reste compilé depuis les sources (D19,
+  motif indépendant, pas rouvert). Garde D12 resserrée dans
+  `roles/editor/` **et** `roles/completion/` (seconde occurrence
+  indépendante du même mécanisme, hors périmètre initialement annoncé,
+  corrigée avec l'accord explicite de l'opérateur — sans quoi
+  `site.yml --check` n'aurait pas pu passer sans contournement, preuve
+  explicitement exigée) : aucun serveur de langage npm pour
+  Helix/Kate, `lsp-ai` au chemin compilé — démontrée dans les deux
+  sens, dans les deux rôles.
+  Nouveau rôle `roles/copilot_cli/` (argumenté contre `roles/editor/`
+  et `roles/completion/`, chaque rôle garde son identité) : runtime
+  Node.js 22 (`fedora`/`updates`, `install_weak_deps: false`, 5
+  paquets/88 Mio), préfixe npm dans le domaine utilisateur (`~/.local`,
+  recommandation de npm lui-même), `@github/copilot@1.0.78` (version
+  épinglée en commande — seule voie d'épinglage, aucun fichier de
+  verrouillage possible pour une installation globale). npm devient la
+  sixième surface d'approvisionnement (`docs/repositories.md` § 11) —
+  ancrage réel : intégrité de contenu + signature du registre +
+  attestation de provenance Sigstore pour le paquet principal
+  (`npm audit signatures`, vérifié localement).
+  Toutes les branches d'écriture du nouveau rôle exercées réellement
+  (état remis à zéro avant — `npm uninstall`, `dnf remove` — pour ne
+  pas se fier à un état déjà convergent), pas seulement documentées ;
+  idempotence reconfirmée. Les deux démonstrations de la garde
+  resserrée rejouées dans les deux rôles. `copilot login` **jamais
+  lancé** — confirmé par l'absence de `~/.copilot/` après installation
+  complète, pas seulement affirmé. Aucun jeton dans ce dépôt (`git
+  grep` sur les motifs plausibles, vide). `ansible-lint --profile
+  production` sur les quatre cibles touchées : 0 défaut.
+  `site.yml --check` complet passe sans contournement, jusqu'au point
+  d'arrêt final. Seule action privilégiée : installation du runtime
+  Node.js (`dnf`, `become: true`) — aucune voie non privilégiée
+  possible par construction. Deux découvertes annexes signalées, non
+  traitées (hors périmètre) : liste des modèles Copilot CLI non
+  établissable avant authentification (point ouvert, basse priorité) ;
+  `roles/completion/README.md` périmé depuis KAT-1 sur un point sans
+  rapport avec D24. Aucun autre dépôt système ajouté, `terra` non
+  touché (jamais interrogé par ce livrable), `sudoers`/`terra.repo`/
+  `/etc/cdi/`/`gpu_mux_mode`/`kwinrulesrc` intacts, aucun redémarrage.

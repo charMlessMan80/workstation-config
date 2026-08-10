@@ -113,6 +113,13 @@ D9 en place, les invocations suivantes n'ont plus besoin de
    joignable, modèle de complétion présent sur disque — ce dernier
    suppose `--tags pull-models,untagged` de `local_ai` déjà joué une
    fois, **jamais** dans ce flux, § 4 plus bas).
+8. **`copilot_cli`** — GitHub Copilot CLI, second agent de code (D24,
+   révision de D12 — `docs/editor.md` § Copilot CLI). Indépendant de
+   tout ce qui précède, comme `editor`, placé après `completion` par
+   regroupement (agents/outillage de développement). Installe le
+   runtime Node.js et le paquet npm à sa version épinglée —
+   **n'authentifie jamais** (§ 2bis ci-dessous, geste manuel de
+   l'opérateur).
 
 **Puis, `post_tasks`** : relève `pending_reboot`
 (`gpu_mux_mode`) et la valeur active de
@@ -137,6 +144,30 @@ d'écriture système répétée — voir
 [`roles/bootstrap/README.md`](../roles/bootstrap/README.md)) : rien de
 déjà fait n'est rejoué, seul le point d'arrêt est réévalué, et cette
 fois franchi.
+
+### 2bis. Authentification Copilot CLI — étape manuelle, jamais scriptée
+
+Après `site.yml` (le point d'arrêt sur `pending_reboot`/D16 n'a aucun
+rapport avec `copilot_cli`, exécuté avant lui dans la séquence — pas
+besoin d'attendre un redémarrage pour cette étape) :
+```
+copilot login
+```
+`copilot login` ouvre un flux OAuth interactif (navigateur, ou code
+d'appareil dans un environnement sans affichage) et enregistre
+lui-même les identifiants — dans le trousseau système, ou à défaut un
+fichier sous `~/.copilot/`. **Aucun rôle de ce dépôt ne la lance, ne
+la scripte, ni ne vérifie de jeton** — geste de l'opérateur au même
+titre que les préalables § 0 (aucune commande Ansible ne peut
+l'accomplir à sa place). Motif complet, alternatives écartées (jeton
+d'accès personnel, variables d'environnement globales) :
+`docs/editor.md` § Copilot CLI.
+
+**Aucune vérification non interactive de l'état d'authentification
+n'existe** (recherché, absent — `docs/editor.md` § Copilot CLI) :
+`roles/copilot_cli/` ne peut donc pas garder cette étape par une
+assertion. Un agent non authentifié échoue au premier usage réel
+(`copilot`/`copilot -p ...`), pas à l'installation — accepté tel quel.
 
 ### Un seul redémarrage, pas deux — établi par lecture, pas supposé
 
@@ -187,15 +218,20 @@ ansible-playbook --check site.yml                # simulation complète
 - **Le déplacement D9 sur une machine qui a DÉJÀ une règle
   fonctionnelle** (tag `bootstrap-sudoers` sur une machine autre que
   neuve) — prudence spécifique à COR-2, § 1 ci-dessus.
+- **`copilot login`** — jamais scripté, jamais un jeton stocké dans ce
+  dépôt (D25, `docs/machine-facts.md` § Décisions) — geste manuel de
+  l'opérateur après `site.yml`, § 2bis ci-dessus.
 
 ## 5. Ce qui a été vérifié, et ce qui ne l'a pas été
 
 **Vérifié, dans cette série** : `--syntax-check` complet ;
 `ansible-lint --profile production` sur `site.yml` et tous les rôles
 qu'il inclut, 0 défaut ; `--check` complet — `bootstrap`, `recovery`,
-`gpu_cdi`, `gpu_mux`, `local_ai`, `editor`, `completion` s'enchaînent
-**tous**, `local_ai` compris (§ ci-dessous), sans erreur en
-simulation ; le point d'arrêt post-redémarrage a été exercé dans son
+`gpu_cdi`, `gpu_mux`, `local_ai`, `editor`, `completion`, `copilot_cli`
+s'enchaînent **tous**, `local_ai` compris (§ ci-dessous), sans erreur en
+simulation (`copilot_cli` ajouté et revérifié le 2026-08-10, D24 —
+`docs/editor.md` § Copilot CLI) ; le point d'arrêt post-redémarrage a
+été exercé dans son
 état **nominal réel** de cette machine (`pending_reboot=0`,
 `PreserveVideoMemoryAllocations: 1` — les deux déjà satisfaits ici,
 héritage de redémarrages antérieurs à cette série) et a correctement
@@ -260,7 +296,9 @@ redémarrer ni provisionner de machine neuve.
   motivé ce document, et le graphe de dépendances reconstitué par
   lecture qui en est le matériau de départ.
 - [`docs/machine-facts.md`](machine-facts.md) § Décisions — D2bis/D2ter,
-  D6, D9, D10, D14-D22, texte complet de chaque décision reconstruite
+  D6, D9, D10, D14-D25, texte complet de chaque décision reconstruite
   ici.
 - [`roles/bootstrap/README.md`](../roles/bootstrap/README.md) — D6/D9/D10,
   amorçage, tag `bootstrap-sudoers`.
+- [`docs/editor.md`](editor.md) § Copilot CLI — D24/D25, résolution
+  complète, authentification interactive détaillée.

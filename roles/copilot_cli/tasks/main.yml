@@ -1,0 +1,157 @@
+---
+# Rôle copilot_cli — GitHub Copilot CLI comme second agent de code
+# (D24, docs/machine-facts.md § Décisions). N'installe QUE le paquet
+# npm retenu et sa version épinglée — n'ouvre aucun autre paquet npm,
+# n'écrit jamais dans /usr ou /usr/local, ne modifie jamais sudoers,
+# terra.repo, /etc/cdi/, gpu_mux_mode, kwinrulesrc, ne redémarre
+# jamais.
+#
+# N'AUTHENTIFIE JAMAIS : `copilot login` ouvre un flux OAuth interactif
+# (navigateur ou code d'appareil) et enregistre lui-même les
+# identifiants dans le trousseau système ou, à défaut, un fichier sous
+# ~/.copilot/ — une action de l'opérateur, jamais scriptée ici. Ce rôle
+# ne lit, n'écrit ni ne vérifie aucun jeton (COPILOT_GITHUB_TOKEN,
+# GH_TOKEN, GITHUB_TOKEN — voir docs/editor.md § Copilot CLI pour
+# l'ordre de précédence et le motif de ne pas les définir globalement).
+# Aucune commande non interactive fiable pour vérifier l'état
+# d'authentification n'a été trouvée (recherche documentée,
+# docs/editor.md § Copilot CLI) — aucune garde de substitution
+# inventée ici, conformément à la demande.
+
+# --- Runtime Node.js (seule action privilégiée du rôle) --------------------
+# fedora/updates uniquement, jamais terra (garde défensive systématique
+# de ce dépôt, même si aucun des deux paquets ne vient de terra — même
+# discipline que roles/editor/). install_weak_deps: false exclut
+# nodejs22-docs/nodejs22-full-i18n (~81 Mio à eux deux, aucun usage
+# ici) — vérifié par simulation avant ce livrable (7 paquets avec
+# dépendances faibles, 169 Mio ; 5 sans, 88 Mio).
+
+- name: "Installer le runtime Node.js requis par Copilot CLI (fedora/updates uniquement — jamais terra)"
+  ansible.builtin.dnf:
+    name: "{{ copilot_cli_node_packages }}"
+    state: present
+    disablerepo: terra
+    install_weak_deps: false
+  become: true
+  register: copilot_cli_node_install
+  when: not ansible_check_mode
+
+# --- Préfixe npm dans le domaine utilisateur --------------------------------
+# Relevé avant tout changement (jamais supposé) ; écrit seulement s'il
+# diffère de la cible — kwriteconfig6 (roles/editor/) ne rapporte
+# jamais lui-même s'il a changé quelque chose, npm config non plus :
+# même patron de lecture-puis-écriture-conditionnelle que le reste de
+# ce dépôt.
+
+- name: "Relever le préfixe npm actuel"
+  ansible.builtin.command:
+    cmd: npm config get prefix
+  register: copilot_cli_npm_prefix_current
+  changed_when: false
+  check_mode: false
+
+- name: "Définir le préfixe npm dans le domaine utilisateur (jamais /usr ni /usr/local) : {{ copilot_cli_npm_prefix }}"
+  ansible.builtin.command:
+    cmd: "npm config set prefix {{ copilot_cli_npm_prefix }}"
+  when:
+    - not ansible_check_mode
+    - (copilot_cli_npm_prefix_current.stdout | trim) != copilot_cli_npm_prefix
+  changed_when: true
+  register: copilot_cli_npm_prefix_set
+
+# --- Paquet, version épinglée, jamais @latest -------------------------------
+# `npm list -g --depth=0 --json <paquet>` : code de retour 0 et
+# dependencies.<paquet>.version si présent, code 1 et pas de clé
+# "dependencies" si absent — vérifié par essai réel (nom de paquet
+# garanti absent) avant d'écrire cette tâche, pas supposé.
+# failed_when: false : l'absence n'est pas une erreur à ce stade, c'est
+# un fait à lire.
+
+- name: "Relever la version actuellement installée (npm list -g, JSON) du paquet : {{ copilot_cli_npm_package }}"
+  ansible.builtin.command:
+    cmd: "npm list -g --depth=0 --json {{ copilot_cli_npm_package }}"
+  register: copilot_cli_npm_list
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Retenir la version installée (chaîne vide si absente)"
+  ansible.builtin.set_fact:
+    copilot_cli_installed_version: >-
+      {{ ((copilot_cli_npm_list.stdout | from_json).get('dependencies', {}).get(copilot_cli_npm_package, {}).get('version', '')) }}
+
+- name: "Installer la version épinglée (jamais @latest) seulement si absente ou différente : {{ copilot_cli_npm_package ~ '@' ~ copilot_cli_version }}"
+  ansible.builtin.command:
+    cmd: "npm install -g {{ copilot_cli_npm_package }}@{{ copilot_cli_version }}"
+  when:
+    - not ansible_check_mode
+    - copilot_cli_installed_version != copilot_cli_version
+  changed_when: true
+  register: copilot_cli_npm_install
+
+# --- Vérification finale, boucle fermée -------------------------------------
+# Ne se fie pas à la seule absence d'erreur de la tâche d'installation
+# (qui peut être skip si déjà à jour) — relit l'état réel, comme
+# roles/gpu_cdi/ relit la spécification installée plutôt que de faire
+# confiance à la tâche qui vient de l'écrire.
+
+- name: "Relire la version installée après action (boucle fermée)"
+  ansible.builtin.command:
+    cmd: "npm list -g --depth=0 --json {{ copilot_cli_npm_package }}"
+  register: copilot_cli_npm_list_after
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si la version installée ne correspond pas à la version épinglée"
+  ansible.builtin.assert:
+    that:
+      - ((copilot_cli_npm_list_after.stdout | from_json).get('dependencies', {}).get(copilot_cli_npm_package, {}).get('version', '')) == copilot_cli_version
+    fail_msg: >-
+      {{ copilot_cli_npm_package }} n'est pas installé à la version
+      épinglée {{ copilot_cli_version }} après exécution de ce rôle —
+      installation incomplète ou préfixe npm non pris en compte.
+    success_msg: "{{ copilot_cli_npm_package }}@{{ copilot_cli_version }} confirmé installé."
+  when: not ansible_check_mode
+
+- name: "Confirmer que le binaire copilot est bien au chemin attendu : {{ copilot_cli_bin_dir ~ '/' ~ copilot_cli_bin_name }}"
+  ansible.builtin.stat:
+    path: "{{ copilot_cli_bin_dir }}/{{ copilot_cli_bin_name }}"
+  register: copilot_cli_bin_stat
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si le binaire copilot est absent du domaine utilisateur attendu"
+  ansible.builtin.assert:
+    that:
+      - copilot_cli_bin_stat.stat.exists
+    fail_msg: >-
+      {{ copilot_cli_bin_dir }}/{{ copilot_cli_bin_name }} n'existe pas
+      — le préfixe npm n'a peut-être pas été pris en compte par
+      l'installation (npm met en cache la configuration en cours de
+      process ; une exécution réelle après changement de préfixe
+      régénère l'emplacement).
+    success_msg: "{{ copilot_cli_bin_dir }}/{{ copilot_cli_bin_name }} présent."
+  when: not ansible_check_mode
+
+# --- Rapport -----------------------------------------------------------
+
+- name: "Rapporter l'état (mode simulation --check)"
+  ansible.builtin.debug:
+    msg: >-
+      --check : aucune écriture réalisée. Runtime Node.js
+      ({{ copilot_cli_node_packages | join(', ') }}) et
+      {{ copilot_cli_npm_package }}@{{ copilot_cli_version }} seraient
+      installés dans le domaine utilisateur ({{ copilot_cli_npm_prefix }}).
+      Authentification (`copilot login`) jamais lancée par ce rôle —
+      geste manuel de l'opérateur, docs/orchestration.md.
+  when: ansible_check_mode
+
+- name: "Rapporter l'état (exécution réelle)"
+  ansible.builtin.debug:
+    msg:
+      - "Runtime Node.js installé depuis fedora/updates — jamais terra : {{ copilot_cli_node_packages | join(', ') }}."
+      - "Préfixe npm : {{ copilot_cli_npm_prefix }} (domaine utilisateur, jamais /usr ni /usr/local)."
+      - "{{ copilot_cli_npm_package }}@{{ copilot_cli_version }} installé et vérifié, {{ copilot_cli_bin_dir }}/{{ copilot_cli_bin_name }} confirmé."
+      - "Authentification NON effectuée par ce rôle — lancer « copilot login » manuellement (docs/orchestration.md)."
+  when: not ansible_check_mode

@@ -16,7 +16,9 @@ galaxy_info:
     l'API locale du service d'inférence (127.0.0.1), jamais une API
     distante. Complétion à la demande, pas résidente (D20, requalifie
     D15) — ne charge et ne choisit aucun modèle. N'installe jamais
-    node/npm (D12 reste en vigueur, garde dédiée). Seule installation
+    aucun serveur de langage npm, exige que lsp-ai reste le binaire
+    compilé (D12 resserrée par D24 — npm lui-même est ouvert ailleurs,
+    roles/copilot_cli/, pas ici), garde dédiée. Seule installation
     système : rust/cargo (fedora/updates uniquement, jamais terra),
     exception explicitement accordée pour la chaîne de compilation.
     Kate non configuré dans ce rôle (compatibilité jamais testée par

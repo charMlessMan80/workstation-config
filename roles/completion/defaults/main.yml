@@ -99,17 +99,35 @@ completion_build_extra_packages:
   - perl-IO-Socket-INET6
   - perl-Text-Template
 
-# --- Garde : node/npm absents, D12 reste en vigueur --------------------
-# Même patron que roles/editor/ (garde D12, mal nommée « D11 » dans ses
-# commentaires — écart préexistant, pas corrigé ici, hors périmètre de
-# ce rôle) : test d'exécution sur le PATH réel, pas une lecture de base
-# rpm — un binaire node/npm pourrait provenir d'ailleurs. Substituable
-# pour la démonstration d'échec forcé (§ 3 de la demande) sans jamais
-# changer l'état réel du système : -e completion_forbidden_binaries=['sh']
+# --- Garde (resserrée, D24) : aucun serveur de langage npm, lsp-ai intact -
+# [RESSERRÉE le 2026-08-10, D24] ÉTAIT : garde vérifiant l'absence
+# totale de node/npm sur le PATH — cassait dès l'installation de GitHub
+# Copilot CLI (D24, révision de D12, docs/machine-facts.md § Décisions,
+# roles/copilot_cli/), qui ouvre npm sur ce poste pour un usage
+# légitime et distinct. Motif complet du resserrement :
+# roles/editor/defaults/main.yml (même resserrement, appliqué ici pour
+# la même raison — cette garde est la seconde occurrence indépendante
+# du même mécanisme D12, découverte en écrivant D24, pas nommée dans la
+# demande d'origine). Test d'exécution sur le PATH réel, pas une
+# lecture de base rpm — un binaire pourrait provenir d'ailleurs.
+# Substituable pour la démonstration d'échec forcé sans jamais changer
+# l'état réel du système : -e completion_forbidden_lsp_servers=['sh']
 # (garanti présent) casse la garde sans installer quoi que ce soit.
-completion_forbidden_binaries:
-  - node
-  - npm
+completion_forbidden_lsp_servers:
+  - yaml-language-server
+  - ansible-language-server
+
+# Chemin attendu du binaire lsp-ai compilé — SOURCE DE VÉRITÉ pour ce
+# chemin (completion_bin_dir/completion_bin_name ci-dessus, ce rôle
+# est celui qui compile et installe le binaire). Note d'intégrité,
+# pas une dépendance fonctionnelle : languages.toml et le client LSP de
+# Kate invoquent déjà lsp-ai par CHEMIN ABSOLU
+# (templates/languages.toml.j2, templates/kate-lspclient-settings.json.j2)
+# — un « lsp-ai » qui apparaîtrait ailleurs sur le PATH (ex. un paquet
+# npm global du même nom) ne serait donc jamais consommé par erreur.
+# Cette garde protège l'intégrité constatable du poste, pas une
+# invocation réelle qui en dépendrait.
+completion_lsp_ai_expected_path: "{{ completion_bin_dir }}/{{ completion_bin_name }}"
 
 # --- Garde : service d'inférence local joignable ------------------------
 # Jamais une API distante (demande § 2.4) — mêmes valeurs que
@@ -160,7 +178,7 @@ completion_helix_config_dir: "{{ ansible_facts.env.HOME }}/.config/helix"
 # sans jamais vérifier que Helix est installé — c'est roles/editor/ qui
 # l'installe, aucun lien de dépendance déclaré entre les deux rôles.
 # Nom sur le PATH, pas un chemin en dur (même discipline que
-# completion_forbidden_binaries ci-dessus) — substituable pour la
+# completion_forbidden_lsp_servers ci-dessus) — substituable pour la
 # démonstration d'échec forcé sans jamais désinstaller Helix :
 # -e completion_helix_binary_name=hx-binaire-inexistant-garanti
 completion_helix_binary_name: hx

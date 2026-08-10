@@ -309,6 +309,18 @@ avec rpm. **Contrepartie assumée** : pas de complétion ni de
 diagnostic YAML/Ansible en place dans l'éditeur — remplacée par le
 flux de travail CLI documenté au § 3.
 
+**[RÉVISÉE le 2026-08-10, D24] npm est rouvert — pour un usage précis,
+pas comme surface générale.** Voir § Copilot CLI plus bas pour
+l'arbitrage complet. **Ce que cette révision ne touche pas** : le
+motif d'origine ci-dessus reste vrai (npm échappe toujours à l'ancrage
+de confiance de `docs/repositories.md` § 4/§ 10, le modèle de
+dépendances transitives reste sans commune mesure avec rpm) — ce qui
+change est l'arbitrage, pas le constat. `lsp-ai` reste compilé depuis
+les sources (D19) : son motif — absence de somme de contrôle publiée
+sur le binaire précompilé — est indépendant de npm et n'est pas
+rouvert par cette révision. La garde D12 elle-même est **resserrée**,
+pas retirée : § Copilot CLI, sous-section garde.
+
 **D13 — Helix en terminal, Kate en graphique.** Helix embarque
 coloration tree-sitter et configuration complète sans aucun
 gestionnaire de greffons — contrairement à Neovim, dont l'intérêt réel
@@ -671,6 +683,370 @@ Kate/`lsp-ai`) vivait dans `docs/completion.md`, pas ici.
 redémarrage — détail complet des actions privilégiées et de leurs
 tentatives sans privilège dans `docs/completion.md` § 9.5.
 
+## Copilot CLI — second agent de code, npm rouvert (D24, 2026-08-10)
+
+**Besoin** : installer GitHub Copilot CLI (`@github/copilot`) comme
+agent de code alternatif, pour répartir la consommation entre
+l'abonnement GitHub et Claude Code. **Fait qui commande tout** :
+Copilot CLI se distribue par npm (`npm install -g @github/copilot`) —
+collision directe avec D12 (§ 2 ci-dessus). **Deux décisions de
+l'opérateur** : réviser D12 (npm ouvert, installation directe sur
+l'hôte — la voie conteneurisée a été examinée et écartée) ;
+authentification interactive par `copilot login`, jamais un jeton
+d'accès personnel.
+
+### Révision de D12, ce qui change et ce qui ne change pas
+
+**Motif d'origine, toujours vrai** : npm échappe à l'ancrage de
+confiance de `docs/repositories.md`, avec un modèle de dépendances
+transitives sans commune mesure avec rpm (§ 2 ci-dessus). **Ce qui
+change** : l'arbitrage, pas le constat — la contrepartie (un second
+agent de code alimenté par un abonnement distinct) est jugée
+acceptable. **Contrepartie écrite plutôt que tue** : l'arbre de
+dépendances d'une application Node complète n'est pas mineur en
+général, mais pour ce paquet précis, mesuré et pas supposé — trois
+paquets seulement (`@github/copilot`, le paquet réel
+`@github/copilot-linux-x64`, `detect-libc`), `docs/repositories.md`
+§ 11. **`npm install -g` n'épingle rien** : aucun fichier de
+verrouillage n'existe pour une installation globale
+(`package-lock.json` est un artefact de projet, jamais généré par
+`-g` — vérifié par essai réel). Seule voie d'épinglage disponible,
+retenue : fixer la version exacte dans la commande elle-même
+(`@github/copilot@1.0.78`, jamais `@latest`) — détail complet,
+`docs/repositories.md` § 11.
+
+**Ce que cette révision ne rouvre pas** : `lsp-ai` reste compilé
+depuis les sources (D19). Son motif — absence de somme de contrôle
+publiée sur le binaire précompilé — est **indépendant de npm** : même
+si npm est maintenant ouvert, un binaire `lsp-ai` précompilé resterait
+sans ancrage de confiance propre. Les deux décisions restent
+cohérentes, pas en tension.
+
+### Garde D12, resserrée plutôt que retirée
+
+`roles/editor/` (et, découvert en écrivant ce livrable,
+`roles/completion/` — garde indépendante mais identique, hors
+périmètre initialement listé, resserrement étendu aux deux avec
+l'accord explicite de l'opérateur) assertaient l'absence totale de
+`node`/`npm` sur le `PATH`. Cette garde matérialisait D12 — la
+supprimer aurait retiré une protection, pas seulement révisé une
+décision.
+
+**Formulation retenue** : ce que D12 protégeait réellement n'a jamais
+été « npm absent », mais **qu'aucun serveur de langage ne provienne de
+npm pour Helix/Kate, et que `lsp-ai` reste le binaire compilé depuis
+les sources**. Cette contrainte a *plus* de sens maintenant que npm
+existe légitimement sur ce poste : la tentation de résoudre
+`yaml-language-server`/`ansible-language-server` par
+`npm install -g` devient réelle, alors qu'elle ne l'était pas tant que
+npm était absent. Deux vérifications, dans chacun des deux rôles :
+
+1. **Aucun des serveurs de langage nommément interdits**
+   (`yaml-language-server`, `ansible-language-server` —
+   `editor_forbidden_lsp_servers`/`completion_forbidden_lsp_servers`)
+   n'est présent sur le `PATH`.
+2. **`lsp-ai`, s'il est sur le `PATH`, résout exactement vers le
+   binaire compilé** (`~/.local/bin/lsp-ai`,
+   `editor_lsp_ai_expected_path`/`completion_lsp_ai_expected_path`) —
+   protège contre un substitut (ex. un paquet npm global qui se
+   nommerait aussi `lsp-ai`). Note d'intégrité, pas une dépendance
+   fonctionnelle : `languages.toml` et le client LSP de Kate invoquent
+   déjà `lsp-ai` par **chemin absolu**
+   (`roles/completion/templates/languages.toml.j2`,
+   `kate-lspclient-settings.json.j2`), jamais résolu via le `PATH` —
+   vérifié par lecture des deux gabarits, pas supposé.
+
+**Les deux démonstrations d'origine (§ 2.3) ne portaient que sur
+`node`/`npm` — invalidées par cette révision, pas rejouables telles
+quelles.** Rejouées avec la formulation resserrée, dans `roles/editor/`
+et `roles/completion/`, les deux vérifications, les deux sens :
+
+```
+# Nominal — état réel de ce poste, npm installé, lsp-ai compilé présent
+$ ansible-playbook roles/editor/editor.yml
+"Aucun serveur de langage interdit par D12 (yaml-language-server, ansible-language-server) n'est présent sur le PATH — garde vérifiée."
+"lsp-ai absent du PATH, ou présent exactement au chemin attendu (/home/mahieumi/.local/bin/lsp-ai) — garde vérifiée."
+# changed=0 (aucune dérogation)
+
+# Échec forcé 1/2 — un nom garanti présent substitué à la liste interdite
+$ ansible-playbook -e '{"editor_forbidden_lsp_servers": ["sh"]}' roles/editor/editor.yml
+fatal: [...]: "Un binaire parmi sh est présent sur le PATH (/usr/bin/sh) — D12 (... resserrée D24) interdit tout
+serveur de langage récupéré par npm pour cet éditeur, que npm lui-même soit présent ou non. [...]"
+
+# Échec forcé 2/2 — le chemin attendu substitué par un chemin garanti faux
+$ ansible-playbook -e '{"editor_lsp_ai_expected_path": "/nonexistent"}' roles/editor/editor.yml
+fatal: [...]: "lsp-ai résout vers /home/mahieumi/.local/bin/lsp-ai, pas /nonexistent — D19 [...] exige le binaire
+compilé depuis les sources [...], jamais un substitut [...]"
+
+# Rejoué sans dérogation immédiatement après chaque échec forcé : succès, changed=0
+```
+Même patron, mêmes deux démonstrations, dans `roles/completion/`
+(messages identiques, `completion_forbidden_lsp_servers`/
+`completion_lsp_ai_expected_path`) — les deux gardes sont
+indépendantes, chacune rejouée séparément.
+
+### Résolution avant installation
+
+**Aucun paquet `nodejs` nu dans les onze dépôts** — Fedora 44
+distribue Node.js en flux versionnés (`nodejs20`, `nodejs22`,
+`nodejs24`, chacun avec ses sous-paquets `-bin`/`-npm`/`-npm-bin`/
+`-libs`/`-docs`/`-full-i18n`), vérifié par `dnf repoquery`, pas
+supposé (`dnf repoquery nodejs` seul ne renvoie rien).
+
+**Exigence réelle de `@github/copilot`, lue, pas supposée** —
+documentation amont, externe, nommée :
+[`docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli`](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli),
+section prérequis : **« Node.js 22 or later »**. Les métadonnées npm
+publiées du paquet lui-même ne portent aucun champ `engines` (vérifié,
+`registry.npmjs.org/@github/copilot/latest`) — aucune exigence
+imposée par le gestionnaire de paquets, seulement documentée par
+l'éditeur. `nodejs22` retenu : satisfait l'exigence au plus proche de
+la borne basse annoncée, jamais « la plus récente disponible » par
+réflexe.
+
+**Simulation d'installation, nombre de paquets tirés, `terra` gardée
+explicitement bien qu'aucun des paquets ne vienne de ce dépôt** :
+```
+$ sudo dnf install --assumeno nodejs22-bin nodejs22-npm-bin
+[...] Installing: nodejs22-bin, nodejs22-npm-bin
+[...] Installing dependencies: nodejs22, nodejs22-libs, nodejs22-npm
+[...] Installing weak dependencies: nodejs22-docs (49.8 Mio), nodejs22-full-i18n (31.6 Mio)
+Transaction Summary: Installing: 7 packages — 169 Mio
+
+$ sudo dnf install --assumeno --setopt=install_weak_deps=False nodejs22-bin nodejs22-npm-bin
+[...même 5 paquets, sans docs/i18n...]
+Transaction Summary: Installing: 5 packages — 88 Mio
+```
+`install_weak_deps: false` retenu (`roles/copilot_cli/`) : la
+documentation et l'internationalisation complète de Node.js n'ont
+aucun usage sur ce poste — 81 Mio évités pour un rôle qui n'installe
+qu'un lanceur CLI.
+
+### Emplacement d'installation — domaine utilisateur, même discipline que `lsp-ai`
+
+**Préfixe npm par défaut sur ce poste, relevé avant tout changement** :
+```
+$ npm config get prefix
+/usr/local
+$ ls -ld /usr/local
+drwxr-xr-x. 1 root root 90 Apr 22 15:58 /usr/local
+```
+`root:root 0755` — un `npm install -g` par défaut exigerait soit
+`sudo npm install -g` (mélange de fichiers root-owned dans une
+arborescence système), soit une élévation à chaque mise à jour.
+**Recommandation de npm lui-même, source externe nommée** :
+[`docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally`](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally)
+— « `npm config set prefix '~/.local/'` ». **Même discipline que
+`lsp-ai`** (`roles/completion/`, `~/.local/bin`) et le venv
+`ansible-lint` (`~/.venvs/`, D3a) : domaine utilisateur, jamais un
+chemin système. `~/.local/bin` est déjà sur le `PATH` de ce compte
+(vérifié) — aucune modification de profil shell nécessaire,
+contrairement à la procédure générique documentée par npm (qui
+suppose que ce chemin n'y est pas encore).
+
+### Authentification — interactive, hors rôle
+
+**`copilot login` n'a pas été lancé par cette session** — vérifié,
+pas seulement affirmé : `~/.copilot/` n'existe pas après installation
+complète (`ls -la ~/.copilot` → *No such file or directory*), et
+`copilot --version`/`--help` fonctionnent sans authentification (testé
+directement, aucun des deux ne déclenche de flux OAuth).
+
+**Ordre de précédence, lu directement dans l'aide intégrée du binaire
+installé** (`copilot help environment`), corroboré par la
+documentation amont externe (mêmes docs que ci-dessus) :
+```
+COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN (in order of precedence):
+an authentication token that takes precedence over previously stored credentials.
+```
+**Voie explicitement écartée, motif écrit** : définir `GH_TOKEN` ou
+`GITHUB_TOKEN` **globalement** (profil shell, variable d'environnement
+système) exposerait un jeton à **tout l'outillage** de ce poste, y
+compris aux agents qui exécutent des commandes arbitraires (Claude
+Code lui-même, `copilot -p` en mode non interactif, tout script qui
+hérite de l'environnement) — une surface d'exposition sans commune
+mesure avec le geste ponctuel `copilot login`, qui confine le jeton au
+trousseau système ou à `~/.copilot/` (mode plat, si le trousseau est
+indisponible). `roles/copilot_cli/` ne lit, n'écrit ni ne vérifie
+aucune de ces trois variables.
+
+**Une étape manuelle de la séquence de reconstruction** — ajoutée à
+`docs/orchestration.md`, au même titre que les autres préalables non
+scriptables.
+
+**Vérification non interactive de l'état d'authentification —
+recherchée, pas trouvée** : documentation amont externe
+([`docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically`](https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically))
+et aide intégrée du binaire (`copilot --help`, `copilot login --help`)
+concordent : aucun flag, aucune sous-commande, aucun code de retour
+documenté pour distinguer « authentifié » de « non authentifié » sans
+lancer une session réelle. `copilot --version`/`copilot version`
+fonctionnent que l'agent soit authentifié ou non — ils ne le disent
+donc pas. **Aucune garde de substitution inventée** : un agent non
+authentifié échoue au premier usage réel (tardivement), pas à
+l'installation — accepté tel quel, pas contourné par une vérification
+qui ne vérifierait rien de réel.
+
+### Modèles et suivi de consommation — non établis avant authentification
+
+Les publications de GitHub mentionnent Claude Opus 4.6, Claude Sonnet
+4.6, GPT-5.3-Codex, Gemini 3 Pro et Claude Haiku 4.5 — **liste qui
+dépend de l'abonnement et de la région**, non vérifiable sans
+authentification (hors périmètre de ce livrable, `copilot login`
+n'ayant jamais été lancé). **Aucune parité avec Claude Code
+affirmée** : le modèle par défaut documenté (Claude Sonnet 4.5, une
+génération antérieure à celle de cette session) n'est pas
+automatiquement celui que l'opérateur voudrait — un choix explicite
+via `/model`, après authentification, reste nécessaire.
+
+**Commandes préparées, non exécutables avant authentification** —
+toutes deux des commandes **slash, internes à la session interactive**,
+pas des indicateurs shell :
+- Liste des modèles réellement offerts : lancer `copilot` (après
+  `copilot login`), puis `/model` — aucun flag CLI documenté ne donne
+  cette liste hors session (recherché, absent — demande communautaire
+  ouverte, non implémentée à ce jour, `github/copilot-cli` issues
+  #236/#700/#1356).
+- Suivi de consommation des requêtes premium/crédits IA : `/usage`
+  dans la session interactive (détail par session, jeton par jeton) ;
+  hors CLI, [`github.com/settings/copilot`](https://github.com/settings/copilot)
+  (relevé mensuel).
+
+### Intégration — nouveau rôle, argumenté
+
+**`roles/copilot_cli/`, pas `roles/editor/`.** `roles/editor/` install
+des éditeurs de texte (Helix, Kate) et porte, dans son identité même
+(`meta/main.yml`, ce document), l'interdiction historique de npm — y
+ajouter l'installation de npm lui-même aurait exigé de réécrire cette
+identité en profondeur pour un outil qui n'est pas un éditeur de
+texte. Copilot CLI est thématiquement plus proche de
+`roles/completion/` (un second agent de complétion/code, avec son
+propre modèle de confiance non-rpm) que de `roles/editor/` — mais
+`roles/completion/` porte sa propre identité forte (compilation
+`lsp-ai` depuis les sources, D19) et sa propre garde D12 resserrée
+indépendante. Un rôle séparé garde chaque identité intacte : la garde
+D12 de `roles/editor/` et `roles/completion/` continue de protéger ce
+qu'elle a toujours protégé (aucun serveur de langage npm, `lsp-ai`
+intact), tandis que `roles/copilot_cli/` porte, seul, la responsabilité
+d'ouvrir npm et de l'utiliser correctement (préfixe utilisateur,
+version épinglée, aucune authentification scriptée).
+
+**Idempotent, inséré dans `site.yml`** après `completion`, indépendant
+de tout ce qui précède (comme `editor`) — placé par regroupement
+(agents/outillage de développement), pas par dépendance réelle.
+
+### Branches exercées et non exercées
+
+**Exercées réellement, cette session** (état préalablement remis à
+zéro — `npm uninstall -g`, `npm config delete prefix`,
+`dnf remove nodejs22-bin nodejs22-npm-bin` — pour ne pas se fier à un
+état déjà convergent) :
+- `roles/copilot_cli/` : les **trois branches d'écriture** — runtime
+  Node.js absent → installé (`dnf`, `changed=true`) ; préfixe npm
+  différent de la cible → redéfini (`changed=true`) ; paquet npm
+  absent → installé à la version épinglée (`changed=true`). Rejoué
+  ensuite : les **trois branches de non-écriture** correspondantes
+  (déjà présent/déjà correct/déjà à la bonne version →
+  `changed=false`), deux fois de suite.
+- `roles/editor/` et `roles/completion/`, garde D12 resserrée : les
+  **quatre branches** (deux vérifications × nominal/échec forcé),
+  chacune démontrée dans les deux rôles indépendamment (§ ci-dessus).
+
+**Non exercées cette session, signalées plutôt que tues** :
+- `roles/editor/` : l'installation réelle de `helix`/`kate` depuis
+  l'absence (déjà présents depuis EDI-1/BUR-1, hors périmètre de ce
+  livrable — ne pas désinstaller un éditeur en service pour prouver
+  une branche sans rapport avec cette révision).
+- `roles/completion/` : la chaîne complète clone→compile→installe de
+  `lsp-ai` depuis l'absence (déjà compilé depuis CMP-1 ; recompiler
+  pour ce seul livrable aurait été disproportionné — la garde D12
+  elle-même, seule partie révisée ici, est exercée dans les deux sens,
+  ce qui l'entoure ne l'est pas).
+- `roles/copilot_cli/` : les branches d'échec des assertions finales
+  (version installée incorrecte, binaire absent après action) —
+  n'auraient exigé que de casser délibérément un état déjà correct
+  sans qu'aucune garde substituable n'existe pour ce faire (contraste
+  avec la garde D12, conçue avec une variable substituable dès
+  l'origine) ; non tentées, pas de garde de contournement ajoutée pour
+  les rendre testables a posteriori.
+
+### Validation
+
+**Version installée, moyen d'épinglage** :
+```
+$ node --version && npm --version && copilot --version
+v22.23.1
+10.9.8
+GitHub Copilot CLI 1.0.78.
+$ npm config get prefix
+/home/mahieumi/.local
+```
+Épinglage retenu : version exacte dans la commande d'installation
+(`copilot_cli_version: "1.0.78"`, `roles/copilot_cli/defaults/main.yml`)
+— seule voie disponible pour une installation globale, aucun fichier
+de verrouillage possible (§ ci-dessus).
+
+**Aucun jeton versionné, `git grep` sur les motifs plausibles** :
+```
+$ git grep -niE 'ghp_|gho_|ghu_|ghs_|ghr_|github_pat_'
+(aucune correspondance)
+$ ls -la ~/.copilot 2>&1
+ls: cannot access '/home/mahieumi/.copilot/': No such file or directory
+```
+`copilot login` non lancé — confirmé par l'absence du répertoire qu'il
+créerait, pas seulement par l'absence de commande dans l'historique de
+cette session.
+
+**`ansible-lint --profile production`** :
+```
+$ ~/.venvs/ansible-lint/bin/ansible-lint --profile production roles/editor/ roles/completion/ roles/copilot_cli/ site.yml
+Passed: 0 failure(s), 0 warning(s) in 36 files processed of 40 encountered.
+```
+
+**`site.yml --check` complet, sans contournement** — preuve que la
+garde resserrée n'a pas cassé l'orchestration :
+```
+$ ansible-playbook site.yml --check
+[...]
+"Reconstruction Ansible terminée — pending_reboot=0, [...]: 1."
+PLAY RECAP *** localhost : ok=143 changed=5 unreachable=0 failed=0 skipped=134 rescued=0 ignored=0
+```
+Complet jusqu'au point d'arrêt final (nominal, déjà satisfait sur
+cette machine) — aucune tâche `failed`.
+
+**Tableau des actions privilégiées** :
+
+| # | Commande / tâche | Chemin cible | Tentative sans privilège : résultat | Motif |
+|---|---|---|---|---|
+| 1 | `roles/copilot_cli/`, tâche « Installer le runtime Node.js » (`become: true`) | paquets système (`dnf`) | Non applicable — installation `dnf`, écriture système intrinsèque, aucune voie non privilégiée (patron SUD-1/D9) | seule action système requise, runtime exigé par l'éditeur (Node.js 22+) |
+
+**Aucune autre élévation** dans `roles/copilot_cli/`, `roles/editor/`,
+`roles/completion/` pour ce livrable — préfixe npm, installation du
+paquet npm, toutes les gardes : domaine utilisateur, sans `become`.
+
+**Découverte hors périmètre, signalée avant d'agir, traitée avec
+l'accord explicite de l'opérateur** : `roles/completion/` portait une
+garde D12 indépendante, identique, hors de la liste de fichiers
+modifiables annoncée — non corrigée, elle aurait cassé `site.yml`
+exactement comme celle de `roles/editor/`, rendant impossible la
+preuve exigée (`site.yml --check` sans contournement). Signalé,
+approuvé, corrigé dans ce même livrable — `roles/completion/` figure
+donc parmi les fichiers modifiés malgré son absence de la liste
+d'origine.
+
+**Découverte annexe, non traitée ici** : `roles/completion/README.md`
+affirme encore « Il ne configure jamais Kate — compatibilité jamais
+testée par personne » — périmé depuis KAT-1 (2026-08-08), sans rapport
+avec D24, trouvé en relisant ce fichier pour la révision D12. Signalé
+pour un prochain livrable, pas corrigé ici (hors périmètre de celui-ci).
+
+**Confirmations finales** : aucun autre dépôt système ajouté ; `terra`
+non touché (aucune commande `dnf` de ce livrable ne l'a même
+interrogé — `nodejs22`/`npm` viennent exclusivement de `fedora`/
+`updates`) ; `sudoers`, `terra.repo`, `/etc/cdi/`, `gpu_mux_mode`,
+`kwinrulesrc` intacts ; aucun redémarrage ; `rpm -qa` et l'état des
+autres rôles inchangés au-delà des paquets `nodejs22*` ajoutés.
+
 ## Voir aussi
 
 - [`docs/desktop.md`](desktop.md) — `kitty`, déjà installé, méthode de
@@ -687,3 +1063,12 @@ tentatives sans privilège dans `docs/completion.md` § 9.5.
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici.
 - [`roles/editor/`](../roles/editor/) — rôle Ansible déployant Helix et
   Kate (§ 2), détails d'exécution dans son propre `README.md`.
+- [`roles/copilot_cli/`](../roles/copilot_cli/) — rôle Ansible
+  installant GitHub Copilot CLI (D24, § Copilot CLI), détails
+  d'exécution dans son propre `README.md`.
+- [`docs/repositories.md`](repositories.md) § 11 — npm, sixième
+  surface d'approvisionnement, ancrage de confiance réel détaillé.
+- [`docs/orchestration.md`](orchestration.md) — `copilot login`,
+  étape manuelle de la séquence de reconstruction.
+- [`docs/machine-facts.md`](machine-facts.md) § Décisions — D24
+  (révision de D12), D25 (authentification interactive).

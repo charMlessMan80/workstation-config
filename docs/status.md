@@ -30,10 +30,11 @@ tableau ci-dessous pour la nuance sur ce qui reste non prouvé.
 | Modèles retenus, chargement séquentiel | D21/D22 | Récupération isolée par conteneur éphémère (jamais le réseau du service), intégrité vérifiée, coexistence en VRAM mesurée **ne pas** tenir (§ écarté ci-dessous) | `docs/machine-facts.md` § Décisions, D21/D22 |
 | Complétion locale, Helix | D19/D20 | Bout en bout **entièrement machine** : session `tmux` détachée pilote la frappe, `hx -vv` produit le journal, complétions FIM réelles YAML/Python, latence 0,46-0,48 s modèle chargé, échec forcé démontré | `docs/completion.md` § 7-8 |
 | Complétion locale, Kate | KAT-1 (2026-08-08) | Bout en bout, mais preuve **mixte** — voir la nuance ci-dessous, pas au même niveau que Helix | `docs/completion.md` § 9 |
-| Éditeurs (Helix terminal, Kate graphique) | D12/D13 | Installés, greffons Kate configurés par clé nommée (jamais copie de fichier), garde D12 (aucun `node`/`npm`) démontrée dans les deux sens | `docs/editor.md` |
+| Éditeurs (Helix terminal, Kate graphique) | D12/D13 | Installés, greffons Kate configurés par clé nommée (jamais copie de fichier), garde D12 **resserrée** (D24 : aucun serveur de langage npm, `lsp-ai` au chemin compilé — npm lui-même n'est plus interdit) démontrée dans les deux sens, dans `roles/editor/` et `roles/completion/` indépendamment | `docs/editor.md` § Copilot CLI |
+| GitHub Copilot CLI, second agent de code | D24/D25 | `@github/copilot@1.0.78` installé (version épinglée, domaine utilisateur `~/.local`), runtime Node.js 22 depuis `fedora`/`updates`. Authentification (`copilot login`) **jamais lancée** par ce dépôt — geste manuel de l'opérateur | `docs/editor.md` § Copilot CLI, `docs/orchestration.md` § 2bis |
 | Amorçage (D6/D9/D10 scriptés) | `roles/bootstrap/` | `power-profiles-daemon`, dépôt `terra` (clé vérifiée par inspection hors ligne avant tout usage privilégié), règle `NOPASSWD` — les trois reconstructibles par ce rôle | `roles/bootstrap/README.md`, `docs/orchestration.md` § 7.1 |
 | Règle `sudo` sans mot de passe déplacée en `/etc/sudoers.d/` | D9 (déplacée) | Séquence stricte à cinq étapes, provenance de la règle effective prouvée (`sudo -n -l -l`, pas seulement `sudo -n true`) avant tout retrait de l'ancienne ligne | `docs/machine-facts.md` § Décisions, D9, journal 2026-08-08 (SUD-1) |
-| Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne les sept rôles sans erreur sur **cette** machine ; point d'arrêt exercé dans son état nominal réel | `docs/orchestration.md` |
+| Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne les huit rôles sans erreur sur **cette** machine (`copilot_cli` ajouté, D24) ; point d'arrêt exercé dans son état nominal réel | `docs/orchestration.md` |
 | Chaîne Ansible de ce dépôt | D3a | `ansible-core` système fait autorité pour l'exécution ET la vérification (pas seulement l'édition) | `docs/ansible-chain.md`, `docs/machine-facts.md` § Chaîne Ansible |
 
 ### Nuance sur la preuve Kate, à ne pas lire comme équivalente à Helix
@@ -127,6 +128,7 @@ Détail complet, ancrage réel et écart résiduel assumé pour chacune :
 | `crates.io` (compilation `lsp-ai`) | `Cargo.lock` + `--locked`, code source auditable | § 7 |
 | Dépôt git amont `lsp-ai` | Épinglé par empreinte de commit, jamais une étiquette (les étiquettes peuvent être déplacées) | § 7 |
 | Registre de modèles Ollama | Empreinte de contenu, intégrité testée après récupération | § 8 |
+| npm (`@github/copilot`, D24) | Intégrité de contenu (sha512) + signature du registre + attestation de provenance Sigstore pour le paquet principal (`npm audit signatures`, vérifié localement) — pas de fichier de verrouillage possible pour une install globale, version épinglée en commande à la place | § 11 |
 
 ## Points ouverts restants
 
@@ -170,7 +172,7 @@ constats de la revue : `docs/review-2026-08.md`, marquage 2026-08-09) :
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — l'histoire complète,
-  décisions datées (D1-D23) et journal de chaque série.
+  décisions datées (D1-D25) et journal de chaque série.
 - [`docs/review-2026-08.md`](review-2026-08.md) — l'audit complet,
   statut de chaque constat.
 - [`docs/orchestration.md`](orchestration.md) — la séquence de
