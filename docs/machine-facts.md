@@ -1927,15 +1927,27 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   explicitement pour `claude-code`/`htop` entre les déclarer dans un
   rôle (`desktop`, aux côtés de `kitty`/`jq`) ou documenter leur
   absence de `site.yml` comme un choix assumé.
-- **Nouveau point ouvert, basse priorité (2026-08-10, D24) — liste
-  réelle des modèles Copilot CLI offerts par cet abonnement.** Non
-  établissable sans authentification (`copilot login`, jamais lancé
-  par ce dépôt) — hors périmètre de ce livrable par construction.
-  Commande préparée (`/model`, interne à la session interactive) mais
-  non exécutée. **N'affirme aucune parité avec Claude Code** : le
-  modèle par défaut documenté (Claude Sonnet 4.5) est une génération
-  antérieure à celle de cette session — se referme quand l'opérateur
-  authentifie et relève la liste réelle.
+- **[REQUALIFIÉ le 2026-08-10] ÉTAIT : point ouvert, basse priorité —
+  liste réelle des modèles Copilot CLI offerts par cet abonnement, non
+  établissable sans authentification, se refermant « quand l'opérateur
+  authentifie et relève la liste réelle ».** L'opérateur a lancé
+  `copilot login` et `/model` lui-même (hors de ce dépôt) et relevé la
+  sortie — **sortie de commande copiable et relisible, pas une
+  observation rapportée** (détail complet, citation intégrale,
+  `docs/editor.md` § Modèles et suivi de consommation). **Établi** :
+  modèle actif `claude-sonnet-5`, niveau d'effort `medium` — **parité
+  de génération de modèle** avec Claude Code (cette session s'identifie
+  elle-même comme `claude-sonnet-5`), **pas une parité d'effort**
+  (paramètre distinct, non établi). Consommation : 3 700/20 000 AIC
+  (18 %), période de renouvellement du plafond **non établie par cette
+  sortie**, marquée inconnue plutôt que supposée mensuelle. **Reste
+  non établi, marqué comme tel plutôt qu'interprété** : la liste
+  complète des *autres* modèles offerts par cet abonnement (la sortie
+  ne rapporte que le modèle actif, pas la liste du sélecteur) ; la
+  portée exacte de `AI Credits 0 (1m 57s)`/`0 messages` sur 180 jours
+  (vraisemblablement la session courante, sans échange — pas établi
+  par une source). Point ouvert restreint à ces deux éléments
+  résiduels, plus le même que le précédent.
 - **Découverte annexe, signalée, non traitée (2026-08-10, D24)** :
   `roles/completion/README.md` affirme encore « Il ne configure jamais
   Kate — compatibilité jamais testée par personne » — périmé depuis
@@ -4049,3 +4061,35 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   rapport avec D24. Aucun autre dépôt système ajouté, `terra` non
   touché (jamais interrogé par ce livrable), `sudoers`/`terra.repo`/
   `/etc/cdi/`/`gpu_mux_mode`/`kwinrulesrc` intacts, aucun redémarrage.
+- **2026-08-10 — parité de modèle et consommation Copilot CLI,
+  consignées (suite documentaire de D24/D25).** Entièrement
+  documentaire — aucun rôle modifié, aucun paquet, aucune commande
+  n'a changé l'état du système, `copilot`/`copilot login` non lancés
+  par cette session (l'opérateur les a lancés lui-même, hors de ce
+  dépôt, et a rapporté la sortie). Sortie citée intégralement,
+  `docs/editor.md` § Modèles et suivi de consommation : modèle actif
+  `claude-sonnet-5` (medium), consommation 3 700/20 000 AIC (18 %).
+  Établi, sans extrapoler : parité de **génération** de modèle avec
+  Claude Code (cette session s'identifie elle-même `claude-sonnet-5`),
+  explicitement pas une parité d'effort ; période de renouvellement du
+  plafond non établie par cette sortie, marquée inconnue plutôt que
+  supposée mensuelle ; portée exacte de `0 messages`/180 jours non
+  établie par une source, marquée comme telle plutôt qu'interprétée.
+  Point ouvert de CPL-1 sur la parité de modèle requalifié (§ Points
+  ouverts), pas retiré — il ne portait que sur la liste des modèles,
+  reste ouvert pour la liste complète des *autres* modèles offerts
+  (non recueillie par l'opérateur) et la portée du `0 messages`.
+  Correction d'une présomption de CPL-1 : le document traitait ces
+  faits comme simplement non établis, sans anticiper qu'ils
+  s'avéreraient être une sortie de commande directement copiable —
+  corrigé, aucun point de méthode sur des « faits non vérifiables »
+  créé sur cette base (aurait reposé sur une prémisse démentie).
+  `docs/status.md` : ligne Copilot CLI déplacée vers une preuve
+  complète (elle n'avait jamais été listée dans la section « non
+  prouvé », contrairement à la prémisse du prompt — corrigé en
+  renforçant directement la ligne « prouvée » existante) ; ligne
+  « npm/Node.js écarté » de la table des options écartées corrigée
+  (n'était plus exacte depuis D24 — npm reste écarté pour les serveurs
+  de langage Helix/Kate, plus pour lui-même). Aucune action
+  privilégiée cette série ; aucune branche de code exercée ou non,
+  sans objet (aucun code touché).

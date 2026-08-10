@@ -887,30 +887,94 @@ authentifié échoue au premier usage réel (tardivement), pas à
 l'installation — accepté tel quel, pas contourné par une vérification
 qui ne vérifierait rien de réel.
 
-### Modèles et suivi de consommation — non établis avant authentification
+### Modèles et suivi de consommation
 
-Les publications de GitHub mentionnent Claude Opus 4.6, Claude Sonnet
-4.6, GPT-5.3-Codex, Gemini 3 Pro et Claude Haiku 4.5 — **liste qui
-dépend de l'abonnement et de la région**, non vérifiable sans
-authentification (hors périmètre de ce livrable, `copilot login`
-n'ayant jamais été lancé). **Aucune parité avec Claude Code
-affirmée** : le modèle par défaut documenté (Claude Sonnet 4.5, une
-génération antérieure à celle de cette session) n'est pas
-automatiquement celui que l'opérateur voudrait — un choix explicite
-via `/model`, après authentification, reste nécessaire.
+**[ÉTABLI le 2026-08-10, livrable de clôture CPL-1] ÉTAIT : « non
+établis avant authentification », hors périmètre de CPL-1
+(`copilot login` jamais lancé par ce dépôt).** L'opérateur a lancé
+`copilot login` et `/model` lui-même (session interactive, hors de ce
+dépôt) et relevé la sortie ci-dessous — **classe de source : sortie de
+commande, copiable et relisible**, pas une observation rapportée.
+Citée intégralement, datée 2026-08-10 :
+```
+Model changed from claude-sonnet-5 (medium) to claude-sonnet-5 (medium)
+Activity · last 180 days · 0 messages
+Changes    +0 -0
+AI Credits 0 (1m 57s)
+Plan       ■■■■■■■■■■■■■■■■■■■■ 18% used
+           3,700 / 20,000 AIC
+```
 
-**Commandes préparées, non exécutables avant authentification** —
-toutes deux des commandes **slash, internes à la session interactive**,
-pas des indicateurs shell :
-- Liste des modèles réellement offerts : lancer `copilot` (après
-  `copilot login`), puis `/model` — aucun flag CLI documenté ne donne
-  cette liste hors session (recherché, absent — demande communautaire
-  ouverte, non implémentée à ce jour, `github/copilot-cli` issues
-  #236/#700/#1356).
-- Suivi de consommation des requêtes premium/crédits IA : `/usage`
-  dans la session interactive (détail par session, jeton par jeton) ;
+**Faits établis, sans extrapoler** :
+- **Modèle actif : `claude-sonnet-5`, niveau d'effort `medium`.**
+  Cette session (Claude Code) s'identifie elle-même comme
+  `claude-sonnet-5` — **parité de génération de modèle** entre les
+  deux agents, établie. **Pas une parité totale** : le niveau d'effort
+  est un paramètre distinct de la génération de modèle, et rien dans
+  cette sortie n'établit qu'il corresponde à celui utilisé par Claude
+  Code dans cette session — non affirmé, marqué comme tel plutôt que
+  supposé.
+- **Consommation : 3 700 / 20 000 AIC (18 %)**, unité rapportée telle
+  quelle (« AIC », crédits IA du plan Copilot). **La période de
+  renouvellement du plafond n'est pas établie par cette sortie** —
+  marquée inconnue, pas supposée mensuelle.
+- `AI Credits 0 (1m 57s)` et `0 messages` sur 180 jours : concernent
+  vraisemblablement la session dans laquelle la commande a été lancée,
+  sans échange préalable — **non établi par une source, donc marqué
+  comme tel plutôt qu'interprété**.
+
+**Ce que ces faits changent pour l'usage** : deux agents de code de
+même génération de modèle, alimentés par deux abonnements distincts
+(GitHub Copilot, Claude Code), interchangeables selon les quotas
+disponibles de chacun.
+
+**Limite à nommer explicitement** : `/model` et `/usage` sont des
+commandes **interactives** (slash, internes à la session). La sortie
+est copiable — comme démontré ci-dessus — mais **non scriptable** :
+aucun indicateur interrogeable depuis un interpréteur ou un script n'a
+été trouvé (recherche documentée plus haut, § Authentification).
+**Aucune automatisation ni surveillance de la répartition entre les
+deux agents n'est possible en l'état** ; l'arbitrage entre eux reste
+manuel. **Ceci n'est pas une recommandation d'usage** : l'arbitrage
+appartient à l'opérateur, ce document consigne les faits qui le
+rendent possible, pas une politique.
+
+**Fait annexe, utile pour une reprise** : Copilot CLI **ne lit pas
+`CLAUDE.md`** et n'hérite d'aucune convention de ce dépôt (pas de
+lecture automatique d'un fichier de règles au démarrage, contrairement
+à Claude Code dans cet environnement). Un prompt qui lui serait
+destiné doit donc être **autoportant** : marquage explicite de
+l'historique (`ÉTAIT`, dates), comptage des marqueurs de vérification,
+tableau des actions privilégiées, énumération des branches exercées —
+aucune de ces conventions n'est acquise pour lui. **Ce n'est pas une
+objection à son usage, c'est une condition.**
+
+**Correction d'une présomption de CPL-1** : ce document traitait ces
+faits comme simplement « non établis avant authentification », sans
+anticiper la classe de source qu'ils porteraient une fois établis.
+**Ils se sont avérés être une sortie de commande directement copiable,
+pas une observation qu'un opérateur devrait décrire de mémoire** — la
+classe « observation rapportée par l'opérateur » (`CLAUDE.md` §
+Sourcing des faits), utilisée ailleurs dans ce dépôt pour des gestes
+qui ne laissent aucune trace relisible (ex. la nuance Kate,
+`docs/status.md`), **ne s'applique pas ici** et n'a d'ailleurs jamais
+été invoquée pour ce cas précis dans ce document. Aucun point de
+méthode sur les « faits non vérifiables » n'est créé sur cette
+base — il aurait reposé sur une prémisse démentie par les faits
+eux-mêmes.
+
+**Commandes, pour mémoire — toutes deux internes à la session
+interactive, jamais un indicateur shell** :
+- Liste des modèles réellement offerts : `/model`, dans la session
+  (déjà relevé ci-dessus : `claude-sonnet-5` actif — la liste complète
+  des autres modèles proposés par cet abonnement n'a pas été
+  recueillie par l'opérateur, non établie pour autant). Aucun flag CLI
+  documenté ne donne cette liste hors session (recherché, absent —
+  demande communautaire ouverte, non implémentée à ce jour,
+  `github/copilot-cli` issues #236/#700/#1356).
+- Suivi de consommation : `/usage` (détail par session, ci-dessus) ;
   hors CLI, [`github.com/settings/copilot`](https://github.com/settings/copilot)
-  (relevé mensuel).
+  (relevé mensuel, non consulté ici).
 
 ### Intégration — nouveau rôle, argumenté
 
@@ -1046,6 +1110,25 @@ interrogé — `nodejs22`/`npm` viennent exclusivement de `fedora`/
 `updates`) ; `sudoers`, `terra.repo`, `/etc/cdi/`, `gpu_mux_mode`,
 `kwinrulesrc` intacts ; aucun redémarrage ; `rpm -qa` et l'état des
 autres rôles inchangés au-delà des paquets `nodejs22*` ajoutés.
+
+### Validation — livrable de clôture (2026-08-10, documentaire seul)
+
+Suite directe de CPL-1 : l'opérateur a lancé `copilot login` et
+`/model` lui-même, relevé la sortie citée plus haut. **Ce livrable ne
+change que de la documentation.**
+
+**Tableau des actions privilégiées : aucune.** Aucune commande de ce
+livrable n'a écrit sur le système — relecture et consignation d'une
+sortie déjà produite par l'opérateur, en dehors de cette session.
+
+**Énumération des branches exercées et non exercées : sans objet.**
+Aucun code (rôle, playbook, script) n'est touché par ce livrable —
+uniquement de la documentation.
+
+**Confirmé** : `copilot`/`copilot login` non lancés par cette session
+(la sortie citée provient de l'opérateur, hors de ce dépôt — pas
+reproduite ici) ; aucun rôle modifié ; aucune commande n'a changé
+l'état du système ; aucun redémarrage.
 
 ## Voir aussi
 

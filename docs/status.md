@@ -17,6 +17,11 @@ par obsolescence Terra le 2026-08-07, `docs/repositories.md` § 10).
 opérationnel à l'ouverture de session réelle (bug BUR-5 corrigé) — voir
 tableau ci-dessous pour la nuance sur ce qui reste non prouvé.
 
+**Rafraîchi une seconde fois le 2026-08-10** : GitHub Copilot CLI
+(D24/D25) authentifié par l'opérateur, modèle et consommation
+confirmés par sortie de commande — déplacé vers une preuve complète,
+voir la ligne dédiée ci-dessous.
+
 ## Ce qui est en place et prouvé
 
 | Composant | Décision(s) | Preuve | Document |
@@ -31,7 +36,7 @@ tableau ci-dessous pour la nuance sur ce qui reste non prouvé.
 | Complétion locale, Helix | D19/D20 | Bout en bout **entièrement machine** : session `tmux` détachée pilote la frappe, `hx -vv` produit le journal, complétions FIM réelles YAML/Python, latence 0,46-0,48 s modèle chargé, échec forcé démontré | `docs/completion.md` § 7-8 |
 | Complétion locale, Kate | KAT-1 (2026-08-08) | Bout en bout, mais preuve **mixte** — voir la nuance ci-dessous, pas au même niveau que Helix | `docs/completion.md` § 9 |
 | Éditeurs (Helix terminal, Kate graphique) | D12/D13 | Installés, greffons Kate configurés par clé nommée (jamais copie de fichier), garde D12 **resserrée** (D24 : aucun serveur de langage npm, `lsp-ai` au chemin compilé — npm lui-même n'est plus interdit) démontrée dans les deux sens, dans `roles/editor/` et `roles/completion/` indépendamment | `docs/editor.md` § Copilot CLI |
-| GitHub Copilot CLI, second agent de code | D24/D25 | `@github/copilot@1.0.78` installé (version épinglée, domaine utilisateur `~/.local`), runtime Node.js 22 depuis `fedora`/`updates`. Authentification (`copilot login`) **jamais lancée** par ce dépôt — geste manuel de l'opérateur | `docs/editor.md` § Copilot CLI, `docs/orchestration.md` § 2bis |
+| GitHub Copilot CLI, second agent de code | D24/D25 | `@github/copilot@1.0.78` installé (version épinglée, domaine utilisateur `~/.local`), runtime Node.js 22 depuis `fedora`/`updates`. Authentification établie par l'opérateur (`copilot login`, jamais scriptée) ; modèle actif confirmé `claude-sonnet-5` (medium) — **parité de génération de modèle** avec Claude Code, pas d'effort ; consommation lisible (3 700/20 000 AIC, 18 %, période de renouvellement inconnue) — **preuve par sortie de commande copiable**, datée 2026-08-10 | `docs/editor.md` § Copilot CLI |
 | Amorçage (D6/D9/D10 scriptés) | `roles/bootstrap/` | `power-profiles-daemon`, dépôt `terra` (clé vérifiée par inspection hors ligne avant tout usage privilégié), règle `NOPASSWD` — les trois reconstructibles par ce rôle | `roles/bootstrap/README.md`, `docs/orchestration.md` § 7.1 |
 | Règle `sudo` sans mot de passe déplacée en `/etc/sudoers.d/` | D9 (déplacée) | Séquence stricte à cinq étapes, provenance de la règle effective prouvée (`sudo -n -l -l`, pas seulement `sudo -n true`) avant tout retrait de l'ancienne ligne | `docs/machine-facts.md` § Décisions, D9, journal 2026-08-08 (SUD-1) |
 | Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne les huit rôles sans erreur sur **cette** machine (`copilot_cli` ajouté, D24) ; point d'arrêt exercé dans son état nominal réel | `docs/orchestration.md` |
@@ -105,7 +110,7 @@ opposée (ici : « déjà stable ») a réussi.
 
 | Écarté | Motif (une ligne) | Décision |
 |---|---|---|
-| `npm`/Node.js comme surface de récupération de serveurs de langage | Aucun serveur YAML/Ansible empaqueté dans les onze dépôts ; ouvrir `npm` ajoute une surface d'approvisionnement hors contrôle rpm pour un besoin finalement couvert autrement (`lsp-ai`) | D12 |
+| `npm`/Node.js comme surface de récupération de serveurs de langage pour Helix/Kate | Aucun serveur YAML/Ansible empaqueté dans les onze dépôts ; un modèle de dépendances transitives hors contrôle rpm pour un besoin finalement couvert autrement (`lsp-ai`) — **toujours écarté** (D12 resserrée), y compris depuis que npm lui-même est ouvert pour un usage distinct (Copilot CLI, D24, `docs/repositories.md` § 11) | D12 |
 | `ansible-navigator` | Aucune capacité manquante établie pour la chaîne de ce dépôt (ni pour la chaîne AAP différée) — sur-couverture pure | D3a/D3b |
 | Zed | Magasin d'extensions propre (nouvelle surface d'approvisionnement), télémétrie, dépendance à `terra` | D13 |
 | Cursor | Mêmes motifs que Zed ; nativité Wayland jamais confirmée (marqueur fermé par requalification, pas par vérification — Cursor n'a jamais été installé) | D13 |
