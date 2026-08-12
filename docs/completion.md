@@ -1194,6 +1194,283 @@ nettoyage. Le second marqueur de ce document (mécanisme de prédiction
 d'édition natif de Zed, § 3) reste ouvert, hors périmètre de ce
 livrable.
 
+## 10. BSH-1 — bash/shell ajoutés à Kate et Helix (2026-08-12)
+
+**Diagnostic établi, pas supposé.** L'opérateur avait ouvert un script
+bash dans Kate sans voir aucune proposition du modèle : `pgrep -a
+lsp-ai` ne montrait aucun processus, et aucune trace au journal.
+`~/.config/kate/lspclient/settings.json` (KAT-1) ne déclarait que
+`^Python$` et `^YAML$` — aucune expression ne correspond à un script
+shell. Le popup observé était la complétion interne de Kate par mots
+du document (mécanisme sans serveur de langage) — même mode d'échec
+silencieux que celui déjà nommé pour Kate en général (§ 9), sous une
+forme nouvelle : ici, ce n'est pas une configuration cassée, c'est une
+configuration qui n'a jamais existé pour ce type de fichier.
+
+### 10.1 — Résolution : le nom du mode n'est pas devinable
+
+**Kate.** Le greffon client LSP fait correspondre `highlightingModeRegex`
+au **nom du mode de coloration syntaxique** (`doc->highlightingMode()`,
+sourcé dans `lspclientservermanager.cpp`, tag v25.04.3, fonction
+`_languageId`), pas à l'extension de fichier. Établi par mesure sur ce
+poste, pas deviné : `ksyntaxhighlighter6 --list` (paquet
+`kf6-syntax-highlighting-6.28.1`, celui que Kate lie réellement) liste
+deux définitions distinctes couvrant ce domaine — **« Bash »** et
+**« Zsh »**. Comparaison de rendu forcé (`-s Bash` / `-s Zsh`) contre
+l'auto-détection (diff des sorties HTML sur un même contenu) confirme :
+un fichier `.sh` (quel que soit son shebang, `#!/bin/sh` comme
+`#!/bin/bash`) résout vers « Bash » ; un fichier `.bash` résout aussi
+vers « Bash » ; seul `.zsh` résout vers « Zsh ». L'opérateur écrit
+« bash et shell », jamais zsh : **une seule entrée ajoutée**, pas deux,
+pour ne pas multiplier les entrées inutiles.
+
+Confirmation indépendante, deuxième source concordante : le fichier
+`settings.json` livré avec Kate lui-même (`addons/lspclient/
+settings.json`, tag v26.04.3, celui installé sur ce poste — même
+source qu'en KAT-1 § 9.1) porte déjà une entrée `servers.bash` avec
+`"highlightingModeRegex": "^Bash$"` et pointe `bash-language-server`
+(absent de ce poste, D12 l'interdirait de toute façon). Même regex,
+même clé `bash`, retenus ici par coïncidence de méthode — vérifiés
+indépendamment, pas copiés sans contrôle.
+
+**Helix.** Mécanisme différent — identifiant de langage déclaré dans
+`languages.toml`, pas une expression sur un nom de mode. `hx --health` (25.07.1, version installée) liste `bash`
+comme langage connu (tree-sitter/highlight/textobject/indent tous ✓
+sur ce poste) — un seul identifiant, Helix ne distingue pas bash/sh/zsh
+en langages séparés comme le fait Kate. La lacune y était **exactement
+la même** qu'ailleurs : `hx --health` rapportait déjà
+`bash-language-server` non trouvé (comportement par défaut de Helix,
+serveur npm que D12 exclut), et aucun serveur `lsp-ai` n'y était
+rattaché avant ce livrable — confirmé, § 10.3 (échec forcé Helix)
+ci-dessous.
+
+### 10.2 — Configuration : une seule source, factorisation déjà en place
+
+Les deux gabarits (`templates/languages.toml.j2`,
+`templates/kate-lspclient-settings.json.j2`) bouclent déjà sur
+`completion_helix_languages`/`completion_kate_languages` — la
+duplication du bloc de configuration du modèle dans le fichier Kate
+rendu (un bloc complet par langage, JSON ne permettant pas de
+référencer un même sous-objet depuis plusieurs clés) est **déjà
+générée depuis une unique définition Jinja** (`lsp_ai_options`) dans le
+gabarit, jamais recopiée à la main. Ajouter `bash` n'a exigé **aucune
+modification des deux gabarits** — seulement `roles/completion/
+defaults/main.yml` :
+- `completion_helix_languages` : `bash` ajouté (troisième élément,
+  après `yaml`, `python`) — `completion_kate_languages` en hérite
+  directement (variable réutilisée, jamais une seconde valeur saisie).
+- `completion_kate_highlighting_mode_regex` : `bash: "^Bash$"` ajouté.
+
+Kate et Helix continuent de pointer le même binaire
+(`{{ completion_bin_dir }}/{{ completion_bin_name }}`), le même modèle
+(`{{ completion_ollama_model }}`) et la même API locale
+(`{{ completion_ollama_generate_url }}`/`{{ completion_ollama_chat_url }}`)
+— aucune valeur saisie séparément pour `bash`, mêmes variables
+partagées qu'pour `yaml`/`python`.
+
+### 10.3 — Preuve : Helix, entièrement automatisée
+
+Méthode identique à § 7.4/§ 8 (`hx -vv`, session `tmux` détachée,
+lecture du journal `~/.cache/helix/helix.log` après coup, aucune
+capture visuelle).
+
+**Nominal**, fichier `.sh` enregistré (`/tmp/bsh-demo/backup.sh`,
+`#!/bin/bash`) :
+```
+$ grep -n '"languageId":"bash"' helix-full.log
+978:...{"textDocument":{"languageId":"bash",...,"uri":"file:///tmp/bsh-demo/backup.sh","version":0}}}
+$ grep -n 'textDocument/completion\|"id":1,"result"' helix-full.log
+988:  -> textDocument/completion ... "id":1  (requête, 02:49:59.367)
+1114: <- {"id":1,"result":{...,"items":[{"label":"ai - \n# Author: John Doe\n# Date: 2023-10-05\n# Description: A Bash script to check if a",...}]}}  (réponse, 02:50:21.985)
+```
+**Latence 22,6 s, pas une absence de réponse** — distinguée
+explicitement (rappel de cadrage de la demande) : le service tournait
+mais le modèle n'était pas résident au moment de cette requête
+(rechargement séquentiel, D22) ; contenu réellement reçu, cohérent
+avec un script bash (pas un accusé de réception vide), confirmant que
+la réponse a bel et bien abouti, lentement.
+
+**Échec forcé.** Configuration Helix redéployée sans `bash`
+(`-e completion_helix_languages='["yaml","python"]'`), même fichier
+rouvert :
+```
+$ grep -n 'lsp-ai\|bash-language-server' helix-forced-failure.log
+969: Language server not found for `source.bash` bash-language-server
+     command 'bash-language-server' not found: cannot find binary path
+```
+`pgrep -a lsp-ai` : aucun processus. Sans notre entrée, Helix retombe
+sur son serveur par défaut pour `bash` (`bash-language-server`, npm —
+exactement ce que D12 exclut), introuvable sur ce poste : **aucune
+tentative de connexion à `lsp-ai`**, contrairement au cas nominal. Le
+résultat diffère qualitativement entre les deux configurations — la
+démonstration n'est pas vide de sens.
+
+**Non-régression, YAML et Python, même session** — requêtes et
+réponses réelles obtenues sur les deux, avant et après le test bash
+(fichiers `check.yml`/`check.py`, journal unique `helix-full.log`) :
+```
+YAML : "->textDocument/completion" 02:50:56.792 -> "<-...result" 02:50:57.255 = 0,463 s
+       item reçu : "--- sync..." (contenu réel)
+Python : "->textDocument/completion" 02:51:38.339 -> "<-...result" 02:51:42.937 = 4,598 s
+       item reçu : "# Base case for n = 0\n    return 0..." (contenu réel)
+```
+Configuration réelle (avec `bash`) restaurée, rejouée : `changed=0` à
+la seconde exécution du rôle (`ansible-playbook
+roles/completion/completion.yml` deux fois de suite après
+restauration).
+
+### 10.4 — Preuve : Kate, même méthode mixte que KAT-1 (§ 9)
+
+**Nature de la preuve, qualifiée comme en § 9** : la lecture du journal
+est une preuve machine, rejouable ; le déclenchement (clic + Ctrl+Espace)
+relève de la classe « observation rapportée par l'opérateur »
+(`CLAUDE.md` § Sourcing des faits) — marquée ici, datée (2026-08-12),
+attribuée (l'opérateur, à la demande explicite de cette session).
+
+**Obstacle méthodologique nouveau, résolu** : la catégorie de
+journalisation du greffon LSP (`katelspclientplugin`, déclarée via
+`ecm_qt_declare_logging_category`) est **désactivée par défaut** —
+confirmé en lisant `lspclientplugin.cpp` (tag v25.04.3) : `qCInfo`/
+`qCDebug` de cette catégorie sont explicitement coupés sauf si la
+variable d'environnement **`LSPCLIENT_DEBUG=1`** est positionnée (« pour
+ne pas spammer l'utilisateur en debug output par défaut » — commentaire
+du code amont). `QT_LOGGING_RULES` seul (essayé d'abord, deux variantes,
+sans effet) ne suffit pas : ce n'est pas un mécanisme de catégorie Qt
+générique, c'est un indicateur propre au greffon. Nommé ici pour la
+prochaine fois qui en aurait besoin.
+
+**Nominal**, Kate relancé avec `LSPCLIENT_DEBUG=1`, fichier `.sh`
+enregistré, clic + Ctrl+Espace :
+```
+$ grep -n 'language id\|calling textDocument/completion\|adding completions' kate-journal-bash-nominal.log
+1:language id  "bash"
+199:calling textDocument/completion
+220:adding completions  1
+```
+Réponse JSON-RPC réelle relue dans le même journal :
+```
+{"jsonrpc":"2.0","id":2,"result":{"isIncomplete":false,"items":[{"filterText":"if [",
+"label":"ai -  -z \"$SRC\" ] || [ -z \"$DEST\" ]; then\n    echo \"Usage: ...",...}]}}
+```
+`language id "bash"` confirme que Kate résout bien `^Bash$` vers la
+même clé `bash` que Helix, sans les distinguer par accident.
+
+**Distinguer la complétion du modèle de celle par mots du document —
+la question posée par la demande.** Aucun moyen visuel fiable : les
+deux popups se ressemblent, c'est précisément ce qui a trompé
+l'opérateur au départ. **Seul le journal LSP distingue les deux, de
+façon binaire** : la ligne `calling textDocument/completion` suivie
+d'un `adding completions` avec un item `"label":"ai - ..."` atteste la
+voie modèle ; leur absence totale (voir échec forcé ci-dessous)
+n'exclut pas que Kate affiche malgré tout un popup — celui, alors,
+n'est que la complétion interne par mots.
+
+**Échec forcé.** Configuration Kate redéployée sans `bash`
+(même substitution `-e` que pour Helix — `completion_kate_languages`
+hérite de `completion_helix_languages`), Kate **entièrement redémarré**
+(processus tué, relancé — pas un simple rechargement de document, même
+exigence qu'en KAT-1), même geste répété :
+```
+$ cat kate-journal-bash-forced-failure.log
+language id  "bash"
+language id  "bash"
+language id  "bash"
+language id  "bash"
+```
+**Quatre lignes au total, rien d'autre** — ni `calling initialize`, ni
+`calling textDocument/completion`, ni aucune tentative de connexion à
+`lsp-ai` (`pgrep -a lsp-ai` : aucun processus). Kate reconnaît toujours
+le mode « Bash » (`language id "bash"`, sa propre entrée par défaut
+existe toujours, pointant `bash-language-server`), mais ne tente même
+pas de démarrer ce serveur par défaut — cohérent avec
+`AllowedServerCommandLines` (`~/.config/katerc` § `[lspclient]`,
+`roles/editor/`), qui n'autorise que la commande `lsp-ai --stdio`
+explicitement déployée par ce rôle. **Le résultat diffère
+qualitativement du cas nominal (4 lignes contre plus de 200,
+aucun échange JSON-RPC contre un échange complet)** — même verdict
+qu'en § 9.4 : la démonstration n'est pas vide de sens.
+
+**Non-régression, YAML et Python, Kate relancé à chaque fois (même
+processus de débogage), configuration réelle restaurée d'abord** :
+```
+$ grep -n 'language id\|calling textDocument/completion\|adding completions' kate-journal-yaml-regression.log
+1:language id  "yaml"
+202:calling textDocument/completion
+223:adding completions  1
+
+$ grep -n 'language id\|calling textDocument/completion\|result' kate-journal-python-regression.log
+2:language id  "python"
+203:calling textDocument/completion
+233:{"jsonrpc":"2.0","id":2,"result":{...,"items":[{...,"label":"ai - 2:\n        return n\n    else:\n        return fib(n-1) + fib(n-2)...",...}]}}
+```
+Kate relancé une dernière fois sans variable de débogage
+(fonctionnement normal restauré, pas de journalisation superflue en
+usage courant).
+
+### 10.5 — Fait de méthode consigné
+
+**Deux causes distinctes, cumulables, aucune ne produit d'erreur
+visible :**
+1. **Aucun serveur déclaré pour ce type de fichier** (le cas résolu par
+   ce livrable) — Kate et Helix retombent chacun sur leur propre
+   comportement par défaut, qui pointe un serveur npm absent de ce
+   poste (D12) ; l'échec est silencieux, seul le journal LSP le montre
+   (§ 10.3/10.4 ci-dessus).
+2. **Un fichier neuf, jamais enregistré, n'a pas de mode déterminé** —
+   ni Kate ni Helix ne peuvent résoudre un `highlightingMode`/langId
+   sans extension ni contenu stable, donc aucun serveur ne démarre,
+   **y compris pour des langages par ailleurs couverts** (yaml,
+   python). Un fichier `.sh` fraîchement créé mais non sauvegardé
+   n'aurait montré aucune complétion réelle même après ce livrable —
+   pas un défaut de configuration, une limite structurelle de la
+   détection de mode elle-même.
+
+Dans les deux cas, Kate affiche sa propre complétion par mots du
+document — un **repli silencieux visuellement indiscernable du
+nominal**, la forme la plus coûteuse d'échec silencieux : elle ne
+déclenche même pas de soupçon, contrairement à un message d'erreur qui
+inviterait à chercher plus loin.
+
+### 10.6 — Énumération des branches, exercées et non exercées
+
+| Conditionnel | Branche exercée | Branche non exercée |
+|---|---|---|
+| `completion_forbidden_lsp_servers` (garde 1/4) | Aucun serveur npm présent → garde passe | Échec forcé non rejoué dans ce livrable (déjà démontré en CMP-1/KAT-1, logique de la garde inchangée ici) |
+| `completion_lsp_ai_which.rc` (garde 1/4bis) | lsp-ai résout au chemin attendu | — (inchangé, non touché par ce livrable) |
+| `completion_toolchain_precheck.rc` (tentative sans privilège Rust) | `rc == 0` (déjà présent, pas d'élévation) | `rc != 0` (installation `dnf`) non exercée dans ce livrable — chaîne Rust déjà installée depuis CMP-1 |
+| `completion_helix_binary_name`/`completion_kate_binary_name` (gardes 4/4bis) | Helix et Kate trouvés | Absence non rejouée ici (logique inchangée) |
+| Boucle `for lang in completion_kate_languages`/`completion_helix_languages` | **Trois langages** (`yaml`, `python`, `bash`) — la branche `bash` est neuve, exercée pour la première fois | — (aucune, la boucle couvre tous les éléments par construction) |
+| Assertion de couverture exacte des langages Kate (`servers.keys() == completion_kate_languages`) | Passe avec les trois langages | Échec (langages manquants ou en trop) non exercé dans ce livrable |
+| Fallback Kate/Helix vers le serveur par défaut (`bash-language-server`, absent) | **Exercée pour la première fois par ce livrable** (§ 10.3/10.4, échec forcé) — jamais rejouée avant, y compris lors de KAT-1/CMP-1 qui ne couvraient que yaml/python | — |
+| Mode « Zsh » (`.zsh`) | **Non exercée, délibérément** — hors périmètre de la demande (bash/shell nommés, pas zsh) | reste `@VERIF` si un jour requis : aucune entrée `zsh` déployée par ce rôle |
+
+### 10.7 — Tableau des actions privilégiées
+
+**Aucune élévation dans ce livrable.** Toutes les commandes exécutées
+(`ksyntaxhighlighter6`, `hx --health`, `ansible-playbook
+roles/completion/completion.yml`, lecture de journaux `journalctl
+--user`, lancement de Kate/Helix en domaine utilisateur) relèvent du
+domaine utilisateur — aucune n'exige `sudo`. Non applicable au sens de
+la règle (aucune action structurellement privilégiée à énumérer).
+
+### 10.8 — Confirmations finales
+
+Aucun paquet installé (`ksyntaxhighlighter6` faisait déjà partie de
+`kf6-syntax-highlighting`, dépendance déjà présente de Kate ; aucune
+commande `dnf install` de ce livrable). Aucun serveur de langage npm
+ajouté — `bash-language-server` reste absent, confirmé par le
+comportement même de l'échec forcé (§ 10.3/10.4). `sudoers`,
+`terra.repo`, `/etc/cdi/`, `gpu_mux_mode`, `kwinrulesrc`, `site.yml`
+intacts (aucune tâche de ce livrable n'y touche). Aucun redémarrage de
+la machine — seul Kate (application utilisateur) a été redémarré à
+plusieurs reprises, jamais la session ni le système.
+
+`ansible-lint --profile production roles/completion roles/editor` :
+0 défaut. `ansible-playbook --check roles/completion/completion.yml` :
+`changed=0`. Exécution réelle : `changed=2` (première écriture avec
+`bash`), puis `changed=0` à la seconde exécution — idempotence
+confirmée.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,
@@ -1207,8 +1484,8 @@ livrable.
   conteneurs Ollama) et § 7 (`crates.io`, ce livrable) — ancrages de
   confiance des surfaces d'approvisionnement de ce dépôt.
 - [`roles/completion/`](../roles/completion/) — rôle exécuté par ce
-  livrable (§ 9, KAT-1, pour la partie Kate), README pour l'usage
-  courant.
+  livrable (§ 9, KAT-1, pour la partie Kate ; § 10, BSH-1, pour
+  bash/shell).
 - [`roles/editor/`](../roles/editor/) — greffon LSP client de Kate
   activé (KAT-1, § 9.1-9.2).
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici, en

@@ -1104,6 +1104,12 @@ testée par personne » — périmé depuis KAT-1 (2026-08-08), sans rapport
 avec D24, trouvé en relisant ce fichier pour la révision D12. Signalé
 pour un prochain livrable, pas corrigé ici (hors périmètre de celui-ci).
 
+**[CORRIGÉ le 2026-08-12, BSH-1]** La découverte annexe ci-dessus est
+close : `roles/completion/README.md` a été mis à jour pour refléter
+KAT-1 (Kate configuré depuis le 2026-08-08) et BSH-1 (bash/shell
+ajouté) — voir `docs/completion.md` § 10 pour le détail complet de ce
+livrable, sans rapport avec D24/CPL-1 documentés ci-dessus.
+
 **Confirmations finales** : aucun autre dépôt système ajouté ; `terra`
 non touché (aucune commande `dnf` de ce livrable ne l'a même
 interrogé — `nodejs22`/`npm` viennent exclusivement de `fedora`/
@@ -1143,6 +1149,8 @@ l'état du système ; aucun redémarrage.
 - [`docs/completion.md`](completion.md) § 9 — intégration complète du
   greffon LSP de Kate à `lsp-ai` (KAT-1), preuve, méthode, tableau des
   actions privilégiées.
+- [`docs/completion.md`](completion.md) § 10 — bash/shell ajoutés à
+  Kate et Helix (BSH-1), même méthode de preuve.
 - [`CLAUDE.md`](../CLAUDE.md) — règles de sourcing appliquées ici.
 - [`roles/editor/`](../roles/editor/) — rôle Ansible déployant Helix et
   Kate (§ 2), détails d'exécution dans son propre `README.md`.

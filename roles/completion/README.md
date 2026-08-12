@@ -5,9 +5,10 @@ Rôle Ansible ciblant `localhost`. Compile
 (D19, `docs/machine-facts.md` § Décisions) — jamais le binaire
 précompilé (aucune somme de contrôle publiée à côté, ancrage de
 confiance plus faible que ce que npm aurait apporté). Rattache le
-binaire compilé à Helix pour les langages listés (D19/D20, révise la
-décision D12/EDI-1 de n'inscrire aucun serveur de langage — motif
-détaillé dans `templates/languages.toml.j2`). **Ne charge et ne choisit
+binaire compilé à Helix **et à Kate** (KAT-1) pour les langages listés
+(D19/D20, révise la décision D12/EDI-1 de n'inscrire aucun serveur de
+langage — motif détaillé dans `templates/languages.toml.j2` et
+`templates/kate-lspclient-settings.json.j2`). **Ne charge et ne choisit
 aucun modèle** (D17/D20 : complétion à la demande, pas résidente).
 Résolution complète, sources citées et démonstrations sont dans
 [`docs/completion.md`](../../docs/completion.md) — ce README ne
@@ -42,6 +43,11 @@ duplique pas ce contenu.
    `127.0.0.1:11434` — jamais une API distante. Garde après coup :
    relecture du fichier réellement écrit, pas seulement la variable
    posée.
+8. **Configuration Kate** (`~/.config/kate/lspclient/settings.json`,
+   KAT-1) : mêmes langages, même binaire, même modèle, même API locale
+   que Helix — fichier dédié au client LSP, jamais une copie d'un
+   fichier Plasma. Garde après coup : relecture du fichier réellement
+   écrit, couvre exactement les langages attendus.
 
 ## Ce que ce rôle ne fait jamais
 
@@ -54,8 +60,6 @@ duplique pas ce contenu.
 - Il n'installe rien hors du domaine utilisateur, à l'exception de la
   chaîne de compilation Rust (`fedora`/`updates` uniquement, jamais
   `terra`).
-- Il ne configure jamais Kate — compatibilité jamais testée par
-  personne (point ouvert, `docs/completion.md` § 2.1).
 - Il ne modifie jamais SELinux, `sudoers`, aucun dépôt.
 - Il ne redémarre jamais la machine, ne déconnecte jamais la session.
 

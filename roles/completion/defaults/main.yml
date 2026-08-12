@@ -167,10 +167,20 @@ completion_ollama_chat_url_expected: "{{ completion_ollama_chat_url }}"
 # le plus directement pertinent à ce dépôt (Ansible), et celui dont
 # l'absence de serveur était déjà nommée par D12/EDI-1
 # (`hx --health yaml` : "not found in $PATH"). python ajouté en IA-4
-# (demande § 1 : complétion réelle testée sur les deux).
+# (demande § 1 : complétion réelle testée sur les deux). bash ajouté
+# (BSH-1, diagnostic : aucune complétion pilotée par modèle pour les
+# scripts shell, ni dans Kate ni dans Helix — `pgrep -a lsp-ai` : aucun
+# processus lors de l'ouverture d'un script, popup observé = complétion
+# interne par mots du document, sans rapport avec lsp-ai). Identifiant
+# exact établi par lecture, pas deviné : `hx --health` liste bien
+# `bash` comme langage connu de Helix (tree-sitter/highlight/textobject/
+# indent tous ✓ sur ce poste) — un seul identifiant, Helix ne distingue
+# pas bash/sh/zsh en langages séparés comme le fait Kate (voir
+# completion_kate_highlighting_mode_regex ci-dessous).
 completion_helix_languages:
   - yaml
   - python
+  - bash
 
 completion_helix_config_dir: "{{ ansible_facts.env.HOME }}/.config/helix"
 
@@ -263,6 +273,24 @@ completion_kate_binary_name: kate
 # `"^Python$"` pour python. Reprise à l'identique pour que l'entrée
 # utilisateur corresponde exactement au même critère que celle qu'elle
 # remplace par fusion.
+#
+# bash (BSH-1) : le nom du mode de coloration syntaxique n'est PAS
+# devinable depuis l'extension — établi par mesure sur ce poste, pas
+# supposé. `ksyntaxhighlighter6 --list` (paquet kf6-syntax-highlighting
+# 6.28.1, celui que Kate lie réellement) liste deux définitions
+# distinctes couvrant ce domaine : « Bash » et « Zsh ». Comparaison de
+# rendu forcé (`-s Bash` / `-s Zsh`) contre l'auto-détection confirme
+# qu'un fichier `.sh` (quel que soit son shebang) résout vers « Bash »,
+# qu'un fichier `.bash` résout aussi vers « Bash », et que seul `.zsh`
+# résout vers « Zsh » — l'opérateur écrit « bash et shell », jamais
+# zsh : une seule entrée ajoutée, pas deux, pour ne pas multiplier les
+# entrées inutiles. Confirmé de façon indépendante par le fichier
+# `settings.json` livré avec Kate lui-même (même source amont que
+# ci-dessus, tag v26.04.3) : son entrée `servers.bash` porte
+# exactement `"highlightingModeRegex": "^Bash$"` — même regex, même clé
+# `bash`, valeur retenue ici par coïncidence de méthode, pas copiée
+# sans vérification indépendante.
 completion_kate_highlighting_mode_regex:
   yaml: "^YAML$"
   python: "^Python$"
+  bash: "^Bash$"
