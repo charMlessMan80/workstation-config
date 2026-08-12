@@ -22,6 +22,15 @@ tableau ci-dessous pour la nuance sur ce qui reste non prouvé.
 confirmés par sortie de commande — déplacé vers une preuve complète,
 voir la ligne dédiée ci-dessous.
 
+**Rafraîchi une troisième fois le 2026-08-12 (BSH-1/BSH-2/BSH-3)** :
+complétion étendue à bash/shell dans Kate **et** Helix (trois langages
+désormais : yaml, python, bash) ; modèle de complétion **résident en
+permanence**, D15 réalignée sur cet état après un écart découvert
+entre décision documentée et valeur effective (`docs/machine-facts.md`
+§ Décisions, D15 marquée `[RÉALIGNÉE]`) — la ligne « résidence
+permanente » de la table des options écartées, ci-dessous, ne décrit
+plus l'état actuel et a été corrigée en conséquence.
+
 ## Ce qui est en place et prouvé
 
 | Composant | Décision(s) | Preuve | Document |
@@ -33,8 +42,9 @@ voir la ligne dédiée ci-dessous.
 | Service d'inférence local (Ollama conteneurisé, réseau confiné) | D14/D18 | Confinement réseau prouvé par inspection à quatre reprises (deux fois deux) ; service joignable, `verify-cdi-spec` réutilisé sans réimplémentation | `docs/local-ai.md` |
 | Paramètre pilote `NVreg_PreserveVideoMemoryAllocations=1` | D16 | Écrit, redémarrage effectué, valeur active confirmée `1` après (journal daté 2026-08-08, IA-4) | `docs/machine-facts.md` § Décisions, D16 |
 | Modèles retenus, chargement séquentiel | D21/D22 | Récupération isolée par conteneur éphémère (jamais le réseau du service), intégrité vérifiée, coexistence en VRAM mesurée **ne pas** tenir (§ écarté ci-dessous) | `docs/machine-facts.md` § Décisions, D21/D22 |
-| Complétion locale, Helix | D19/D20 | Bout en bout **entièrement machine** : session `tmux` détachée pilote la frappe, `hx -vv` produit le journal, complétions FIM réelles YAML/Python, latence 0,46-0,48 s modèle chargé, échec forcé démontré | `docs/completion.md` § 7-8 |
-| Complétion locale, Kate | KAT-1 (2026-08-08) | Bout en bout, mais preuve **mixte** — voir la nuance ci-dessous, pas au même niveau que Helix | `docs/completion.md` § 9 |
+| Résidence permanente du modèle de complétion | D15 (réalignée le 2026-08-12, BSH-2) | Coût réel mesuré, pas seulement annoncé : RTD3 bloqué à 100 % une fois le modèle chargé (deux fenêtres isolées de 300 s, méthode d'isolement de `docs/dgpu-power.md`) — écart corrigé sur un chiffre antérieur de ~25 % qui mêlait à tort la phase sans modèle et la résidence effective. Valeur effective jamais changée par la requalification du 7 août — `changed=0` dès la première exécution du rôle après réalignement | `docs/local-ai.md` § 11, `docs/machine-facts.md` § Décisions, D15 |
+| Complétion locale, Helix | D19/D20 (D20 réalignée BSH-2) | Bout en bout **entièrement machine** : session `tmux` détachée pilote la frappe, `hx -vv` produit le journal, complétions FIM réelles yaml/python **et bash** (BSH-1), latence 0,46-0,48 s modèle chargé, échec forcé démontré | `docs/completion.md` § 7-8, § 10.3 |
+| Complétion locale, Kate | KAT-1 (2026-08-08), étendue BSH-1 | Bout en bout, mais preuve **mixte** — voir la nuance ci-dessous, pas au même niveau que Helix ; couvre désormais yaml/python/bash | `docs/completion.md` § 9, § 10.4 |
 | Éditeurs (Helix terminal, Kate graphique) | D12/D13 | Installés, greffons Kate configurés par clé nommée (jamais copie de fichier), garde D12 **resserrée** (D24 : aucun serveur de langage npm, `lsp-ai` au chemin compilé — npm lui-même n'est plus interdit) démontrée dans les deux sens, dans `roles/editor/` et `roles/completion/` indépendamment | `docs/editor.md` § Copilot CLI |
 | GitHub Copilot CLI, second agent de code | D24/D25 | `@github/copilot@1.0.78` installé (version épinglée, domaine utilisateur `~/.local`), runtime Node.js 22 depuis `fedora`/`updates`. Authentification établie par l'opérateur (`copilot login`, jamais scriptée) ; modèle actif confirmé `claude-sonnet-5` (medium) — **parité de génération de modèle** avec Claude Code, pas d'effort ; consommation lisible (3 700/20 000 AIC, 18 %, période de renouvellement inconnue) — **preuve par sortie de commande copiable**, datée 2026-08-10 | `docs/editor.md` § Copilot CLI |
 | Amorçage (D6/D9/D10 scriptés) | `roles/bootstrap/` | `power-profiles-daemon`, dépôt `terra` (clé vérifiée par inspection hors ligne avant tout usage privilégié), règle `NOPASSWD` — les trois reconstructibles par ce rôle | `roles/bootstrap/README.md`, `docs/orchestration.md` § 7.1 |
@@ -116,7 +126,6 @@ opposée (ici : « déjà stable ») a réussi.
 | Cursor | Mêmes motifs que Zed ; nativité Wayland jamais confirmée (marqueur fermé par requalification, pas par vérification — Cursor n'a jamais été installé) | D13 |
 | Dépôt NVIDIA officiel (à la place du COPR) | COPR jugé équivalent avec des vérifications OpenPGP supplémentaires, un cran au-dessus du dépôt officiel sur ce point précis | D7 |
 | Coexistence de deux modèles en VRAM (chat + complétion résidents) | Mesurée, pas supposée — ne tient pas (chat seul à 32 K de contexte occupe déjà 12 294 Mio) ; chargement séquentiel retenu à la place | D22 |
-| Résidence permanente du modèle de complétion | Coûte ~8 W en continu et neutralise la veille runtime (RTD3) pour un bénéfice non encore mesuré à l'origine de la décision | D15, requalifiée par D20 |
 | Binaire `lsp-ai` précompilé (à la place de la compilation depuis les sources) | Aucune somme de contrôle publiée — ancrage de confiance plus faible que ce que fermer `npm` (D12) était censé éviter | D19 |
 
 ## Surfaces d'approvisionnement et ancrage de confiance

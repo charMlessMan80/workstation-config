@@ -9,7 +9,14 @@ binaire compilé à Helix **et à Kate** (KAT-1) pour les langages listés
 (D19/D20, révise la décision D12/EDI-1 de n'inscrire aucun serveur de
 langage — motif détaillé dans `templates/languages.toml.j2` et
 `templates/kate-lspclient-settings.json.j2`). **Ne charge et ne choisit
-aucun modèle** (D17/D20 : complétion à la demande, pas résidente).
+aucun modèle** (D17 : dimensionnement initial, D20 historique — voir
+note ci-dessous) — le service qui charge réellement le modèle
+(`roles/local_ai/`) est **résident en permanence** depuis
+`[RÉALIGNÉE le 2026-08-12, BSH-2]` (`docs/machine-facts.md` §
+Décisions) : D20 avait requalifié D15 en « à la demande » le
+2026-08-07, réalignée depuis sur la résidence. Fait inchangé par ce
+réalignement : ce rôle-ci ne charge ni ne choisit de modèle, quelle
+que soit la politique de résidence de `roles/local_ai/`.
 Résolution complète, sources citées et démonstrations sont dans
 [`docs/completion.md`](../../docs/completion.md) — ce README ne
 duplique pas ce contenu.
@@ -98,6 +105,11 @@ ansible-playbook roles/completion/completion.yml \
 configuré pour le modèle réel `{{ completion_ollama_model }}` (D21,
 `roles/local_ai/`) — vérifié présent côté service avant l'écriture de
 la configuration. **Aucun modèle n'est chargé par ce rôle lui-même**
-(D20/D22) : le premier appel de complétion paie le chargement (ou une
-bascule si un autre modèle est déjà chargé, IA-3 § 9.3/9.4), pas un
-échec de ce rôle.
+(D22 : la bascule est gérée par Ollama, pas par ce rôle) : le premier
+appel de complétion paie le chargement **si le modèle n'était pas déjà
+résident** — depuis `[RÉALIGNÉE le 2026-08-12, BSH-2]`
+(`docs/machine-facts.md` § Décisions), le modèle de complétion reste
+chargé en continu (`roles/local_ai/`, `keep_alive` infini), donc ce
+coût ne se paie plus qu'après un redémarrage du service ou une bascule
+vers un autre modèle (IA-3 § 9.3/9.4), pas à chaque appel comme au
+régime « à la demande » (D20, historique).

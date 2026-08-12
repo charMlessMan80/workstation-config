@@ -5,8 +5,19 @@
 #         (crates.io, quatrième surface d'approvisionnement de ce
 #         dépôt) — jamais le binaire précompilé (aucune somme de
 #         contrôle publiée, ancrage de confiance plus faible que npm).
-#   D20 — modèle de complétion à la demande, pas résident (requalifie
-#         D15) — ce rôle ne charge ni ne choisit aucun modèle.
+#   D20 — modèle de complétion à la demande, pas résident (requalifiait
+#         D15 à cette date) — ce rôle ne charge ni ne choisit aucun
+#         modèle, fait inchangé par le réalignement suivant.
+#         [RÉALIGNÉE le 2026-08-12, BSH-2, roles/local_ai/] — D15 est
+#         revenue à la résidence permanente (`docs/machine-facts.md`
+#         § Décisions, coût réel mesuré à 100 % de blocage RTD3 une
+#         fois le modèle chargé, pas les ~25 % d'une fenêtre mêlant
+#         pré-chargement et résidence). Sans effet sur CE rôle, qui n'a
+#         jamais chargé de modèle lui-même dans un cas comme dans
+#         l'autre — les autres mentions de D20 dans ce rôle
+#         (`tasks/main.yml`, `meta/main.yml`, `templates/*.j2`,
+#         `completion.yml`) décrivent ce même fait inchangé, restent
+#         exactes telles quelles, non modifiées par BSH-3.
 #   D21 — modèle de complétion retenu : qwen2.5-coder:7b-instruct-q4_K_M
 #         (IA-3, docs/machine-facts.md § Décisions) — récupéré par
 #         roles/local_ai/, jamais téléchargé par ce rôle.

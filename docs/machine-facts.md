@@ -4240,3 +4240,49 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   paquet installé, aucun modèle téléchargé,
   `sudoers`/`terra.repo`/`/etc/cdi/`/`gpu_mux_mode`/`kwinrulesrc`/
   `site.yml` intacts, aucun redémarrage.
+
+- **2026-08-12 (BSH-3)** — Ferme la dette signalée sans être corrigée
+  par le livrable précédent : les mentions de D15/D20 dans
+  `roles/completion/` et `docs/status.md`, laissées hors périmètre
+  strict de BSH-2. **Dette connue, signalée et différée
+  délibérément — pas découverte tardivement** : c'est la règle
+  renforcée de recherche systématique hors périmètre (`CLAUDE.md`, ajoutée
+  BSH-2) qui a produit ce signalement, et ce livrable la referme
+  exactement comme prévu. Recherche reprise sur tout le dépôt, pas
+  seulement sur la liste laissée par BSH-2 : `roles/completion/defaults/main.yml`
+  (commentaire de préambule D19-D22, corrigé — ajoute
+  `[RÉALIGNÉE le 2026-08-12, BSH-2, roles/local_ai/]` et note
+  explicitement que les autres mentions de D20 du rôle décrivent un
+  fait inchangé) ; `roles/completion/README.md` (deux paragraphes
+  corrigés — introduction et section « après ce rôle » — un troisième,
+  « ce rôle ne charge aucun modèle », laissé inchangé car encore
+  factuellement vrai indépendamment de l'état de D15). **Classement
+  explicite** : `roles/completion/tasks/main.yml`,
+  `roles/completion/meta/main.yml`, `roles/completion/templates/*.j2`,
+  `roles/completion/completion.yml` référencent tous D20 pour dire
+  que ce rôle ne charge ni ne choisit aucun modèle — vrai quel que
+  soit l'état de D15, laissés inchangés, corriger serait du bruit ;
+  `roles/editor/defaults/main.yml` et `docs/editor.md` décrivent un
+  fait historique (l'apparition d'un serveur LSP à connecter) non
+  affecté par l'état actuel de D15, inchangés ; `docs/review-2026-08.md`
+  est une revue close datée du 2026-08-07, décrit correctement un
+  événement passé, non réécrite (règle « marquer l'historique, ne pas
+  l'effacer »). **Aucune valeur effective divergente trouvée hors
+  périmètre** — uniquement des commentaires et de la documentation ;
+  aucune autre décision requalifiée du dépôt n'a de référence non
+  alignée en dehors de ce qui a déjà été traité (D3 le 2026-08-08, D15
+  le 2026-08-12 en BSH-2). `docs/status.md` relu en entier et corrigé :
+  ligne Kate/Helix mise à jour pour refléter les trois langages
+  couverts (yaml/python/bash, BSH-1) ; ligne de la table « écarté »
+  sur la résidence permanente retirée (ce n'est plus une option
+  écartée, c'est l'état retenu) et remplacée par une ligne dans la
+  table « prouvé » citant le coût réel mesuré (RTD3 bloqué à 100 %) et
+  le `changed=0` de BSH-2. Aucune action privilégiée (commentaires et
+  documentation uniquement — branches : sans objet, aucun code
+  exécutable modifié, seuls des commentaires et de la documentation
+  changent). `ansible-lint --profile production roles/completion/` :
+  0 défaut ; `--check` à `changed=0` ; deux exécutions réelles à
+  `changed=0` (confirmant qu'aucune sortie déployée n'a changé, comme
+  attendu pour des modifications de commentaires). Aucun paquet
+  installé, aucun modèle téléchargé, `roles/local_ai/` et `CLAUDE.md`
+  intacts, aucun redémarrage.
