@@ -271,6 +271,52 @@ completion_max_context: 2000
 # code source de lsp-ai une seconde fois.
 completion_num_ctx: 4096
 
+# [AJOUTÉ, TRO-2, 2026-08-12] Bornes de `completion_num_predict` et
+# `completion_num_ctx` — motif de chacune consigné dans le message de
+# la garde (roles/completion/tasks/main.yml) et détaillé dans
+# docs/completion.md § 13.1. Aucune borne sur `completion_max_context` :
+# paramètre interne au memory backend de lsp-ai, jamais transmis à
+# Ollama, sans coût VRAM (§ 11.1) — une borne y serait de la
+# sur-couverture, pas posée délibérément.
+#
+# completion_num_predict_min=1 : 0 et les valeurs négatives (-1, -2)
+# signifient « génération non bornée » côté Ollama (vérifié par appel
+# direct à l'API — num_predict=-1 a produit 1334 jetons en une seule
+# réponse, num_predict=0 s'est arrêté naturellement à 65 mais sans
+# plafond garanti) — c'est le risque exact qu'une borne basse doit
+# écarter, pas une valeur de complétion faible mais plausible.
+completion_num_predict_min: 1
+
+# completion_num_predict_max=512 : mesuré directement contre l'API
+# (docs/completion.md § 13.1) — 384 jetons ≈3,8 s, 512 ≈4,8 s, 768
+# ≈7,5 s, 1024 ≈9,7 s. Au-delà de 512, la latence dépasse largement ce
+# qui reste utilisable au fil de la frappe même en tolérant la
+# contrepartie déjà assumée pour 256 (~2,5 s) ; 512 reste une borne
+# haute généreuse (le double de la valeur retenue) sans franchir le
+# palier où l'attente devient un blocage net (~7-10 s).
+completion_num_predict_max: 512
+
+# completion_num_ctx_min=512 : en dessous, le prompt système + gabarit
+# de lsp-ai (~30 jetons mesurés côté prompt_eval_count pour un prompt
+# minimal) occupe déjà une fraction significative de la fenêtre — à
+# 64-256 jetons de contexte total mesurés par appel direct, la
+# complétion produite reste cohérente sur le plan syntaxique mais perd
+# tout accès au fichier réel au-delà de quelques lignes (docs/completion.md
+# § 13.1) : la complétion perd son sens utilitaire pour ce dépôt, pas
+# parce qu'elle échoue techniquement.
+completion_num_ctx_min: 512
+
+# completion_num_ctx_max=32768 : fenêtre de contexte maximale déclarée
+# par le modèle lui-même, jamais devinée — `qwen2.context_length` relevé
+# par lecture directe (`curl .../api/show` sur le modèle configuré,
+# champ `model_info["qwen2.context_length"]`). Au-delà, la valeur
+# demandée à Ollama est acceptée sans erreur mais `ollama ps` continue
+# de rapporter 32768 (plafonnée silencieusement au maximum du modèle,
+# vérifié par mesure directe avec num_ctx=99999999) — une valeur
+# supérieure à cette borne ne produirait donc pas l'effet demandé,
+# c'est le motif de la borne haute, pas une limite arbitraire.
+completion_num_ctx_max: 32768
+
 # Substituable pour la démonstration d'échec forcé du service (§ 3 de
 # la demande) sans jamais changer le service réel :
 # -e completion_ollama_url_check=http://127.0.0.1:1/api/tags

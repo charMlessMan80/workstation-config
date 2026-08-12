@@ -1985,6 +1985,295 @@ redémarrage système — seul le modèle Ollama a été rechargé en interne
 machine) ; Kate a été relancé plusieurs fois par l'opérateur pour la
 démonstration, jamais la session ni le système.
 
+## 13. TRO-2 — gardes de bornes sur les paramètres de génération (2026-08-12)
+
+**Motif** : la démonstration de la phase B précédente (§ 12.7) a
+montré qu'aucune garde n'existait sur `completion_num_predict`,
+`completion_max_context` ni `completion_num_ctx` — une valeur
+manifestement absurde (`completion_num_ctx=99999999`) était acceptée
+sans rejet et écrite telle quelle dans les deux configurations
+déployées. Ce livrable comble l'asymétrie : le dépôt garde partout
+ailleurs, ces trois variables étaient les seules exceptions.
+
+### 13.1 — Bornes retenues, chacune avec son motif sourcé
+
+**`completion_num_predict`** :
+- **Borne basse = 1.** Établie par mesure directe contre l'API : `0`
+  et les valeurs négatives (`-1`, `-2`) signifient « génération non
+  bornée » côté Ollama, pas « aucune complétion ». Vérifié :
+  `num_predict=-1` a produit une réponse de **1334 jetons** en un seul
+  appel ; `num_predict=0` s'est arrêté à 65 jetons dans un essai mais
+  sans plafond garanti (dépend de l'arrêt naturel du modèle, jamais
+  borné par la valeur elle-même). C'est le risque exact qu'une borne
+  basse doit écarter — une génération non bornée coûterait un temps
+  arbitraire, pas seulement quelques secondes de plus.
+- **Borne haute = 512.** Mesurée directement contre l'API (isolement
+  de `docs/dgpu-power.md`, prompt volontairement long pour forcer
+  l'atteinte du plafond) :
+
+  | `num_predict` | Latence murale mesurée | `done_reason` |
+  |---|---|---|
+  | 256 (retenu, § 12.1) | jusqu'à ≈2,5 s | `length` au plafond |
+  | 384 | ≈3,81 s | `length` au plafond |
+  | 512 | ≈5,03 s | `length` au plafond |
+  | 768 | ≈7,50 s | `length` au plafond |
+  | 1024 | ≈9,93 s | `length` au plafond |
+
+  512 reste la plus grande valeur qui ne franchit pas le palier où
+  l'attente devient un blocage net (7 à 10 s, mesuré à 768/1024) —
+  au-delà, aucune valeur ne resterait défendable au fil de la frappe,
+  y compris pour une complétion déclenchée explicitement plutôt
+  qu'automatique (§ 11.1 — aucune distinction n'existe côté `lsp-ai`
+  entre les deux). 512 reste le double de la valeur retenue (256),
+  laissant une marge d'ajustement sans ouvrir sur un temps d'attente
+  qui rendrait la fonctionnalité inutilisable en pratique.
+
+**`completion_num_ctx`** :
+- **Borne haute = 32768.** Établie **par lecture**, pas devinée :
+  relevé directement sur les métadonnées du modèle chargé,
+  ```
+  $ curl -s http://127.0.0.1:11434/api/show \
+      -d '{"model":"qwen2.5-coder:7b-instruct-q4_K_M"}' \
+      | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['model_info']['qwen2.context_length'])"
+  32768
+  ```
+  Vérifié qu'au-delà, la valeur demandée est acceptée par l'API sans
+  erreur mais **silencieusement plafonnée** : `num_ctx=99999999` a
+  produit un modèle chargé dont `ollama ps`/`api/ps` continue de
+  rapporter `context_length: 32768` — la valeur au-delà de la borne ne
+  produit donc pas l'effet demandé, ce qui motive la borne haute
+  (empêcher une configuration qui semble demander plus que ce que le
+  modèle peut réellement offrir, sans jamais le signaler).
+- **Borne basse = 512.** Établie par mesure : en dessous, la part du
+  contexte consommée par le prompt système et le gabarit de `lsp-ai`
+  (~30 jetons mesurés pour un prompt minimal, `prompt_eval_count`)
+  devient une fraction significative de la fenêtre totale. Testé à
+  1/2/4/64/128/256 : le modèle continue de répondre sans erreur
+  (aucun échec technique), mais la portion de fichier réellement
+  visible s'effondre bien avant que la complétion perde en cohérence
+  syntaxique — la complétion perd son **sens utilitaire** pour ce
+  dépôt (fichiers de quelques centaines de lignes), pas parce qu'elle
+  échoue. 512 est la valeur à partir de laquelle un fragment de
+  fichier significatif reste représenté dans la fenêtre, cohérente
+  avec la borne basse de `num_predict` (les deux partagent la même
+  logique de « en dessous, la fonctionnalité perd son sens plutôt que
+  d'échouer bruyamment »).
+
+**`completion_max_context` : aucune borne posée, délibérément.**
+Établi en phase A (§ 11.1) et reconfirmé ici : ce paramètre est interne
+au *memory backend* `file_store` de `lsp-ai` — jamais transmis à
+Ollama, converti en une estimation de caractères
+(`tokens_to_estimated_characters`, `tokens * 4`,
+`crates/lsp-ai/src/utils.rs:34`), sans coût VRAM, sans risque d'échec
+côté service. Aucun fait mesuré ne motive une borne : une valeur trop
+grande ne coûte qu'un peu plus de texte extrait du fichier local (pas
+de VRAM, pas de requête réseau, pas de risque de dépassement de
+capacité du modèle puisque c'est `num_ctx` qui borne réellement ce
+qui est transmis). Poser une borne ici serait de la sur-couverture —
+mieux vaut l'absence de garde, motivée, que trois gardes dont une
+arbitraire.
+
+### 13.2 — Ce que la garde empêche, et ce qu'elle ne juge pas
+
+La garde protège contre une valeur **manifestement hors domaine** — un
+ordre de grandeur erroné (`99999999`, une faute de frappe qui ajoute
+des zéros), une valeur qui déclenche un comportement différent de
+celui voulu (`0`/négatif = non borné). **Elle ne juge jamais de la
+pertinence d'un réglage plausible mais mal choisi** : une valeur comme
+`completion_num_predict=500` ou `completion_num_ctx=600` passerait la
+garde sans encombre, alors que ce ne sont pas nécessairement de bons
+réglages pour ce poste. Le message de succès de la garde le dit
+explicitement : « domaine admissible, aucun jugement sur la
+pertinence du réglage » — pour éviter de laisser croire que la garde
+valide un choix de configuration, seulement qu'il n'est pas absurde.
+
+### 13.3 — Emplacement, avant toute écriture
+
+La garde s'exécute immédiatement après la garde 3/4bis (existence du
+modèle côté service) et **avant** toute tâche de clonage/compilation
+et **avant** toute tâche `template` qui écrirait `languages.toml` ou
+le fichier de configuration Kate — vérifié par lecture de l'ordre des
+tâches dans `roles/completion/tasks/main.yml`. Aucune configuration
+n'est jamais écrite, même transitoirement, avant que cette garde ait
+réussi.
+
+**Vérifiée dans les deux contextes d'exécution** — le piège du
+contexte s'est déjà présenté ailleurs dans ce dépôt
+(`local_ai_gpu_cdi_playbook`, `playbook_dir` vs `role_path`) :
+
+```
+$ ansible-playbook roles/completion/completion.yml -e completion_num_ctx=99999999
+[...] fatal: [localhost]: FAILED! => { "assertion": "completion_num_ctx | int <= completion_num_ctx_max", ... }
+
+$ ansible-playbook --check site.yml --tags completion -e completion_num_ctx=99999999
+[...] fatal: [localhost]: FAILED! => { "assertion": "completion_num_ctx | int <= completion_num_ctx_max", ... }
+```
+Même échec, même message, dans les deux cas.
+
+### 13.4 — Démonstrations dans les deux sens
+
+**Nominal** : valeurs courantes (`num_predict=256`, `num_ctx=4096`),
+exécution réelle, `changed=0` — rien ne change, la garde n'interfère
+pas.
+```
+$ ansible-playbook roles/completion/completion.yml
+[...]
+localhost : ok=38 changed=0 unreachable=0 failed=0 skipped=5 rescued=0 ignored=0
+```
+
+**Cas limites, aux deux extrémités — les valeurs à la borne passent** :
+```
+$ ansible-playbook roles/completion/completion.yml -e completion_num_predict=1 -e completion_num_ctx=512
+localhost : ok=38 changed=2 unreachable=0 failed=0 skipped=5 rescued=0 ignored=0
+
+$ ansible-playbook roles/completion/completion.yml -e completion_num_predict=512 -e completion_num_ctx=32768
+localhost : ok=38 changed=2 unreachable=0 failed=0 skipped=5 rescued=0 ignored=0
+```
+(`changed=2` attendu ici : la valeur limite diffère de la valeur
+retenue par défaut, donc les deux fichiers déployés se réécrivent —
+pas un échec, la garde inclusive laisse bien passer les bornes
+elles-mêmes.) Rôle rejoué ensuite avec les valeurs par défaut pour
+restaurer l'état nominal (`changed=2` de nouveau, retour à
+`num_predict=256`/`num_ctx=4096`).
+
+**Échec forcé, par garde — avant écriture, message complet, sommes de
+contrôle identiques avant/après** :
+```
+$ sha256sum ~/.config/helix/languages.toml ~/.config/kate/lspclient/settings.json
+0f3ef4fa9242d09c4e57ffd008635a80182d4063f6b226fd171e3d14bf377efb  .../languages.toml
+ba50e497a5e560265d219f20271e39ae426ec835bc4e0278312d771deb5d9f3d  .../settings.json
+
+$ ansible-playbook roles/completion/completion.yml -e completion_num_ctx=99999999
+[...]
+fatal: [localhost]: FAILED! => {
+    "assertion": "completion_num_ctx | int <= completion_num_ctx_max",
+    "msg": "completion_num_predict=256 (domaine admissible : [1, 512]) ou
+      completion_num_ctx=99999999 (domaine admissible : [512, 32768]) est
+      hors domaine. Bornes et motif : completion_num_predict_min=1 (0 et
+      les valeurs négatives signifient « génération non bornée » côté
+      Ollama...) ; completion_num_predict_max=512 (mesuré : au-delà, la
+      latence dépasse largement ce qui reste utilisable au fil de la
+      frappe...) ; completion_num_ctx_min=512 (en deçà, une fraction
+      significative du contexte système/prompt lsp-ai est déjà
+      consommée, la complétion perd son sens) ; completion_num_ctx_max=
+      32768 (fenêtre de contexte maximale déclarée par le modèle
+      lui-même, qwen2.context_length, relevée via curl .../api/show —
+      jamais devinée). Ce rôle s'arrête avant d'écrire quoi que ce soit."
+}
+localhost : ok=13 changed=0 unreachable=0 failed=1 skipped=2 rescued=0 ignored=0
+
+$ sha256sum ~/.config/helix/languages.toml ~/.config/kate/lspclient/settings.json
+0f3ef4fa9242d09c4e57ffd008635a80182d4063f6b226fd171e3d14bf377efb  .../languages.toml   # identique
+ba50e497a5e560265d219f20271e39ae426ec835bc4e0278312d771deb5d9f3d  .../settings.json   # identique
+```
+`changed=0`, `failed=1` : la garde échoue avant toute tâche d'écriture
+(le décompte `ok=13` s'arrête bien avant les tâches de compilation et
+de déploiement, `skipped=2` couvre les tâches de nettoyage
+conditionnelles). Sommes de contrôle strictement identiques avant et
+après l'échec.
+
+**Validation par le code d'avant (`git show HEAD:...`, rejoué contre le
+code tel qu'il était avant ce livrable, commit `b21f45b`)** — même
+échec forcé, contre le rôle sans la nouvelle garde :
+```
+$ git stash   # remise en état du code au commit b21f45b (avant ce livrable)
+$ ansible-playbook roles/completion/completion.yml -e completion_num_ctx=99999999
+[...]
+localhost : ok=37 changed=2 unreachable=0 failed=0 skipped=5 rescued=0 ignored=0
+
+$ grep num_ctx ~/.config/helix/languages.toml
+num_ctx = 99999999
+```
+**La version d'avant accepte la valeur absurde et l'écrit
+intégralement** (`changed=2`, `num_ctx = 99999999` déployé tel quel) —
+c'est la preuve que la garde ajoutée dans ce livrable bouche un trou
+réel, pas qu'elle ajoute du zèle à un mécanisme déjà correct. Code
+restauré (`git stash pop`), rôle rejoué avec les valeurs nominales pour
+revenir à l'état correct (`num_predict=256`/`num_ctx=4096`).
+
+### 13.5 — Non-régression
+
+Après restauration des valeurs nominales, sommes de contrôle des deux
+fichiers déployés identiques à l'état d'avant ce livrable :
+```
+0f3ef4fa9242d09c4e57ffd008635a80182d4063f6b226fd171e3d14bf377efb  languages.toml
+ba50e497a5e560265d219f20271e39ae426ec835bc4e0278312d771deb5d9f3d  settings.json
+```
+**Une vérification fonctionnelle complète (3 langages × 2 éditeurs)
+n'a pas été rejouée** : aucune valeur de complétion elle-même n'est
+modifiée par ce livrable (seules des gardes sont ajoutées, jamais
+déclenchées en usage nominal), et la preuve à trois langages/deux
+éditeurs vient d'être établie dans le livrable précédent (§ 12.5-12.6)
+sur des fichiers déployés strictement identiques (sommes de contrôle
+ci-dessus). Une vérification fonctionnelle légère aurait ajouté un
+geste opérateur (Kate) sans rien contrôler de plus que la somme de
+contrôle ne prouve déjà.
+
+### 13.6 — Rappel de méthode consigné
+
+**La lecture du journal LSP de Kate passe par `journalctl --user
+_PID=<pid>`, pas par une redirection shell classique** —
+`LSPCLIENT_DEBUG=1 kate ... > fichier.log 2>&1` peut échouer
+silencieusement (Kate se re-dédouble en interne, la sortie peut
+atterrir sur `/dev/null` selon le chemin de démarrage exact, sans
+règle fiable identifiée pour prédire lequel des deux se produit).
+Consigné en détail avec l'exemple complet en § 12.6 de ce document —
+retrouvable par une recherche de « journalctl --user _PID » dans ce
+fichier.
+
+### 13.7 — Branches exercées et non exercées
+
+- **Garde de bornes, cas nominal (valeur dans le domaine)** : exercée
+  (§ 13.4, exécution nominale, `changed=0`).
+- **Garde de bornes, valeurs aux deux extrémités (bornes inclusives)** :
+  exercée pour les quatre bornes (`num_predict`∈{1,512},
+  `num_ctx`∈{512,32768}).
+- **Garde de bornes, échec (valeur hors domaine haute)** : exercée
+  (`num_ctx=99999999`, `num_predict=0`, `num_predict` hors domaine
+  testé aussi via l'échec combiné).
+- **Garde de bornes, échec par valeur hors domaine basse** : **non
+  exercée directement en dessous de la borne basse** (ex.
+  `num_ctx=100` ou `num_predict=-1` n'ont pas été rejoués contre le
+  rôle complet, seulement contre l'API Ollama directement pour établir
+  le motif de la borne, § 13.1) — la logique de l'assertion est
+  symétrique (`>= min` et `<= max` dans la même expression `that:`) et
+  couvre les deux bornes par construction, mais le chemin d'exécution
+  réel du rôle avec une valeur sous la borne basse n'a pas été
+  traversé. Signalé comme branche non exercée plutôt qu'affirmé
+  couvert par analogie.
+- **Exécution depuis `site.yml --tags completion`** : exercée pour le
+  cas d'échec (§ 13.3), **non exercée pour le cas nominal ni les cas
+  limites** depuis ce point d'entrée — seule l'exécution directe du
+  rôle (`ansible-playbook roles/completion/completion.yml`) a été
+  utilisée pour ces cas, `site.yml` uniquement pour confirmer que le
+  contexte d'exécution ne change pas le comportement de la garde en
+  échec.
+
+### 13.8 — Actions privilégiées
+
+Non applicable — aucune élévation, aucune commande `sudo` dans ce
+livrable (ajout de tâches `assert`, appels HTTP locaux vers l'API
+Ollama sans privilège, exécutions `ansible-playbook` en tant
+qu'utilisateur courant).
+
+### 13.9 — Confirmations finales
+
+`ansible-lint --profile production roles/completion/` : 0 défaut.
+`ansible-playbook --check` : aucun changement signalé. Exécution
+réelle nominale : `changed=0` (les valeurs déployées étaient déjà
+correctes, la garde ne modifie aucun comportement en usage normal).
+Aucun paquet installé, aucun modèle téléchargé (aucune commande de ce
+livrable n'installe ni ne télécharge quoi que ce soit — uniquement des
+appels API en lecture et des exécutions du rôle existant).
+`roles/local_ai/`, `roles/editor/`, `sudoers`, `terra.repo`,
+`/etc/cdi/`, `gpu_mux_mode`, `kwinrulesrc`, `site.yml` intacts (aucune
+commande de ce livrable ne les touche — `site.yml` a été **lu et
+exécuté en `--check`/`--tags completion`** pour la démonstration du
+contexte d'exécution, jamais modifié). Aucun redémarrage système ; le
+modèle Ollama a été rechargé plusieurs fois en interne au fil des
+essais de valeurs (comportement normal du service, jamais un
+redémarrage de service ni de machine).
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,

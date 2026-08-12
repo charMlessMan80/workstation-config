@@ -4350,3 +4350,33 @@ modèle téléchargé, `roles/local_ai/`, `roles/editor/`, `sudoers`,
 `terra.repo`, `/etc/cdi/`, `gpu_mux_mode`, `kwinrulesrc`, `site.yml`
 intacts, aucun redémarrage système (seul le modèle Ollama a été
 rechargé en interne, comportement normal du service).
+
+### 2026-08-12 — TRO-2 : gardes de bornes sur les paramètres de génération
+
+Comble l'asymétrie constatée en clôture de TRO-1 phase B : aucune
+garde n'existait sur `completion_num_predict`, `completion_max_context`
+ni `completion_num_ctx` — une valeur absurde
+(`completion_num_ctx=99999999`) était acceptée sans rejet et écrite
+telle quelle. Bornes ajoutées, chacune sourcée (`docs/completion.md`
+§ 13.1) : `completion_num_predict` ∈ [1, 512] (borne basse : 0/négatif
+signifie génération non bornée côté Ollama, mesuré ; borne haute :
+mesure directe de latence, 512≈5s reste la limite avant un blocage
+net à 7-10s). `completion_num_ctx` ∈ [512, 32768] (borne haute : lue
+sur les métadonnées du modèle lui-même, `qwen2.context_length` via
+`curl .../api/show`, jamais devinée — au-delà, la valeur est acceptée
+mais silencieusement plafonnée par Ollama, vérifié ; borne basse :
+mesurée, en dessous la fenêtre perd son utilité pour les fichiers
+réels de ce dépôt). `completion_max_context` volontairement **sans
+borne** : interne au *memory backend* de `lsp-ai`, jamais transmis à
+Ollama, sans coût VRAM ni risque d'échec — une garde y serait de la
+sur-couverture, motif consigné plutôt que devinée. Démonstrations
+dans les deux sens : nominal (`changed=0`), cas limites aux deux
+extrémités (acceptés), échec forcé avant écriture (sommes de contrôle
+identiques avant/après), rejoué avec succès contre le code d'avant
+(`git stash` vers `b21f45b`) qui accepte la valeur absurde et l'écrit
+— preuve que la garde bouche un trou réel. Vérifié identique depuis
+`ansible-playbook roles/completion/completion.yml` et depuis
+`ansible-playbook --check site.yml --tags completion`. `ansible-lint
+--profile production` : 0 défaut. Aucune action privilégiée, aucun
+paquet installé, aucun modèle téléchargé, fichiers interdits intacts,
+aucun redémarrage.

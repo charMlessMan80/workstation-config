@@ -247,6 +247,55 @@
       roles/local_ai/ (--tags pull-models), pas de celui-ci.
     success_msg: "Modèle de complétion confirmé présent côté service : {{ completion_ollama_model_expected }}."
 
+# --- Garde de bornes (TRO-2) — num_predict et num_ctx, avant toute écriture
+# Motif : ces deux variables acceptaient n'importe quelle valeur avant ce
+# livrable (démontré par -e completion_num_ctx=99999999, accepté sans
+# rejet, docs/completion.md § 12.7) — seules variables de ce rôle sans
+# garde, asymétrie comblée ici. `completion_max_context` reste
+# volontairement sans garde : interne au memory backend de lsp-ai,
+# jamais transmis à Ollama, sans coût VRAM ni risque d'échec côté
+# service (docs/completion.md § 11.1/13.1) — une borne y serait de la
+# sur-couverture, motif consigné plutôt que devinée. Cette garde établit
+# seulement que la valeur est dans le domaine admissible, pas qu'elle
+# est bien choisie : une valeur plausible mais mal réglée (ex. 4 ou 500)
+# passe sans avis sur sa pertinence.
+
+- name: "Garde de bornes — num_predict et num_ctx dans un domaine admissible (avant toute écriture de configuration)"
+  ansible.builtin.assert:
+    that:
+      - completion_num_predict | int >= completion_num_predict_min
+      - completion_num_predict | int <= completion_num_predict_max
+      - completion_num_ctx | int >= completion_num_ctx_min
+      - completion_num_ctx | int <= completion_num_ctx_max
+    fail_msg: >-
+      completion_num_predict={{ completion_num_predict }}
+      (domaine admissible : [{{ completion_num_predict_min }},
+      {{ completion_num_predict_max }}]) ou completion_num_ctx=
+      {{ completion_num_ctx }} (domaine admissible :
+      [{{ completion_num_ctx_min }}, {{ completion_num_ctx_max }}])
+      est hors domaine. Bornes et motif :
+      completion_num_predict_min={{ completion_num_predict_min }}
+      (0 et les valeurs négatives signifient « génération non bornée »
+      côté Ollama — le risque exact qu'une borne doit écarter, pas une
+      valeur de complétion plausible) ;
+      completion_num_predict_max={{ completion_num_predict_max }}
+      (mesuré : au-delà, la latence dépasse largement ce qui reste
+      utilisable au fil de la frappe — docs/completion.md § 13.1) ;
+      completion_num_ctx_min={{ completion_num_ctx_min }} (en deçà,
+      une fraction significative du contexte système/prompt lsp-ai est
+      déjà consommée, la complétion perd son sens) ;
+      completion_num_ctx_max={{ completion_num_ctx_max }} (fenêtre de
+      contexte maximale déclarée par le modèle lui-même,
+      `qwen2.context_length`, relevée via `curl .../api/show` —
+      docs/completion.md § 13.1, jamais devinée). Ce rôle s'arrête
+      avant d'écrire quoi que ce soit — une valeur hors domaine ne doit
+      jamais atteindre les fichiers déployés, même transitoirement.
+    success_msg: >-
+      completion_num_predict={{ completion_num_predict }} et
+      completion_num_ctx={{ completion_num_ctx }} sont dans leur
+      domaine admissible respectif — garde vérifiée, aucun jugement sur
+      la pertinence du réglage.
+
 # --- Clonage à l'empreinte de commit épinglée, hors du dépôt ---------------
 
 - name: "S'assurer que le répertoire de travail existe, hors du dépôt : {{ completion_build_dir | dirname }}"
