@@ -1480,6 +1480,229 @@ plusieurs reprises, jamais la session ni le système.
 `bash`), puis `changed=0` à la seconde exécution — idempotence
 confirmée.
 
+## 11. TRO-1 — phase A, résolution en lecture seule des paramètres de génération (2026-08-12)
+
+**Constat de l'opérateur** : les complétions dans Kate sont tronquées
+— réponses coupées en cours de génération. **Cause établie** :
+`completion_num_predict: 32` (`roles/completion/defaults/main.yml:232`)
+plafonne la génération à 32 jetons, environ une ligne courte, propagé
+aux deux éditeurs et présent six fois dans le fichier Kate déployé
+(deux blocs par serveur, trois langages). Cette section est
+**purement en lecture** — aucune valeur n'est modifiée ici ; la
+correction relève de la phase B, après accord explicite de
+l'opérateur.
+
+### 11.1 — A.1 : ce que `lsp-ai` permet réellement (lecture du code à
+l'empreinte compilée `1e910a8cf0048406eb227bf2064743010a9ff3a9`,
+`completion_lsp_ai_commit`)
+
+Code source cloné et vérifié à cette empreinte exacte (pas la branche
+courante amont).
+
+- **`num_predict`** (`crates/lsp-ai/src/transformer_backends/ollama.rs`) :
+  transmis tel quel dans `options` du corps JSON envoyé à
+  `/api/generate` — `lsp-ai` ne l'interprète ni ne le borne lui-même,
+  c'est un passe-plat vers l'API Ollama, qui applique sa propre
+  sémantique (nombre maximal de jetons **générés** par cette requête,
+  pas une longueur de fichier ni de contexte).
+- **`max_context`** (`crates/lsp-ai/src/memory_backends/file_store.rs:228-262`,
+  `crates/lsp-ai/src/memory_backends/mod.rs:22-28`) : **ce n'est pas un
+  paramètre transmis à Ollama** — c'est un paramètre interne au
+  *memory backend* de `lsp-ai` (`file_store`), qui borne la portion du
+  fichier ouvert que `lsp-ai` extrait autour du curseur avant de
+  construire le prompt. Converti en caractères par
+  `tokens_to_estimated_characters()` (`crates/lsp-ai/src/utils.rs:34-36`) :
+  **`tokens * 4`**, une estimation grossière et fixe, pas un compte de
+  jetons réel du tokenizer du modèle. `max_context: 2000` signifie donc
+  concrètement environ **8000 caractères** de fichier extraits autour
+  du curseur (`file_store.rs:233-234` : `max_length / 2` de chaque
+  côté), pas 2000 jetons envoyés au modèle.
+- **Distinction automatique/explicite (question décisive, établie, pas
+  supposée)** : **aucune distinction n'existe côté `lsp-ai`.** Une
+  seule structure de configuration `Completion`
+  (`crates/lsp-ai/src/config.rs:339-348`) sert la requête LSP standard
+  `textDocument/completion` (`crates/lsp-ai/src/main.rs:207-213`,
+  type `Completion` de `lsp-types`) — qu'elle soit déclenchée au fil de
+  la frappe par l'éditeur ou par une combinaison de touches explicite
+  ne change rien côté serveur, qui reçoit le même type de requête dans
+  les deux cas et applique toujours les mêmes `completion.parameters`.
+  `lsp-ai` distingue en revanche `Completion` de deux autres types de
+  requêtes non liées à cette question : `Generation` et
+  `GenerationStream` (custom, non utilisées par la configuration
+  actuelle, `GenerationStream` explicitement non implémentée —
+  `anyhow::bail!("GenerationStream is not yet implemented")`,
+  `ollama.rs:227`). **Conséquence pour la phase B** : il n'existe pas
+  de paramètre séparé « frappe courante » / « déclenchement explicite »
+  à arbitrer côté `lsp-ai` — une seule paire de valeurs
+  `num_predict`/`max_context` s'applique à toute complétion, quel que
+  soit le déclencheur.
+- **Autres paramètres pertinents non exposés par la configuration
+  actuelle** : `fim` (`crates/lsp-ai/src/config.rs:172` et suivants,
+  structure `FIM` avec `start`/`middle`/`end`) — **non configuré** dans
+  `roles/completion/defaults/main.yml` (aucune occurrence de `fim`,
+  vérifié par recherche). Sans lui, `do_chat_completion`
+  (`ollama.rs`, branche `Prompt::FIM` sans `params.fim`) échouerait —
+  or la complétion fonctionne (§ 9-10), ce qui signifie que le chemin
+  réellement emprunté est `Prompt::ContextAndCode` sans `messages`
+  (branche `get_completion` directe, prompt brut construit par
+  `format_prompt`), pas un FIM structuré avec balises dédiées. Aucune
+  séquence d'arrêt (`stop`) n'apparaît dans `config.rs` ni dans
+  `OllamaRunParams` — non supporté par cette version, donc rien à
+  arbitrer de ce côté. `keep_alive` existe et est déjà couvert par D15
+  (résidence, `roles/local_ai/`), hors périmètre de ce livrable.
+
+### 11.2 — A.2 : origine de la valeur 32
+
+**Non mesurée, non arbitrée — reprise verbatim d'un exemple amont.**
+`git log --all -S"num_predict" -- roles/completion/` ne montre qu'un
+seul commit introduisant cette valeur : `d96d307` (« lsp-ai compilé
+depuis les sources, intégré à Helix », 2026-08-07), avec le
+commentaire déjà présent à l'époque : « valeurs de départ documentées
+par le projet amont (`docs/completion.md` § 2, exemple de
+configuration Ollama cité), pas inventées ». Confirmé en source :
+`crates/lsp-ai/src/config.rs:548-556` (test `ollama_config`) porte
+exactement `"max_context": 1024` et `"num_predict": 32` dans son
+propre exemple de configuration Ollama — la valeur du dépôt (`2000`
+pour `max_context`, `32` pour `num_predict`) a bien été copiée de là,
+avec un seul chiffre changé (`max_context` porté à 2000). Aucune
+mesure de latence ni de troncature n'accompagne ce commit ni aucun
+commit ultérieur touchant ces deux variables (`git log --all
+-S"max_context"` : même commit unique). **Ce fait explique
+directement pourquoi personne ne l'a remise en question** : elle
+portait l'apparence d'une valeur documentée et raisonnable, alors
+qu'elle n'a jamais été mesurée contre un cas d'usage réel.
+
+### 11.3 — A.3 : coût de la génération, mesuré directement contre l'API locale
+
+Méthode d'isolement de `docs/dgpu-power.md` : appels HTTP directs à
+`http://127.0.0.1:11434/api/generate` (`curl`/`urllib` Python), jamais
+via `lsp-ai` ni un éditeur — isole la génération du reste de la chaîne
+(analyse LSP, rendu éditeur). Modèle `qwen2.5-coder:7b-instruct-q4_K_M`
+déjà résident (`ollama ps`/`curl .../api/ps` : `expires_at` en 2318,
+D15). Un appel de mise en chauffe (`num_predict=8`, 0,230 s) précède
+chaque série pour écarter l'effet de sonde de la toute première
+requête après une pause du script lui-même (constaté : 0,209-0,230 s
+en première position, cohérent avec le régime établi, pas un
+rechargement — `size_vram` de `/api/ps` inchangé avant/après). Prompt
+identique pour toutes les mesures (fonction Python avec docstring,
+~90 caractères). `eval_count`/`eval_duration` proviennent de la
+réponse JSON d'Ollama elle-même (jetons réellement générés, durée de
+génération pure, hors chargement).
+
+| `num_predict` demandé | `eval_count` (jetons réellement générés) | `eval_duration` | latence murale mesurée |
+|---|---|---|---|
+| 32 | 32 (plafond atteint) | 0,292 s | 0,424-0,439 s |
+| 64 | 64 (plafond atteint) | 0,588-0,592 s | 0,726-0,730 s |
+| 128 | 41-106 (arrêt naturel avant le plafond, variable selon l'échantillon) | 0,373-0,984 s | 0,508-1,122 s |
+| 256 | 161-248 (arrêt naturel avant le plafond, variable) | 1,495-2,321 s | 1,636-2,473 s |
+
+**Lecture** : à 32 (valeur actuelle), le plafond est systématiquement
+atteint — c'est la preuve directe de la troncature, la génération
+n'atteint jamais de fin naturelle. À 64, toujours systématiquement
+plafonné. À partir de 128, le modèle s'arrête naturellement avant le
+plafond dans la plupart des échantillons (fin de fonction, point
+d'arrêt logique) — la variabilité de `eval_count` reflète le contenu
+généré, pas une instabilité de mesure. **Relation approximativement
+linéaire** entre jetons générés et durée : ≈9,1 ms/jeton
+(0,292 s / 32), cohérent à 64 (0,588 s / 64 ≈ 9,2 ms/jeton) et au-delà.
+Référence de la demande (0,46-0,48 s) mesurée par l'éditeur (Helix,
+§ 7) contre 0,424-0,439 s mesuré ici en direct : l'écart (~30-50 ms)
+est cohérent avec le coût ajouté par la chaîne LSP (analyse du
+fichier, sérialisation), pas une divergence de méthode.
+
+### 11.4 — A.4 : `max_context`, ce que 2000 représente et coût VRAM d'un élargissement
+
+**`max_context` n'est pas un paramètre Ollama** (§ 11.1) — il ne pèse
+donc **rien** sur la VRAM au sens propre du terme : c'est une fenêtre
+d'extraction de texte côté `lsp-ai`, mesurée en caractères estimés
+(`tokens * 4`, fixe, `utils.rs:34-36`), pas en jetons du tokenizer
+réel du modèle. `2000` ⇒ ≈8000 caractères extraits autour du curseur
+(`file_store.rs:233-234`, moitié de chaque côté) — pour un fichier
+Python ou YAML de taille courante de ce dépôt (quelques centaines de
+lignes), cela couvre largement plus qu'un écran, mais peut tronquer un
+fichier de plusieurs milliers de lignes.
+
+**Le paramètre qui pèse réellement sur la VRAM est `num_ctx`
+(la fenêtre de contexte du modèle Ollama lui-même)**, distinct de
+`max_context` de `lsp-ai` et **non exposé du tout** par la
+configuration actuelle (aucune occurrence de `num_ctx` dans
+`roles/completion/`) — le modèle tourne donc avec le **défaut Ollama
+de 4096 jetons**, confirmé par mesure directe (`curl .../api/ps` après
+un appel sans `num_ctx` explicite : `"context_length": 4096`, pas les
+32 K annoncés par la fiche du modèle — ce chiffre est un plafond
+supporté, pas la valeur active). **Coût VRAM mesuré par palier**
+(`nvidia-smi --query-gpu=memory.used`, un appel de mise en chauffe par
+palier, `curl .../api/ps` pour `size_vram`/`context_length` après
+coup) :
+
+| `num_ctx` | VRAM mesurée (`nvidia-smi`) | `size_vram` rapporté par Ollama |
+|---|---|---|
+| 2048 | 4743 MiB | 4 628 519 320 (≈4,31 GiB) |
+| 4096 (défaut actif, confirmé) | 4857 MiB | 4 748 056 984 (≈4,42 GiB) |
+| 8192 | 5225 MiB | 5 133 943 438 (≈4,78 GiB) |
+| 16384 | 5689 MiB | 5 620 482 702 (≈5,23 GiB) |
+| 32768 (plafond annoncé du modèle) | 6617 MiB | 6 593 561 230 (≈6,14 GiB) |
+
+**Lecture** : le cache d'attention croît avec `num_ctx`, confirmé —
+d'environ 4,3 GiB à 2048 jetons jusqu'à environ 6,1 GiB au plafond
+annoncé de 32 K, soit **+1,9 GiB environ** pour l'écart le plus large
+mesuré. Sous l'enveloppe mesurée de ≈15,9 GiB (`docs/local-ai.md`
+§ 2.3), largement supportable en isolation, mais partagé avec le
+bureau et d'éventuels autres modèles chargés séquentiellement (D21) —
+un `num_ctx` élargi reste un arbitrage à trancher par l'opérateur,
+pas une évidence sans coût.
+
+### 11.5 — Recommandation, sans application
+
+- **`completion_num_predict`** : la valeur de 32 est la cause directe
+  et mesurée de la troncature — elle plafonne systématiquement avant
+  toute fin naturelle de génération dans les deux paliers testés qui
+  correspondent à l'usage réel (courtes complétions). Une valeur entre
+  128 et 256 couvrirait la plupart des complétions de ligne/bloc courts
+  sans dépasser ~1-2,5 s de latence mesurée — au-delà du seuil «
+  utilisable au fil de la frappe » évoqué par la demande (la référence
+  de 0,46-0,48 s), mais cohérent avec un usage de complétion
+  déclenchée plutôt qu'au fil de chaque caractère (aucune distinction
+  possible côté `lsp-ai`, § 11.1 — le même paramètre s'applique aux
+  deux). **Question à trancher par l'opérateur** : accepter une
+  latence plus élevée (jusqu'à ~2,5 s à 256) en échange de complétions
+  rarement tronquées, ou choisir une valeur intermédiaire (64,
+  ~0,73 s) qui réduit mais n'élimine pas la troncature sur les
+  complétions plus longues qu'une ligne.
+- **`completion_max_context`** : ne pèse pas sur la VRAM (ce n'est pas
+  un paramètre Ollama) — augmenter cette valeur est presque gratuit en
+  coût (juste plus de texte extrait et envoyé en prompt, coût CPU/JSON
+  marginal) et améliore la pertinence de ce que le modèle voit du
+  fichier. **`num_ctx`, en revanche, n'est actuellement pas configuré
+  du tout** — le modèle tourne au défaut Ollama (4096 jetons), jamais
+  arbitré ni documenté jusqu'ici. **Question distincte à trancher par
+  l'opérateur, hors du périmètre initial du signalement (troncature de
+  sortie) mais découverte par cette lecture** : faut-il exposer et
+  fixer `num_ctx` explicitement (coût mesuré ci-dessus, +1,9 GiB au
+  plafond), ou laisser le défaut Ollama, qui n'a jamais causé de
+  symptôme constaté ?
+
+### 11.6 — Confirmations finales (phase A)
+
+**Aucune valeur modifiée** — `roles/completion/defaults/main.yml`,
+`roles/completion/README.md` et tout fichier déployé sont restés
+inchangés par cette phase (vérifié : `git status --short
+roles/completion/` vide avant commit de cette section, seul
+`docs/completion.md` et `docs/machine-facts.md` diffèrent). Aucun
+fichier déployé (Kate, Helix) touché. Aucun paquet installé, aucun
+modèle téléchargé — le clone de lecture de `lsp-ai` à l'empreinte
+compilée a eu lieu hors du dépôt (`/tmp`), jamais commis, jamais
+compilé.
+
+**Actions privilégiées** : non applicable — aucune élévation, aucune
+commande `sudo` dans cette phase (lecture de code source public,
+appels HTTP locaux vers un service déjà démarré, lecture `nvidia-smi`
+sans privilège).
+
+**Branches exercées/non exercées** : sans objet — aucun code Ansible
+exécuté ni modifié dans cette phase, uniquement lecture de code source
+tiers et mesures directes contre l'API.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,

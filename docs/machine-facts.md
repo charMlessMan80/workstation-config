@@ -4286,3 +4286,38 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   attendu pour des modifications de commentaires). Aucun paquet
   installé, aucun modèle téléchargé, `roles/local_ai/` et `CLAUDE.md`
   intacts, aucun redémarrage.
+
+- **2026-08-12 (TRO-1, phase A)** — Complétions tronquées dans Kate,
+  signalées par l'opérateur. Cause établie : `completion_num_predict:
+  32` (`roles/completion/defaults/main.yml:232`), jamais mesurée ni
+  arbitrée — reprise verbatim de l'exemple de configuration Ollama du
+  test `ollama_config` de `lsp-ai` (`crates/lsp-ai/src/config.rs`,
+  empreinte compilée `1e910a8cf0048406eb227bf2064743010a9ff3a9`),
+  introduite en un seul commit (`d96d307`, 2026-08-07) sans mesure
+  d'accompagnement. Lecture du code source à cette empreinte exacte :
+  `num_predict` est un passe-plat transmis tel quel à l'API Ollama
+  (aucune interprétation côté `lsp-ai`) ; `max_context` est un
+  paramètre interne au *memory backend* de `lsp-ai` (portion de
+  fichier extraite autour du curseur, `tokens * 4` caractères estimés)
+  — **pas transmis à Ollama**, ne pèse pas sur la VRAM. **Aucune
+  distinction automatique/déclenchement explicite n'existe côté
+  `lsp-ai`** : une seule configuration `Completion` sert toute requête
+  `textDocument/completion`, quel que soit le déclencheur — un seul
+  couple de valeurs à arbitrer. Coût de génération mesuré directement
+  contre l'API locale (méthode d'isolement de `docs/dgpu-power.md`,
+  modèle résident, effet de sonde écarté par appel de mise en
+  chauffe) : ≈9,1 ms/jeton, plafond de 32 systématiquement atteint
+  (jamais de fin naturelle), 64 également plafonné, 128-256
+  s'arrêtent naturellement dans la plupart des échantillons
+  (0,42-2,47 s selon le palier). Paramètre distinct découvert non
+  arbitré : `num_ctx` (fenêtre de contexte du modèle Ollama, celui qui
+  pèse réellement sur la VRAM) n'est jamais configuré par ce rôle — le
+  modèle tourne au défaut Ollama de 4096 jetons, pas les 32 K annoncés
+  par la fiche. Coût VRAM mesuré par palier : ≈4,3 GiB à 2048 jusqu'à
+  ≈6,1 GiB à 32768 (+1,9 GiB au plafond), sous l'enveloppe mesurée de
+  ≈15,9 GiB (`docs/local-ai.md` § 2.3) mais partagée. **Phase de
+  lecture seule, aucune valeur modifiée** — recommandation argumentée
+  consignée (`docs/completion.md` § 11.5), application différée à la
+  phase B après accord explicite de l'opérateur. Aucune action
+  privilégiée, aucun paquet installé, aucun modèle téléchargé, aucun
+  fichier déployé touché, aucun redémarrage.
