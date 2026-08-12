@@ -47,6 +47,7 @@ max_context = {{ completion_max_context }}
 
 [language-server.lsp-ai.config.completion.parameters.options]
 num_predict = {{ completion_num_predict }}
+num_ctx = {{ completion_num_ctx }}
 
 {% for lang in completion_helix_languages %}
 [[language]]

@@ -225,11 +225,51 @@ completion_ollama_model: "qwen2.5-coder:7b-instruct-q4_K_M"
 # -e completion_ollama_model_expected=absent-garanti
 completion_ollama_model_expected: "{{ completion_ollama_model }}"
 
-# Contexte/paramètres de complétion — valeurs de départ documentées par
-# le projet amont (docs/completion.md § 2, exemple de configuration
-# Ollama cité), pas inventées.
+# Contexte/paramètres de complétion.
+# [CORRIGÉ, TRO-1, 2026-08-12] ÉTAIT `completion_num_predict: 32` —
+# reprise verbatim de l'exemple de test `ollama_config` du code source
+# de lsp-ai (crates/lsp-ai/src/config.rs, empreinte
+# completion_lsp_ai_commit ci-dessus), jamais mesurée ni arbitrée
+# (docs/completion.md § 11.2) — plafonnait systématiquement la
+# génération avant toute fin naturelle (≈9,1 ms/jeton mesuré, 32 et 64
+# jamais atteints naturellement), causant les complétions tronquées
+# signalées par l'opérateur. Porté à 256 : marge maximale, latence
+# jusqu'à ≈2,5 s quand la génération va au bout (cas rare d'après la
+# mesure — la plupart des complétions s'arrêtent naturellement bien
+# avant ce plafond, docs/completion.md § 12.1) — **la garantie de
+# réponse rapide au fil de la frappe est perdue au profit de la
+# complétude** ; décision de l'opérateur, assumée comme telle.
+completion_num_predict: 256
+
+# `max_context` (lsp-ai) : interne au memory backend `file_store`
+# (portion de fichier extraite autour du curseur, `tokens * 4`
+# caractères estimés, docs/completion.md § 11.1) — **jamais transmis à
+# Ollama**, sans coût VRAM. Valeur inchangée (2000 ≈ 8000 caractères),
+# aucune mesure ne justifiait de la revoir dans ce livrable.
 completion_max_context: 2000
-completion_num_predict: 32
+
+# [AJOUTÉ, TRO-1, 2026-08-12] `num_ctx` — fenêtre de contexte du
+# modèle Ollama lui-même (distinct de `max_context` ci-dessus,
+# vérifié par lecture : transmis dans `options`, même niveau que
+# `num_predict`, crates/lsp-ai/src/transformer_backends/ollama.rs) —
+# **n'était jamais exposé par ce rôle avant ce livrable**, le modèle
+# tournait au défaut Ollama (4096, pas les 32 K annoncés par la fiche
+# du modèle, confirmé par `ollama ps`/`curl .../api/ps` avant
+# correction). Coût VRAM mesuré par palier (docs/completion.md § 12.2) :
+# ≈4,4 GiB (4096, actuel) → ≈6,1 GiB (32768), effet négligeable sur la
+# latence de traitement du prompt (10 ms, quel que soit le palier —
+# la latence de génération dépend de `num_predict`, pas de `num_ctx`),
+# mais un rechargement du modèle résident (D15) est nécessaire pour
+# qu'un changement prenne effet (≈6,5 s mesurés, une fois, pas à
+# chaque requête). **Valeur retenue : 4096 (inchangée)** — un
+# élargissement mesuré compromettrait la marge disponible pour le
+# chargement séquentiel du modèle de chat (D22) sans bénéfice mesuré
+# sur les fichiers réels de ce dépôt (quelques centaines de lignes,
+# jamais assez pour saturer 4096 jetons de contexte extrait par
+# `max_context`/`file_store`, docs/completion.md § 12.2). Exposée en
+# variable pour que ce choix soit revisable sans devoir relire le
+# code source de lsp-ai une seconde fois.
+completion_num_ctx: 4096
 
 # Substituable pour la démonstration d'échec forcé du service (§ 3 de
 # la demande) sans jamais changer le service réel :
@@ -267,7 +307,8 @@ completion_kate_lspclient_settings_path: "{{ completion_kate_config_dir }}/lspcl
 # troisième forme). Réutilise les variables déjà posées pour Helix
 # ci-dessus (`completion_bin_dir`/`completion_bin_name`,
 # `completion_ollama_generate_url`/`completion_ollama_chat_url`,
-# `completion_ollama_model`, `completion_max_context`/`completion_num_predict`)
+# `completion_ollama_model`, `completion_max_context`/`completion_num_predict`/
+# `completion_num_ctx`)
 # — jamais une seconde copie de valeur.
 completion_kate_languages: "{{ completion_helix_languages }}"
 

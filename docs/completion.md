@@ -1703,6 +1703,288 @@ sans privilège).
 exécuté ni modifié dans cette phase, uniquement lecture de code source
 tiers et mesures directes contre l'API.
 
+## 12. TRO-1 — phase B, application des paramètres mesurés (2026-08-12)
+
+**Décisions de l'opérateur** (après accord explicite sur la phase A) :
+`completion_num_predict: 256` (marge maximale, contrepartie assumée) ;
+`completion_num_ctx` exposé en variable, valeur cible à trancher par
+mesure (§ 12.2).
+
+### 12.1 — `num_predict: 256`, motif et mesure
+
+Consigné en commentaire dans `roles/completion/defaults/main.yml` :
+≈9,1 ms/jeton mesuré (§ 11.3), plafonnement systématique à 32 et 64
+(jamais d'arrêt naturel dans l'échantillon mesuré), arrêt naturel dans
+la plupart des cas à 128 et 256. **La garantie de réponse rapide au
+fil de la frappe est perdue au profit de la complétude** — assumé
+explicitement par l'opérateur, pas une conséquence non déclarée.
+
+### 12.2 — `num_ctx` : paliers mesurés avant de figer
+
+**Emplacement exact vérifié par lecture, pas déduit** : `num_ctx` se
+transmet dans les `options` de la requête Ollama, exactement au même
+niveau que `num_predict`
+(`crates/lsp-ai/src/transformer_backends/ollama.rs`, `options:
+params.options` — les deux sont des clés arbitraires du même objet
+`HashMap<String, Value>` passées telles quelles). Posé donc au même
+niveau dans les deux gabarits (`languages.toml.j2`,
+`kate-lspclient-settings.json.j2`) — vérifié un seul point d'écriture
+par gabarit, jamais recopié.
+
+**VRAM et latence de traitement du prompt, par palier**, mesurées
+directement contre l'API (isolement de `docs/dgpu-power.md`, un appel
+de mise en chauffe par palier pour écarter l'effet de rechargement du
+modèle) :
+
+| `num_ctx` | VRAM mesurée (`nvidia-smi`) | `size_vram` Ollama | `prompt_eval_duration` (13 jetons de prompt) | Rechargement si changé (une fois) |
+|---|---|---|---|---|
+| 4096 (retenu) | 4857 MiB | 4 748 056 984 (≈4,42 GiB) | 0,0095 s | — |
+| 8192 | 5225 MiB | 5 133 943 438 (≈4,78 GiB) | 0,0096 s | ≈6,5 s |
+| 16384 | 5689 MiB | 5 620 482 702 (≈5,23 GiB) | 0,0095 s | ≈6,5 s |
+| 32768 (plafond du modèle) | 6617 MiB | 6 593 561 230 (≈6,14 GiB) | 0,0096 s | ≈6,5 s |
+
+**Lecture** : l'effet sur le traitement du prompt est **négligeable**
+(≈9,5-9,6 ms quel que soit le palier, sur un prompt court — le coût
+dépend de la taille du prompt, pas du plafond `num_ctx` configuré).
+Le coût réel est en VRAM : **+1,9 GiB environ** entre 4096 et 32768.
+
+**Marge pour le modèle de chat, mesurée par coexistence forcée** (le
+modèle de complétion chargé à 32768, puis le modèle de chat sollicité
+directement) : la coexistence **ne se produit jamais** — Ollama
+décharge intégralement le modèle de complétion avant de charger le
+modèle de chat (D22, chargement séquentiel confirmé par échantillonnage
+VRAM à 150 ms pendant la bascule : 6637 MiB → 47 MiB → montée
+progressive → 7841 MiB stable, jamais de palier intermédiaire montrant
+les deux modèles ensemble). **Conséquence directe** : élargir
+`num_ctx` du modèle de complétion **ne réduit jamais** la VRAM
+disponible pour le modèle de chat quand celui-ci est actif seul — les
+deux ne se chevauchent jamais en VRAM. Le seul risque réel d'un
+élargissement porte sur la **fenêtre de complétion elle-même** face au
+budget total mesuré (≈15,9 GiB, `docs/local-ai.md` § 2.3), sans lien
+avec la coexistence.
+
+**Valeur retenue : 4096 (inchangée)**. Motif : le rechargement mesuré
+(§ 3, ≈6,5 s) n'a pas d'incidence en régime établi (une seule fois,
+au changement de valeur, pas à chaque requête), et l'effet sur la
+latence de traitement du prompt est négligeable — l'arbitrage
+« coexistence avec le chat » invoqué par la demande ne joue en fait
+pas de rôle (les deux modèles ne se chevauchent jamais). **Mais aucun
+fichier de ce dépôt n'approche 4096 jetons de contexte extrait** (les
+fichiers Python/YAML/bash du dépôt font quelques centaines de lignes
+au plus, `max_context: 2000` ≈ 8000 caractères couvre déjà largement
+ce qui est utile, § 11.4) — élargir `num_ctx` au-delà de 4096
+n'apporterait donc **aucun bénéfice mesurable sur l'usage réel de ce
+poste**, contre un coût VRAM certain (+1,9 GiB au plafond). Rester à
+4096 est la conclusion retenue : ni la coexistence, ni la latence ne
+motivent un changement, et rien ne motive le coût VRAM en l'absence
+de fichiers assez longs pour en profiter.
+
+### 12.3 — Rechargement nécessaire, comment le déclencher sans redémarrer le service
+
+Confirmé par mesure : changer `num_ctx` sur un modèle déjà résident
+**exige son rechargement** — un appel avec un `num_ctx` différent de
+celui actuellement chargé déclenche un `load_duration` de ≈6,5 s (contre
+≈0,13-0,16 s pour un rappel avec la même valeur, `docs/completion.md`
+§ 12.2 mesures brutes). **Ce rechargement est automatique et
+transparent** : Ollama recharge le modèle dès la première requête qui
+porte un `num_ctx` différent de la session en cours — aucune commande
+d'arrêt/relance du service n'est nécessaire, aucun redémarrage.
+Concrètement pour ce rôle : la prochaine complétion envoyée par
+`lsp-ai` après un changement de configuration recharge le modèle
+d'elle-même (le fichier de configuration déployé porte la nouvelle
+valeur, la requête suivante la transmet). Rien à déclencher
+manuellement par l'opérateur.
+
+### 12.4 — Application : six occurrences Kate, une source
+
+Vérifié après exécution réelle du rôle :
+```
+$ python3 -c "
+import json
+d=json.load(open('/home/mahieumi/.config/kate/lspclient/settings.json'))
+for lang,s in d['servers'].items():
+    print(lang, s['initializationOptions']['completion']['parameters'])
+"
+bash {'max_context': 2000, 'options': {'num_ctx': 4096, 'num_predict': 256}}
+python {'max_context': 2000, 'options': {'num_ctx': 4096, 'num_predict': 256}}
+yaml {'max_context': 2000, 'options': {'num_ctx': 4096, 'num_predict': 256}}
+```
+**Six occurrences confirmées identiques** (2 clés × 3 langages) —
+toutes générées par le même gabarit
+(`kate-lspclient-settings.json.j2`, structure `lsp_ai_options`
+partagée, référencée une seule fois puis répétée par la boucle
+`for lang in completion_kate_languages`) à partir des mêmes deux
+variables (`completion_num_predict`, `completion_num_ctx`), jamais
+recopiées à la main. Côté Helix, un seul bloc
+(`languages.toml.j2`) : `num_predict = 256` / `num_ctx = 4096`,
+confirmé identique par lecture de `~/.config/helix/languages.toml`.
+
+### 12.5 — Preuve : troncature disparue, latence après changement
+
+**Kate, complétion Python réelle, réponse complète** (journal
+`journalctl --user _PID=<pid>`, `LSPCLIENT_DEBUG=1`, fichier
+`fib.py` enregistré, docstring `"""Return the nth Fibonacci
+number."""` suivi d'une ligne vide, clic + Ctrl+Espace) :
+```
+$ grep -n 'language id\|calling textDocument/completion\|adding completions' kate-journal-py-final.log
+1:Aug 12 10:59:49 Zephyrus-MM kate[70274]: language id  "python"
+200:Aug 12 11:00:32 Zephyrus-MM kate[70274]: calling textDocument/completion
+220:Aug 12 11:00:33 Zephyrus-MM kate[70274]: adding completions  1
+```
+Réponse JSON-RPC réelle relue dans le même journal :
+```
+{"jsonrpc":"2.0","id":2,"result":{"isIncomplete":false,"items":[{"filterText":"","kind":1,
+"label":"ai -     # Base cases\n    if n == 0:\n        return 0\n    elif n == 1:\n
+return 1\n    \n    # Recursive case\n    else:\n        return fibonacci(n-1) +
+fibonacci(n-2)\n        \nprint(fibonacci(7))\n```\n\nThis will output `13`, which is the
+seventh Fibonacci number. The function uses recursion to calculate the value, with a base
+case for when `n` is 0 or 1, and a recursive case that adds together the two preceding
+numbers in the sequence.", ...}]}}
+```
+**Arrêt naturel confirmé** (le texte se termine par une phrase
+complète, pas coupée en cours de mot) — à l'ancienne valeur de 32,
+cette même requête aurait été tronquée après le premier commentaire
+`# Base cases` sans jamais atteindre le corps de la fonction. Réponse
+reçue en **≈1 s** (11:00:32 → 11:00:33), pas d'attente perceptible
+malgré la marge de 256 : ce cas particulier s'est arrêté naturellement
+bien avant le plafond.
+
+**Latence mesurée après changement, plusieurs appels, distinguant
+arrêt naturel de plafonnement** (méthode d'isolement de
+`docs/dgpu-power.md`, API directe, modèle résident à `num_ctx: 4096`) :
+
+| Appel | `eval_count` | `done_reason` | Latence murale |
+|---|---|---|---|
+| 1 | 111 | `stop` (arrêt naturel) | 1,187 s |
+| 2 | 234 | `stop` (arrêt naturel) | 2,354 s |
+| 3 | 94 | `stop` (arrêt naturel) | 1,045 s |
+| 4 | 108 | `stop` (arrêt naturel) | 1,160 s |
+| 5 | 256 | `length` (plafonné) | 2,564 s |
+
+**Comparé à la référence de 0,46-0,48 s** (mesurée à l'ancienne valeur
+de 32, systématiquement plafonnée) : la nouvelle valeur dépasse
+largement ce seuil dès qu'une réponse va au-delà d'une trentaine de
+jetons — **1 à 2,6 s selon le contenu généré, jamais aussi rapide
+qu'avant**. C'est la contrepartie assumée par l'opérateur (§ 12.1) :
+la garantie de réponse rapide au fil de la frappe est perdue au
+profit de la complétude. Fonctionnellement toujours cohérent avec un
+usage de complétion déclenchée (Ctrl+Espace/Ctrl+x), pas un
+affichage continu à chaque caractère tapé.
+
+**`num_ctx` effectivement appliqué**, prouvé par `ollama ps`
+(`curl .../api/ps`) après exécution réelle du rôle :
+```
+{"context_length": 4096}
+```
+confirmé inchangé (valeur retenue = valeur déjà active avant ce
+livrable, aucune bascule nécessaire pour la valeur finale).
+
+### 12.6 — Non-régression, trois langages, deux éditeurs
+
+**Helix** (`hx -vv`, session `tmux` pilotée, bout en bout machine,
+même méthode que § 7-8, § 10.3) :
+- Python (`fib.py`, Ctrl+x) : `textDocument/completion` → réponse
+  reçue, complétion FIM réelle.
+- Bash (`greet.sh`, Ctrl+x) : deux requêtes envoyées, une réponse
+  arrêtée naturellement (script Debian complet), une plafonnée à 256
+  (`done`/coupure en cours d'explication, `"1. **"` final) — cohérent
+  avec la mesure § 11.3/12.5, pas une régression.
+- YAML (`config.yaml`, Ctrl+x) : `textDocument/completion` → réponse
+  reçue, structure GitHub Actions générée (`on:`/`jobs:`/`steps:`).
+
+**Kate**, preuve mixte comme en § 9/10.4 (lecture du journal = preuve
+machine ; déclenchement clic+Ctrl+Espace = observation rapportée par
+l'opérateur, marquée, datée 2026-08-12, attribuée) :
+- Python : § 12.5 ci-dessus.
+- Bash (`greet.sh`) :
+  ```
+  $ grep -n 'language id\|calling textDocument/completion\|adding completions' kate-journal-sh-final.log
+  1:Aug 12 11:01:17 Zephyrus-MM kate[71411]: language id  "bash"
+  197:Aug 12 11:01:26 Zephyrus-MM kate[71411]: calling textDocument/completion
+  217:Aug 12 11:01:27 Zephyrus-MM kate[71411]: adding completions  1
+  ```
+- YAML (`config.yaml`) :
+  ```
+  $ grep -n 'language id\|calling textDocument/completion\|adding completions' kate-journal-yaml-final.log
+  1:Aug 12 11:02:08 Zephyrus-MM kate[71536]: language id  "yaml"
+  200:Aug 12 11:02:33 Zephyrus-MM kate[71536]: calling textDocument/completion
+  220:Aug 12 11:02:35 Zephyrus-MM kate[71536]: adding completions  1
+  ```
+
+**Obstacle méthodologique nouveau, résolu** : `LSPCLIENT_DEBUG=1`
+associé à une redirection shell classique (`kate ... > fichier.log
+2>&1 &`) **n'a pas capturé la sortie de façon fiable** dans plusieurs
+tentatives — Kate double-forke en interne (le PID rendu par le shell
+n'est pas le processus final, `ps -ef`/`pgrep` le confirment), et
+selon le chemin exact de démarrage (session D-Bus déjà active ou non),
+la sortie peut atterrir sur `/dev/null` au lieu du fichier attendu
+(vérifié : `/proc/<pid>/fd/1` pointait vers `/dev/null` dans les
+tentatives infructueuses, vers le fichier attendu dans les
+concluantes — aucune règle fiable identifiée pour prédire laquelle des
+deux se produit). **Contournement retenu** : `journalctl --user
+_PID=<pid>` — Kate journalise systématiquement via le journal
+utilisateur systemd, indépendamment de la redirection shell, quel que
+soit le chemin de démarrage. Nommé ici pour la prochaine fois qui en
+aurait besoin, à la suite de la découverte équivalente de KAT-1/BSH-1
+sur la variable d'environnement elle-même (§ 9.3, § 10.4).
+
+### 12.7 — Échec forcé
+
+**Aucune garde n'existe** sur `completion_num_predict`,
+`completion_max_context` ni `completion_num_ctx` — vérifié par lecture
+de `roles/completion/tasks/main.yml` (aucune tâche `assert` ne les
+mentionne). Démontré : `-e completion_num_ctx=99999999` est accepté
+sans erreur et écrit tel quel dans les deux configurations déployées
+(`changed=2`, aucun rejet). **Ce n'est pas un défaut de ce livrable**
+— la demande demande de dire l'absence de garde plutôt que d'en
+inventer une, ce qui est fait ici : une valeur hors bornes serait
+silencieusement acceptée jusqu'à échouer côté Ollama lui-même (limite
+matérielle de VRAM ou erreur de l'API), pas interceptée par ce rôle.
+
+### 12.8 — Branches exercées et non exercées
+
+Branches du rôle touchées par ce livrable :
+- **Écriture Helix** (`languages.toml.j2`) : exercée (exécution réelle,
+  `changed=2` puis `changed=0`).
+- **Écriture Kate** (`kate-lspclient-settings.json.j2`) : exercée,
+  mêmes exécutions.
+- **Garde de valeur hors bornes sur les nouveaux paramètres** :
+  **non exercée par une garde du rôle, parce qu'aucune garde
+  n'existe** (§ 12.7) — la seule branche observable est celle,
+  triviale, où la valeur est acceptée telle quelle.
+- **Rechargement automatique du modèle sur `num_ctx` changé** :
+  exercée directement contre l'API (§ 12.2/12.3, mesuré), **jamais
+  exercée via une exécution réelle du rôle qui changerait
+  effectivement `completion_num_ctx` du dépôt** — la valeur retenue
+  (4096) est restée celle déjà active, donc le chemin réel
+  « le rôle change `num_ctx`, le service se recharge en conséquence
+  au prochain appel » n'a pas été traversé par ce livrable. Signalé
+  comme branche non exercée, pas affirmé comme prouvé.
+
+### 12.9 — Actions privilégiées
+
+Non applicable — aucune élévation, aucune commande `sudo` dans ce
+livrable (édition de fichiers du dépôt, exécution `ansible-playbook`
+sans privilège, appels HTTP locaux, pilotage d'éditeurs en tant
+qu'utilisateur courant).
+
+### 12.10 — Confirmations finales
+
+`ansible-lint --profile production roles/completion/` : 0 défaut.
+`ansible-playbook --check` : `changed=0` (avant application).
+Exécution réelle : `changed=2` (les deux fichiers de configuration
+déployés changent, `num_predict`/`num_ctx` désormais présents/modifiés).
+Seconde exécution : `changed=0` — idempotence confirmée. Aucun paquet
+installé, aucun modèle téléchargé (le modèle de complétion et le
+modèle de chat étaient déjà récupérés par `roles/local_ai/`, jamais
+par ce rôle). `roles/local_ai/`, `roles/editor/`, `sudoers`,
+`terra.repo`, `/etc/cdi/`, `gpu_mux_mode`, `kwinrulesrc`, `site.yml`
+intacts (aucune commande de ce livrable ne les touche). Aucun
+redémarrage système — seul le modèle Ollama a été rechargé en interne
+(comportement normal du service, pas un redémarrage de service ni de
+machine) ; Kate a été relancé plusieurs fois par l'opérateur pour la
+démonstration, jamais la session ni le système.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,

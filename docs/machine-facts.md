@@ -4321,3 +4321,32 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   phase B après accord explicite de l'opérateur. Aucune action
   privilégiée, aucun paquet installé, aucun modèle téléchargé, aucun
   fichier déployé touché, aucun redémarrage.
+
+### 2026-08-12 — TRO-1, phase B : application des paramètres mesurés
+
+Accord explicite de l'opérateur reçu pour la phase B (résolution en
+lecture seule du 2026-08-12, ci-dessus). Décisions : `num_predict: 256`
+(marge maximale, contrepartie assumée — la garantie de réponse rapide
+au fil de la frappe est perdue au profit de la complétude) ; `num_ctx`
+exposé en variable, **retenu à 4096** après mesure par palier
+(2048/4096/8192/16384/32768) — voir `docs/completion.md` § 12 pour le
+détail complet (tableau VRAM/latence, motif de la valeur retenue,
+preuves de non-troncature Kate/Helix sur les trois langages, preuve
+`ollama ps` que la valeur configurée est effectivement appliquée).
+Point notable : la coexistence des deux modèles en VRAM (complétion et
+chat) a été re-testée par bascule forcée à `num_ctx: 32768` — elle ne
+se produit jamais, confirmant que D22 (chargement séquentiel) n'est
+pas affecté par la largeur du contexte du modèle de complétion.
+Obstacle méthodologique résolu : le journal LSP de Kate
+(`LSPCLIENT_DEBUG=1`) n'est pas capturé de façon fiable par une simple
+redirection shell (Kate double-forke, la sortie peut atterrir sur
+`/dev/null` selon le chemin de démarrage) — `journalctl --user
+_PID=<pid>` est la méthode fiable, documentée dans
+`docs/completion.md` § 12.6. Rôle exécuté réellement (`changed=2` puis
+`changed=0`, idempotent), `ansible-lint --profile production` : 0
+défaut. Aucune garde ansible-lint n'existe sur ces trois variables —
+constaté, pas corrigé (hors demande). Aucun paquet installé, aucun
+modèle téléchargé, `roles/local_ai/`, `roles/editor/`, `sudoers`,
+`terra.repo`, `/etc/cdi/`, `gpu_mux_mode`, `kwinrulesrc`, `site.yml`
+intacts, aucun redémarrage système (seul le modèle Ollama a été
+rechargé en interne, comportement normal du service).

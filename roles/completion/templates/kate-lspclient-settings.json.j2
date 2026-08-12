@@ -14,7 +14,8 @@ Même binaire, même modèle, même API locale que
 — générés à partir des mêmes variables, jamais une seconde valeur
 saisie séparément : {{ completion_bin_dir }}/{{ completion_bin_name }},
 {{ completion_ollama_model }}, {{ completion_ollama_generate_url }},
-{{ completion_ollama_chat_url }}.
+{{ completion_ollama_chat_url }}, {{ completion_max_context }},
+{{ completion_num_predict }}, {{ completion_num_ctx }}.
 #}
 {%- set lsp_ai_options = {
   'memory': {'file_store': {}},
@@ -30,7 +31,7 @@ saisie séparément : {{ completion_bin_dir }}/{{ completion_bin_name }},
     'model': 'completion-model',
     'parameters': {
       'max_context': completion_max_context,
-      'options': {'num_predict': completion_num_predict}
+      'options': {'num_predict': completion_num_predict, 'num_ctx': completion_num_ctx}
     }
   }
 } -%}
