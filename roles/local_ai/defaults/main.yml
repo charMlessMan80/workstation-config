@@ -4,9 +4,27 @@
 #   D14 — service d'inférence : Ollama conteneurisé, image CUDA
 #         officielle, accès GPU par CDI (seule voie qui atteigne la
 #         RTX 4090, IA-0 § 3.1 — aucune voie native ne le peut).
-#   D15 — modèle de complétion résident en permanence (keep_alive
-#         infini) — contrepartie assumée : RTD3 ne s'engage plus tant
-#         que le service tourne (docs/local-ai.md § 2.1/2.2).
+#   D15 — [RÉALIGNÉE le 2026-08-12, BSH-2] modèle de complétion
+#         résident en permanence (keep_alive infini), à nouveau la
+#         valeur en vigueur — contrepartie assumée : RTD3 ne s'engage
+#         plus tant qu'un modèle est chargé (docs/local-ai.md § 2.1/2.2,
+#         § 11.1 pour la mesure isolée confirmant ~100 % de blocage une
+#         fois résident, pas les ~25 % d'une fenêtre mêlant
+#         pré-chargement et résidence). Motif du réalignement, pas un
+#         retour en arrière : la requalification du 7 août (D20,
+#         ci-dessous) était juste à sa date — l'usage réel de la
+#         complétion n'était pas établi, ni le coût d'un rechargement à
+#         froid. Deux faits nouveaux l'ont rendue caduque : la
+#         complétion fonctionne réellement dans deux éditeurs sur trois
+#         langages (`docs/completion.md` § 9/10) ; une complétion à
+#         froid coûte 22,6 s mesurées (réveil RTD3 + chargement du
+#         modèle, pas les ~3,7 s d'un simple échange entre deux modèles
+#         déjà chauds — cette dernière valeur ne couvrait jamais le cas
+#         résident→arrêté→résident). À la demande, chaque reprise après
+#         une pause de frappe paierait ce coût — rendant la complétion
+#         au fil de la frappe inutilisable. **ÉTAIT (2026-08-07 →
+#         2026-08-12, D20)** : chargement à la demande — voir D20 plus
+#         bas, marquée `[REQUALIFIÉE]`, pas effacée.
 #   D16 — NVreg_PreserveVideoMemoryAllocations=1 — contrepartie
 #         assumée : suspension/réveil système plus lents.
 #   D17 — dimensionnement initial 13 B / Q4_K_M, à mesurer avant toute
@@ -47,9 +65,13 @@ local_ai_ollama_image: "{{ local_ai_ollama_image_ref }}@{{ local_ai_ollama_image
 local_ai_ollama_bind_address: 127.0.0.1
 local_ai_ollama_port: 11434
 
-# D15 — keep_alive infini pour le modèle résident (complétion). Valeur
-# du pilote Ollama documentée en amont : toute valeur négative maintient
-# le chargement indéfiniment (docs/local-ai.md § 3.2, IA-0).
+# D15 réalignée (BSH-2, ci-dessus) — keep_alive infini pour le modèle
+# résident (complétion). Valeur du pilote Ollama documentée en amont :
+# toute valeur négative maintient le chargement indéfiniment
+# (docs/local-ai.md § 3.2, IA-0). Valeur déjà déployée sans
+# interruption depuis IA-1 (jamais changée entre D20 et ce livrable —
+# seule la décision documentée divergeait de cette valeur, pas le code
+# ni l'état réel, § 1 de BSH-2).
 local_ai_ollama_keep_alive: "-1"
 
 # --- IA-2 §1 : confinement de la sortie réseau non sollicitée --------

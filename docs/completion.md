@@ -25,6 +25,15 @@ l'absence de somme de contrôle publiée en faisait un ancrage de
 confiance plus faible que npm) ; **D20** — modèle de complétion **à la
 demande, pas résident**, requalifiant la résidence permanente décidée
 en IA-1/IA-2 (`docs/machine-facts.md` § D15, marquée `[REQUALIFIÉE]`).
+**[RÉALIGNÉE le 2026-08-12, BSH-2]** — D15 est revenue à la résidence
+permanente, sur la base de deux faits établis depuis D20 : la
+complétion fonctionne réellement dans deux éditeurs sur trois
+langages (ce document), et une complétion à froid coûte 22,6 s
+mesurées (§ 10.3 ci-dessous), pas les ~3,7 s d'une bascule à chaud entre
+deux modèles déjà chargés — détail complet, mesure isolée du coût
+réel : `docs/local-ai.md` § 11. Sans effet sur ce rôle
+(`roles/completion/`), qui n'a jamais chargé ni choisi de modèle dans
+un cas comme dans l'autre.
 L'exécution de D19 (`roles/completion/`), avec ses obstacles réels et
 ses corrections, est documentée § 7 ci-dessous — ajoutée après la
 résolution en lecture seule qui suit, pas à sa place.

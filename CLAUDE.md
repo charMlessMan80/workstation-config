@@ -474,6 +474,27 @@ montré plusieurs fois de suite avant que chacune ne soit corrigée.
   occurrence du même défaut depuis le début de cette série — la
   troisième dans `roles/editor/` seul, ce rôle concentre plus que sa
   part.
+  **[RENFORCÉE le 2026-08-12, BSH-2]** — septième occurrence, et
+  première où ce n'était pas qu'un commentaire : `roles/local_ai/`
+  déployait toujours `local_ai_ollama_keep_alive: "-1"` (résidence
+  permanente) alors que D15 avait été requalifiée « à la demande » le
+  2026-08-07 (D20) — la requalification a eu lieu dans un livrable
+  (CMP-1, `roles/completion/`) dont le périmètre n'incluait pas
+  `roles/local_ai/`, donc la recherche systématique n'a jamais été
+  lancée sur ce rôle. **Deux renforcements** : (1) la recherche
+  systématique s'exécute désormais sur **tout le dépôt**, y compris
+  hors du périmètre du livrable courant — ce qui est trouvé hors
+  périmètre est **signalé** dans le rapport, même s'il n'est pas
+  corrigé (précédent : la cinquième occurrence ci-dessus, trouvée hors
+  périmètre en COR-1, avait déjà été signalée sans être corrigée —
+  cette pratique devient une règle explicite, pas seulement un choix
+  ponctuel) ; (2) **distinction par classe de conséquence** : une
+  référence périmée dans un commentaire est une dette documentaire,
+  correctible au prochain passage sans urgence particulière ; une
+  référence périmée dans une **valeur par défaut ou un gabarit**
+  produit un comportement qui contredit la décision documentée — cette
+  seconde classe est **bloquante**, elle ne peut pas attendre le
+  prochain livrable qui touchera par hasard ce fichier.
 - **Une capacité découverte qui contredit une contrainte déjà établie se
   signale, elle ne s'exploite pas silencieusement.** Si une vérification de
   routine révèle qu'une action interdite ou supposée bloquée (élévation de
@@ -626,6 +647,20 @@ montré plusieurs fois de suite avant que chacune ne soit corrigée.
   versionnée, rien à comparer après coup. Un écart futur doit être
   explicable par comparaison de deux relevés déjà consignés, pas
   investigable a posteriori sur un fichier qui n'existe plus.
+- **Un livrable qui produit une preuve cite l'extrait pertinent dans le
+  document versionné, jamais seulement un chemin de fichier.** Un
+  répertoire de session éphémère (ou tout artefact hors du dépôt)
+  disparaît, et le fait qu'il étayait devient invérifiable — la même
+  cause que la règle ci-dessus sur la spécification CDI écrasée, sous
+  une autre forme. Motif : **deuxième occurrence** — les journaux de
+  preuve de BSH-1 (Kate/Helix, nominal/échec forcé/non-régression) ont
+  été copiés dans un répertoire de session éphémère puis les originaux
+  supprimés ; ce répertoire est aujourd'hui vide, les faits consignés
+  dans `docs/completion.md` § 10 s'appuient sur des artefacts qui
+  n'existent plus. Ce livrable (BSH-2) applique la voie déjà retenue
+  pour la trace CDI : chaque mesure citée dans `docs/local-ai.md` § 11
+  porte l'extrait de commande/sortie qui l'établit, pas un renvoi vers
+  un fichier de log externe.
 
 ## `docs/machine-facts.md`
 

@@ -1174,6 +1174,47 @@ depuis, `docs/completion.md` § 2.1 (`lsp-ai`) — mais la décision de
 résidence elle-même est révisée indépendamment, par prudence
 budgétaire, pas parce que le motif serait devenu faux.
 
+**[RÉALIGNÉE le 2026-08-12, BSH-2] D15 revient à la résidence
+permanente — pas un retour en arrière, la requalification du 7 août
+ci-dessus était juste à sa date.** Écart découvert en vérifiant l'état
+du GPU après BSH-1 : `roles/local_ai/defaults/main.yml` portait
+toujours `local_ai_ollama_keep_alive: "-1"` (résidence, jamais changé
+par D20, qui n'a vécu que dans la documentation) — la seule occurrence
+à ce jour où une décision requalifiée divergeait d'une **valeur
+effective**, pas seulement d'un commentaire. Coût réel mesuré avant de
+trancher (méthode d'isolement de `docs/dgpu-power.md`, détail complet
+`docs/local-ai.md` § 11.1) : une fois le modèle réellement résident,
+RTD3 est bloqué à **100 %** sur deux fenêtres isolées de 300 s (`Δ
+runtime_suspended_time = 0 ms` les deux fois) — pas les ~25 % apparus
+dans un relevé mêlant à tort la phase de démarrage sans modèle (RTD3
+encore libre, § 7.6) et la résidence effective. Deux faits nouveaux,
+absents le 7 août, justifient le réalignement : la complétion
+fonctionne réellement, dans deux éditeurs sur trois langages (BSH-1,
+`docs/completion.md` § 9/10) ; une complétion à froid coûte **22,6 s
+mesurées** (réveil RTD3 + chargement complet, `docs/completion.md`
+§ 10.3) — pas les ~3,7 s d'une bascule à chaud entre deux modèles déjà
+chargés (IA-4, § 9.4 ci-dessous), qui ne couvrait jamais le cas
+résident→arrêté→résident. À la demande, chaque reprise après une pause
+de frappe paierait ce coût, rendant la complétion au fil de la frappe
+inutilisable — **décision de l'opérateur** : le modèle reste résident.
+`local_ai_ollama_keep_alive` n'a jamais changé de valeur (déjà `-1`) ;
+`ansible-playbook roles/local_ai/local_ai.yml` confirme `changed=0` dès
+la première exécution de ce livrable — le service n'a pas été
+redémarré. Recherche systématique menée sur tout le dépôt, pas
+seulement sur `roles/local_ai/` (renforcement de la règle
+correspondante, `CLAUDE.md`) : cinq commentaires de `roles/local_ai/`
+déjà cohérents avec l'état réalisé (aucune correction nécessaire), un
+mis à jour (`defaults/main.yml`, préambule de décisions) ; commentaires
+de `roles/completion/` référençant D20 signalés, non corrigés (hors
+périmètre de ce livrable, fait décrit par ce rôle inchangé dans les
+deux cas) ; `docs/status.md` § options écartées comportait la même
+mention périmée — **hors périmètre strict de ce livrable** (non
+modifié), signalé pour le prochain qui touchera ce fichier. Aucune
+autre décision requalifiée du dépôt n'a été trouvée avec une référence
+non alignée (D3/D3a-D3b déjà traitée par la revue du 2026-08-08).
+Détail complet, mesures et branches énumérées : `docs/local-ai.md`
+§ 11.
+
 **D16 (2026-08-07) — `NVreg_PreserveVideoMemoryAllocations=1`.**
 Motif : un modèle chargé survit à une suspension système. Contrepartie
 assumée : plusieurs gigaoctets recopiés vers le disque à chaque
@@ -4150,3 +4191,52 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   `site.yml` intacts, aucun redémarrage (seul Kate, application
   utilisateur, redémarré à plusieurs reprises pour les besoins de la
   preuve).
+- **2026-08-12 — BSH-2 : D15 réalignée sur l'état réel, septième
+  référence périmée trouvée — la première dans une valeur effective,
+  pas un commentaire.** Découverte en vérifiant l'état du GPU après
+  BSH-1 : `roles/local_ai/defaults/main.yml` déployait toujours
+  `local_ai_ollama_keep_alive: "-1"` (résidence permanente, confirmé
+  dans le Quadlet et par `ollama ps` — `UNTIL: Forever`) alors que D15
+  était documentée requalifiée « à la demande » depuis le 2026-08-07
+  (D20) — la requalification n'a jamais atteint le code, la
+  recherche systématique n'ayant jamais été lancée sur `roles/local_ai/`
+  (hors périmètre du livrable qui a requalifié D15). Coût réel mesuré
+  avant de trancher, méthode d'isolement de `docs/dgpu-power.md` : une
+  fois le modèle résident, RTD3 bloqué à 100 % sur deux fenêtres
+  isolées de 300 s, `Δ runtime_suspended_time = 0 ms` les deux fois —
+  le chiffre de 25 % initialement observé provenait d'une fenêtre
+  mélangeant la phase de démarrage sans modèle (RTD3 encore libre) et
+  la résidence effective, pas d'une économie partielle réelle.
+  Réalignement motivé par deux faits absents le 7 août : la complétion
+  fonctionne réellement dans deux éditeurs sur trois langages (BSH-1),
+  et une complétion à froid coûte 22,6 s mesurées (réveil RTD3 +
+  chargement), pas les ~3,7 s d'une bascule à chaud entre deux modèles
+  déjà chargés — cette dernière valeur ne couvrait jamais le cas
+  résident→arrêté→résident. Décision de l'opérateur : le modèle reste
+  résident. Historique marqué (`[RÉALIGNÉE]`), la requalification du
+  7 août non effacée. `local_ai_ollama_keep_alive` n'a jamais changé de
+  valeur — `ansible-playbook roles/local_ai/local_ai.yml` confirme
+  `changed=0` dès la première exécution de ce livrable, service non
+  redémarré (`podman inspect` : date de démarrage du conteneur
+  inchangée). Recherche systématique étendue à tout le dépôt (règle
+  correspondante de `CLAUDE.md` renforcée en conséquence — recherche
+  hors périmètre obligatoire, distinction commentaire/valeur effective
+  introduite) : cinq commentaires de `roles/local_ai/` déjà cohérents
+  avec l'état réaligné, un mis à jour ; commentaires de
+  `roles/completion/` référençant D20 signalés sans être corrigés (hors
+  périmètre, fait décrit par ce rôle inchangé) ; `docs/status.md`
+  portait la même mention périmée, également hors périmètre strict,
+  signalé pour le prochain livrable qui touchera ce fichier. Aucune
+  autre décision requalifiée du dépôt n'a de référence non alignée (D3
+  déjà traitée le 2026-08-08). Règle ajoutée sur les preuves versionnées
+  (`CLAUDE.md`) : les journaux de preuve de BSH-1, copiés dans un
+  répertoire de session éphémère puis les originaux supprimés, sont
+  aujourd'hui introuvables — deuxième occurrence après la spécification
+  CDI écrasée ; ce livrable cite les extraits de mesure directement
+  dans `docs/local-ai.md` § 11, pas seulement un chemin de fichier.
+  Aucune action privilégiée (commentaires et documentation
+  uniquement) ; `ansible-lint --profile production roles/local_ai/` :
+  0 défaut ; `--check` et deux exécutions réelles à `changed=0`. Aucun
+  paquet installé, aucun modèle téléchargé,
+  `sudoers`/`terra.repo`/`/etc/cdi/`/`gpu_mux_mode`/`kwinrulesrc`/
+  `site.yml` intacts, aucun redémarrage.

@@ -2029,6 +2029,187 @@ pré-existantes, inchangées par ce livrable ; `docs/machine-facts.md` =
 ralentissement du premier chargement à cache disque froid) ;
 `docs/gpu-containers.md` = 0, fichier non touché par ce livrable.
 
+## 11. BSH-2 — D15 réalignée sur l'état réel (2026-08-12)
+
+### 11.1 — Écart découvert, mesuré avant d'écrire
+
+Constat de départ (BSH-1, terminé le 2026-08-12, `docs/completion.md`
+§ 10) : `roles/local_ai/defaults/main.yml` déployait toujours
+`local_ai_ollama_keep_alive: "-1"` (résidence permanente, `OLLAMA_KEEP_ALIVE`
+confirmé `-1` côté Quadlet, `ollama ps` affichant `UNTIL: Forever`)
+alors que `docs/machine-facts.md` documentait D15 comme requalifiée
+« à la demande » depuis le 2026-08-07 (D20). Le code n'avait jamais
+suivi la requalification — la valeur effective divergeait de la
+décision documentée, pas seulement un commentaire.
+
+**Le coût annoncé de la résidence a été mesuré avant de trancher**,
+avec la méthode d'isolement de `docs/dgpu-power.md` § Méthode
+d'isolement (relevés `sysfs` purs, espacés, sans invoquer `nvidia-smi`
+entre les deux, effet de sonde écarté). État observé au moment de la
+mesure : conteneur `ollama` démarré à `2026-08-12T02:38:34+02:00`,
+modèle de complétion chargé à `02:50:17+02:00` (`loaded runners
+count=1`, journal du service) — soit 703 s après le démarrage du
+conteneur, service actif mais sans modèle pendant cet intervalle.
+
+**Relevé A, pendant l'intervalle sans modèle** (aucune sonde entre les
+deux, méthode identique à § 7.6) — `runtime_suspended_time` a continué
+de croître normalement durant cette phase, cohérent avec § 7.6 (aucun
+contexte CUDA sans modèle chargé). **Relevé B, après chargement,
+fenêtre isolée de 300 s** :
+```
+T0 2026-08-12T03:47:56+02:00  runtime_status=active
+                               runtime_suspended_time=788040   (figé depuis le chargement)
+                               runtime_active_time=3555284
+[300 s, aucune sonde nvidia, modèle résident]
+T1 2026-08-12T03:52:56+02:00  runtime_status=active
+                               runtime_suspended_time=788040   (Δ=0 ms)
+                               runtime_active_time=3855288      (Δ=+300004 ms ≈ Δt réel)
+```
+Rejoué une seconde fois (fenêtre indépendante, 300 s, 03:40:02 →
+03:45:47), même résultat : `runtime_suspended_time` inchangé,
+`runtime_active_time` progresse au rythme exact du temps écoulé.
+**Conclusion établie, pas supposée** : une fois le modèle réellement
+résident, RTD3 est bloqué à 100 % pour la fenêtre observée — le
+comportement documenté par D15/D16 (`docs/local-ai.md` § 9.3, cité
+plus haut) est confirmé, pas contredit.
+
+**Écart apparent expliqué, pas un second coût découvert** : le chiffre
+initial de 25 % (`runtime_suspended_time = 788 040 ms` sur 53 min,
+soit ≈ 788 040 / (53×60×1000) ≈ 24,8 %) rapportait le compteur cumulé
+**depuis le démarrage du conteneur**, une fenêtre qui mélange les 703 s
+de service sans modèle (RTD3 encore libre, § 7.6) et le reste en
+résidence effective (RTD3 bloqué). `788 040` ms de veille se sont
+intégralement accumulés **avant** `02:50:17` — aucune veille
+supplémentaire n'a été observée aux deux relevés isolés effectués
+**après** ce chargement. **Correction apportée à l'affirmation**, pas
+une reconduite : la contrepartie de D15 n'est ni « ~8 W en continu dès
+le démarrage du service » (§ 7.6 la réfutait déjà) ni « ~75 % du temps
+réel », mais **100 % de blocage RTD3 pendant toute la durée où un
+modèle reste effectivement chargé** — le seul chiffre à retenir tant
+qu'aucune mesure contraire n'est produite. `docs/status.md` et
+`docs/machine-facts.md` § D15/D20 sont corrigés dans ce sens
+(ci-dessous, § 11.4).
+
+### 11.2 — Motif du réalignement, pas un retour en arrière
+
+La requalification du 7 août (D20) était juste à sa date : la
+complétion n'était pas encore établie en usage réel, et le coût d'un
+rechargement à froid n'était pas mesuré — engager la contrepartie RTD3
+avant d'avoir ces deux faits aurait été payer un coût certain pour un
+bénéfice supposé (motif exact de D20, `docs/machine-facts.md`).
+
+Deux faits nouveaux, établis depuis, justifient le réalignement :
+- la complétion fonctionne réellement, dans **deux éditeurs sur trois
+  langages** (Kate et Helix, yaml/python/bash — `docs/completion.md`
+  § 9/10) ;
+- une complétion à froid coûte **22,6 s mesurées** (Helix, BSH-1,
+  `docs/completion.md` § 10.3) — réveil RTD3 **plus** chargement complet
+  du modèle en VRAM, pas les **~3,7 s** d'une simple bascule entre deux
+  modèles déjà chauds (IA-4, `docs/local-ai.md` § 9.4, chargement
+  séquentiel). Cette dernière valeur ne couvrait jamais le cas
+  résident→arrêté→résident : elle mesurait un échange de modèle **déjà
+  en cache disque OS et sans réveil RTD3 à payer** (le service tournait
+  déjà, un modèle était déjà chargé) — un cas structurellement plus
+  favorable que celui d'un modèle à la demande après une pause de
+  frappe, où RTD3 s'est effectivement engagé entre-temps (§ 7.6).
+
+**La mesure de 22,6 s corrige l'estimation antérieure de 3,7 s**, plutôt
+que de s'y ajouter : ce ne sont pas deux coûts différents à additionner,
+mais deux régimes distincts confondus jusqu'ici sous un seul chiffre — à
+la demande, chaque reprise après une pause de frappe paierait le premier
+(réveil + chargement), pas le second (bascule à chaud), ce qui rend la
+complétion au fil de la frappe inutilisable dans ce régime.
+
+### 11.3 — Décision de l'opérateur
+
+L'opérateur a tranché : le modèle de complétion reste résident. D15 est
+réalignée sur cette décision et sur l'état réel du dépôt (jamais changé
+entre D20 et ce livrable — seule la décision documentée divergeait,
+`roles/local_ai/defaults/main.yml`, aucune modification de code
+nécessaire au-delà des commentaires).
+
+### 11.4 — Recherche systématique des références périmées
+
+Recherche `grep -rn "D15"` sur tout le dépôt (`roles/`, `docs/*.md`,
+`CLAUDE.md`), **pas limitée au périmètre de ce livrable** (CLAUDE.md,
+règle renforcée ci-dessous) :
+
+| Fichier | Mention | Classe | Traitement |
+|---|---|---|---|
+| `roles/local_ai/defaults/main.yml:7` (commentaire de décision) | D15 = résidence | Commentaire de décision | Mis à jour : `[RÉALIGNÉE le 2026-08-12, BSH-2]` |
+| `roles/local_ai/defaults/main.yml:50` (juste au-dessus de la valeur) | D15 = keep_alive infini | Commentaire attaché à la **valeur effective** | Valeur elle-même inchangée (déjà correcte) ; commentaire mis à jour pour ne plus référencer une décision périmée sans le signaler |
+| `roles/local_ai/defaults/main.yml:229` (déclencheurs CDI, IA-4 § 3) | « actif indéfiniment, D15/D20 » | Commentaire | **Déjà exact** pour l'état réaligné (décrit un service conçu pour rester actif indéfiniment) — aucune correction nécessaire |
+| `roles/local_ai/tasks/main.yml:156` | « D20 : chargement à la demande, D15 : maintenu indéfiniment » | Commentaire (garde VRAM, IA-4) | Compatible avec D15 réalignée (le fait décrit — modèle maintenu une fois chargé — reste vrai indépendamment de la politique de chargement) ; hors périmètre strict de ce livrable, non modifié, signalé |
+| `roles/local_ai/tasks/main.yml:311` | même patron | Commentaire | Idem, signalé sans modification |
+| `roles/local_ai/templates/local-ai-nvidia-power-management.conf.j2:15` | « neutralisée par le modèle résident (D15) » | Commentaire | Déjà exact pour l'état réaligné, aucune correction nécessaire |
+| `roles/local_ai/templates/ollama.container.j2:46` | « D15 — modèle de complétion résident en permanence » | Commentaire attaché à `Environment=OLLAMA_KEEP_ALIVE=...` | **Déjà exact** — décrit la valeur réellement déployée, jamais périmé |
+| `roles/local_ai/templates/local-ai-cdi-verify.service.j2:12` | « D15 : keep_alive infini » | Commentaire | Déjà exact |
+| `roles/local_ai/README.md:32` | « keep_alive infini (D15) » | Commentaire | Déjà exact |
+| `roles/completion/defaults/main.yml:8`, `README.md`, `meta/main.yml`, `templates/*.j2` | « D20 (requalifie D15) » | Commentaire, **hors périmètre de ce livrable** | Fait décrit par ce rôle (`roles/completion/` ne charge ni ne choisit aucun modèle) reste vrai quel que soit l'état de D15 — **signalé, pas corrigé** : ces commentaires ne mentionnent pas le réalignement du 2026-08-12, dette documentaire mineure, non bloquante (aucune valeur effective de ce rôle n'en dépend) |
+| `docs/status.md:119` | « D15, requalifiée par D20 » (table des options écartées) | Valeur documentaire | Corrigé (ci-dessous, hors `roles/`) |
+| `docs/review-2026-08.md:83` | « D15 requalifiée par D20 » | Récit historique daté | **Non modifié** — décrit fidèlement un événement passé (2026-08-07), pas l'état courant ; modifier une revue déjà close reviendrait à réécrire l'histoire, contraire à la règle « marquer, jamais effacer » |
+
+**Seule une divergence de valeur effective existait** : la variable
+`local_ai_ollama_keep_alive` du rôle a toujours porté `-1` — jamais
+changée par la requalification du 7 août, qui n'a vécu que dans la
+documentation. Aucun gabarit, aucune valeur par défaut de
+`roles/local_ai/` ne portait la valeur « à la demande » ; le
+réalignement de ce livrable est donc **documentaire pour le code**
+(les commentaires rattrapent une valeur qui n'avait jamais bougé) et
+**correctif pour `docs/machine-facts.md`/`docs/status.md`** (qui
+avaient, eux, suivi la requalification).
+
+**Recherche étendue à d'autres décisions révisées** (§ 3 de la
+demande) : seule D3 (chaîne Ansible) a fait l'objet d'une révision
+comparable dans ce dépôt (scission D3a/D3b, 2026-08-06) — déjà traitée
+par la revue globale du 2026-08-08 (`docs/review-2026-08.md` § 2.1,
+`CLAUDE.md` § Chaîne Ansible, corrigé alors). Aucune autre décision
+requalifiée trouvée avec une référence de code non alignée.
+
+### 11.5 — Branches exercées et non exercées
+
+| Conditionnel | Branche exercée | Branche non exercée |
+|---|---|---|
+| Garde VRAM avant/après (`local_ai_ps_before`/`_after`, IA-4) | Modèle déjà résident avant ce rôle, présent après, égalité confirmée — exercée à chaque exécution de ce livrable | Aucun modèle résident avant, chargement par un tiers pendant l'exécution du rôle (fenêtre de course) — non exercée, déjà signalée comme non exercée en IA-4 |
+| `rpm -Vf` fichier fournisseur modprobe.d (D16) | Fichier intact avant/après — exercée | Divergence détectée (`fail_msg`) — jamais provoquée, aucune modification volontaire du fichier fournisseur dans ce livrable ni les précédents |
+| Redéploiement Quadlet si le contenu change | **Non exercée dans ce livrable** — le contenu du gabarit `ollama.container.j2` n'a pas changé (seul le commentaire l'entourant a été édité, jamais le corps `Environment=OLLAMA_KEEP_ALIVE={{ ... }}` ni la valeur de la variable) ; confirmé par `changed=0` aux deux exécutions (§ 11.6) | Redéploiement effectif avec redémarrage du service — dernière fois exercée en IA-1 (premier déploiement) ; ce livrable ne le réexerce pas, par construction (aucune valeur modifiée) |
+
+### 11.6 — Idempotence, service non redémarré
+
+```
+$ ansible-playbook --syntax-check roles/local_ai/local_ai.yml   # succès
+$ ansible-playbook --check roles/local_ai/local_ai.yml           # succès, changed=0
+$ ansible-playbook roles/local_ai/local_ai.yml                   # succès, changed=0 (exécution réelle)
+$ ansible-playbook roles/local_ai/local_ai.yml                   # succès, changed=0 (deuxième exécution)
+```
+`changed=0` dès la **première** exécution réelle de ce livrable —
+preuve directe que la valeur déployée était déjà celle attendue
+(`local_ai_ollama_keep_alive: "-1"`, jamais modifiée par le code). Le
+service `ollama.service` n'a pas été redémarré par ce rôle : la date
+de démarrage du conteneur (`podman inspect ollama`, champ
+`State.StartedAt`) est restée inchangée avant/après
+(`2026-08-12 02:38:34.726481525 +0200 CEST`), et le modèle
+est resté résident sans interruption (`ollama ps`/`GET /api/ps`
+confirme `expires_at` inchangé, une date arbitrairement lointaine
+propre au keep_alive infini). Rapport final du rôle, ligne pertinente :
+« Aucun modèle nouvellement chargé en VRAM par ce rôle (avant :
+['qwen2.5-coder:7b-instruct-q4_K_M'], après : [même liste]) ».
+
+### 11.7 — Actions privilégiées
+
+| # | Commande | Cible | Motif | Tentative sans privilège : résultat |
+|---|---|---|---|---|
+| — | Aucune | — | Ce livrable ne modifie que des commentaires et de la documentation ; la seule variable dont la valeur effective était en jeu (`local_ai_ollama_keep_alive`) n'a pas changé, aucune tâche `become` supplémentaire déclenchée | Non applicable — aucune action privilégiée exécutée par ce livrable |
+
+### 11.8 — Confirmations finales
+
+Aucun paquet installé, aucun modèle téléchargé (les deux modèles déjà
+présents depuis IA-3 ont servi aux mesures) ; `sudoers`, `terra.repo`,
+`/etc/cdi/`, `gpu_mux_mode`, `kwinrulesrc`, `site.yml` intacts (aucun
+touché par ce livrable — hors périmètre) ; aucun redémarrage système ;
+service `ollama.service` non redémarré (§ 11.6). `ansible-lint
+--profile production roles/local_ai/` : 0 défaut.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanismes RTD3, méthode
