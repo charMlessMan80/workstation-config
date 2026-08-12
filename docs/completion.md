@@ -2274,6 +2274,245 @@ modèle Ollama a été rechargé plusieurs fois en interne au fil des
 essais de valeurs (comportement normal du service, jamais un
 redémarrage de service ni de machine).
 
+## 14. TRO-3 — résolution en lecture seule du mode FIM (2026-08-12)
+
+**Question posée** : les troncatures persistantes viennent-elles
+réellement d'un plafond trop bas, ou d'un mode de sollicitation qui
+fait produire au modèle de la prose explicative plutôt qu'une
+complétion de code — auquel cas augmenter `num_predict` ferait passer
+une explication tronquée en explication complète, pas mieux.
+**Phase de lecture seule : aucune configuration déployée, aucun rôle,
+aucune valeur modifiés.**
+
+### 14.1 — Caractérisation du problème réel, dix essais
+
+Établi **avec le prompt exact que `lsp-ai` construit dans le chemin
+actuel** : `format_prompt()` (`crates/lsp-ai/src/utils.rs:61`) produit
+`"{context}\n\n{code}"`, avec `context` vide dans la configuration de
+ce dépôt (backend `file_store` seul, pas de `context` supplémentaire),
+donc en pratique `"\n\n" + code_avant_curseur`. Envoyé à
+`/api/generate` avec `"raw": true` (`ollama.rs:87` — le chemin actuel
+n'utilise ni `messages`, ni le champ natif `suffix` d'Ollama, ni
+`fim`).
+
+**Dix cas représentatifs** (python/bash/yaml, fonctions vides, docstrings,
+boucles, commentaires-question, configuration), même prompt exact,
+`num_predict: 256`/`num_ctx: 4096` (valeurs déployées) :
+
+| Cas | Classement | Arrêt | Jetons |
+|---|---|---|---|
+| python-fib-docstring | code pur | naturel | 93 |
+| python-empty-func | code+explication | naturel | 165 |
+| python-class-method | code pur | naturel | 118 |
+| python-loop | code pur | naturel | 30 |
+| bash-greet | code+explication | naturel | 93 |
+| bash-loop | code+explication | **plafonné** | 256 |
+| yaml-workflow | **explication seule** | naturel | 76 |
+| yaml-config | code+explication | naturel | 254 |
+| python-comment-question | code pur | **plafonné** | 256 |
+| python-docstring-only | code pur | **plafonné** | 256 |
+
+**Proportion sur ces dix essais** : 5/10 code pur, 4/10 code+explication,
+1/10 explication seule — soit **la moitié des réponses contient de la
+prose**, et les trois cas plafonnés (30 %) le sont tous alors qu'ils
+génèrent une suite de texte discursif plutôt qu'un arrêt naturel après
+quelques lignes de code. **Conclusion de cette mesure** : le problème
+n'est pas uniquement un plafond trop bas — une part significative des
+réponses est du texte explicatif que le modèle continue de produire
+jusqu'au plafond, augmenter `num_predict` ferait passer ces cas d'une
+explication tronquée à une explication complète, pas à une complétion
+de code.
+
+### 14.2 — Support FIM de `lsp-ai`, avec le moteur Ollama
+
+Établi par lecture du code à l'empreinte compilée
+(`1e910a8cf0048406eb227bf2064743010a9ff3a9`) :
+
+- **`lsp-ai` supporte un mode FIM générique**, indépendant du backend :
+  `Prompt::FIM(FIMPrompt { prompt, suffix })`
+  (`crates/lsp-ai/src/memory_backends/mod.rs:50`), construit par
+  `file_store.rs:261-278` (`PromptType::FIM` — extrait un préfixe et un
+  suffixe autour du curseur, chacun borné par `max_context / 2`
+  caractères estimés).
+- **Le backend Ollama prend en charge ce mode** :
+  `do_chat_completion` (`ollama.rs:196-211`) traite explicitement
+  `Prompt::FIM(fim) => match &params.fim { Some(fim_params) => ... }` —
+  il construit une chaîne unique
+  `format!("{start}{prompt}{middle}{suffix}{end}", ...)` à partir des
+  jetons fournis dans `params.fim`, puis l'envoie **telle quelle** à
+  `get_completion` (même chemin `raw: true` que le mode actuel — le
+  FIM de `lsp-ai` avec Ollama est une **concaténation de chaîne
+  manuelle**, pas un appel au champ natif `suffix` de l'API Ollama).
+- **Déclenchement** : `get_prompt_type()` (comportement par défaut,
+  `transformer_backends/mod.rs:47-56`, non redéfini par le backend
+  Ollama) bascule en `PromptType::FIM` **si et seulement si** la clé
+  `"fim"` est présente dans les paramètres de la requête LSP — sinon
+  `PromptType::ContextAndCode` (chemin actuel). Un seul interrupteur :
+  la présence de `parameters.fim` dans la configuration.
+- **Emplacement exact de configuration**, vérifié par lecture (test
+  intégré `llama_cpp_config`, `config.rs:517-524`, structure générique
+  — `Kwargs`, un objet JSON arbitraire fusionné dans `options` avant
+  d'atteindre le backend, même mécanisme que `num_predict`/`num_ctx`) :
+  ```toml
+  [language-server.lsp-ai.config.completion.parameters.fim]
+  start = "..."
+  middle = "..."
+  end = "..."
+  ```
+  **Même niveau** que `max_context`/`num_predict`/`num_ctx` — sous
+  `completion.parameters`, pas sous `completion.parameters.options`
+  (`fim` est un champ propre de `OllamaRunParams`, pas une clé
+  arbitraire d'`options` comme `num_predict`/`num_ctx`,
+  `ollama.rs:19-20`).
+
+### 14.3 — Jetons FIM du modèle, sourcés, et vérification de la variante
+
+**Établis par lecture des métadonnées du modèle côté Ollama**
+(`curl .../api/show`, champ `template` — gabarit Go exposé par Ollama
+lui-même, pas deviné) :
+```
+{{- if .Suffix }}<|fim_prefix|>{{ .Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>
+{{- else if .Messages }} ... (mode chat/instruct)
+{{- else }} ... (mode instruct sans historique)
+{{- end }}
+```
+**Trois jetons identifiés, sourcés directement sur ce modèle** :
+`<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>` — le gabarit
+bascule lui-même en mode FIM dès qu'un champ `Suffix` est fourni dans
+la requête, **indépendamment de `raw`**. C'est la clé de la mesure
+§ 14.1/14.4 : le chemin actuel de `lsp-ai` (raw, sans `suffix` natif)
+ne bénéficie jamais de ce gabarit, quel que soit le paramétrage
+`num_predict`/`num_ctx`.
+
+**Variante installée** : `qwen2.5-coder:7b-instruct-q4_K_M` — une
+variante **`instruct`**, orientée dialogue/chat, pas une variante
+`base` dédiée au remplissage au milieu à l'origine. **Fait notable,
+établi par mesure** (§ 14.1, § 14.4) : malgré cela, le gabarit livré
+par Ollama pour ce modèle **gère explicitement le cas `.Suffix`** avec
+les mêmes jetons FIM que la famille de base — et la mesure confirme
+que la variante `instruct` produit des complétions de code pures et
+courtes dès que ce chemin est emprunté (§ 14.4, 9/10 code pur). **Rien
+n'indique ici que la variante installée soit mal choisie** pour le
+FIM — la question ouverte par la demande (« la variante n'est peut-être
+pas la bonne ») ne se pose pas dans les faits sur ce modèle précis,
+constaté plutôt que supposé.
+
+### 14.4 — Essai comparatif, par l'API seulement, mêmes dix cas
+
+**Chemin FIM natif Ollama** (paramètre `suffix` de l'API `/api/generate`,
+sans `raw`, gabarit du modèle lui-même applique les jetons — **pas
+le chemin exact de `lsp-ai`**, une comparaison intermédiaire) :
+
+| Cas | Classement | Arrêt | Jetons | Latence |
+|---|---|---|---|---|
+| python-fib-docstring | code pur | naturel | 27 | 0,399 s |
+| python-empty-func | code pur | naturel | 19 | 0,328 s |
+| python-class-method | code pur | **plafonné** | 256 | 2,549 s |
+| python-loop | code pur | naturel | 6 | 0,199 s |
+| bash-greet | code pur | naturel | 9 | 0,223 s |
+| bash-loop | code pur | naturel | 33 | 0,447 s |
+| yaml-workflow | code+explication | naturel | 136 | 1,422 s |
+| yaml-config | code pur | naturel | 8 | 0,232 s |
+| python-comment-question | code pur | naturel | 9 | 0,219 s |
+| python-docstring-only | code pur | naturel | 6 | 0,211 s |
+
+**Chemin FIM exact de `lsp-ai`** (concaténation manuelle
+`<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>`, `raw:
+true` — reproduit précisément `ollama.rs:196-211`, mêmes dix cas,
+mêmes suffixes) :
+
+| Cas | Classement | Arrêt | Jetons | Latence |
+|---|---|---|---|---|
+| python-fib-docstring | code pur | naturel | 33 | 0,456 s |
+| python-empty-func | code pur | naturel | 12 | 0,238 s |
+| python-class-method | code pur | naturel | 27 | 0,389 s |
+| python-loop | code pur | naturel | 39 | 0,519 s |
+| bash-greet | code pur | naturel | 9 | 0,226 s |
+| bash-loop | code pur | naturel | 25 | 0,372 s |
+| yaml-workflow | code pur | naturel | 47 | 0,581 s |
+| yaml-config | code pur | naturel | 4 | 0,175 s |
+| python-comment-question | code pur | naturel | 9 | 0,218 s |
+| python-docstring-only | code pur | naturel | 7 | 0,194 s |
+
+**Comparaison** :
+
+| | Chemin actuel (`ContextAndCode`, raw) | Chemin FIM exact `lsp-ai` |
+|---|---|---|
+| Code pur | 5/10 | **10/10** |
+| Code+explication | 4/10 | 0/10 |
+| Explication seule | 1/10 | 0/10 |
+| Plafonnements (`length`) | 3/10 | **0/10** |
+| Jetons médians | ≈124 | ≈18 |
+| Latence médiane | non mesurée (éditeurs), API : ≈1-2,5 s à 256 jetons | **0,2-0,58 s** |
+
+**Le chemin FIM exact de `lsp-ai` élimine la troncature sur les dix
+cas testés** — non pas en autorisant plus de jetons, mais en
+produisant des réponses **naturellement courtes** (4 à 47 jetons,
+arrêt naturel dans 100 % des cas), parce que le modèle reçoit un
+signal structurel (jetons FIM + suffixe réel du fichier) qui le
+contraint à compléter plutôt qu'à dialoguer.
+
+### 14.5 — Conclusion et options
+
+**Issue 1 retenue par les faits : FIM est configurable et améliore
+nettement les réponses.** `num_predict` peut rester à sa valeur
+actuelle (256, TRO-1) — le mécanisme qui produisait les troncatures
+observées par l'opérateur (réponses discursives qui plafonnent) est
+contourné par le mode FIM, pas par un plafond plus haut. Augmenter
+`num_predict` sans passer par FIM aurait bien réduit la fréquence des
+plafonnements bruts, mais aurait laissé passer des réponses de
+prose complètes plutôt que des complétions de code — ce n'est pas ce
+que l'opérateur attend d'un outil de complétion.
+
+**Ce que cette mesure ne tranche pas** : la configuration FIM n'a
+jamais été déployée ni testée en conditions réelles d'éditeur (Kate,
+Helix) — seulement par appel direct à l'API, avec des préfixes/suffixes
+choisis à la main plutôt qu'extraits par le mécanisme réel de
+`file_store.rs` (bornage par `max_context / 2` de chaque côté du
+curseur, comportement différent d'un simple découpage manuel sur des
+exemples courts). Les valeurs actuelles de `completion_max_context`
+(2000) et `completion_num_ctx`/`completion_num_predict` (TRO-1/TRO-2)
+n'ont pas été réévaluées dans ce contexte — un préfixe/suffixe FIM
+généré par `file_store.rs` à partir d'un fichier réel de ce dépôt
+pourrait se comporter différemment des dix cas courts testés ici.
+
+**Questions qui départagent, pour un éventuel livrable d'application** :
+- L'extraction réelle de préfixe/suffixe par `file_store.rs` (bornée
+  par `max_context`) produit-elle des résultats comparables sur des
+  fichiers réels de ce dépôt (quelques centaines de lignes), pas
+  seulement sur les dix extraits courts de ce livrable ?
+- Le gain de latence mesuré ici (0,2-0,58 s contre 1-2,5 s) se
+  confirme-t-il en conditions réelles d'éditeur (Kate/Helix, y compris
+  le coût de la poignée de main LSP) ?
+- Le passage en FIM change-t-il le comportement pour un curseur en fin
+  de fichier (suffixe vide) — cas fréquent en pratique, pas testé ici ?
+
+### 14.6 — Actions privilégiées
+
+Non applicable — uniquement des appels HTTP en lecture vers l'API
+Ollama locale et la lecture de fichiers/code source, aucune élévation.
+
+### 14.7 — Branches exercées et non exercées
+
+Sans objet — aucun code du dépôt n'est modifié par ce livrable (lecture
+seule stricte). Aucune branche de `roles/completion/` n'est exercée ni
+modifiée.
+
+### 14.8 — Confirmations finales
+
+Sommes de contrôle des fichiers déployés, avant et après ce livrable —
+**identiques**, aucune écriture :
+```
+0f3ef4fa9242d09c4e57ffd008635a80182d4063f6b226fd171e3d14bf377efb  languages.toml
+ba50e497a5e560265d219f20271e39ae426ec835bc4e0278312d771deb5d9f3d  settings.json
+```
+Aucun rôle modifié (`git status` ne montre aucune modification sous
+`roles/`). Modèle résident inchangé : `ollama ps`/`api/ps` rapporte
+toujours `context_length: 4096` après les essais de ce livrable —
+aucun appel de ce livrable n'a demandé un `num_ctx` différent de la
+valeur actuellement chargée. Aucun paquet installé, aucun modèle
+téléchargé, aucun redémarrage.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,

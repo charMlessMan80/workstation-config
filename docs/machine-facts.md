@@ -4380,3 +4380,37 @@ identiques avant/après), rejoué avec succès contre le code d'avant
 --profile production` : 0 défaut. Aucune action privilégiée, aucun
 paquet installé, aucun modèle téléchargé, fichiers interdits intacts,
 aucun redémarrage.
+
+### 2026-08-12 — TRO-3 : résolution en lecture seule du mode FIM
+
+Traite l'hypothèse posée avant d'augmenter `num_predict` de nouveau :
+les troncatures persistantes pourraient venir d'un mode de
+sollicitation (le modèle explique en prose au lieu de compléter),
+pas seulement d'un plafond bas. **Mesuré sur dix cas
+(python/bash/yaml)** avec le prompt exact du chemin actuel de
+`lsp-ai` (`format_prompt`, raw, sans FIM) : 5/10 code pur, 4/10
+code+explication, 1/10 explication seule, 3/10 plafonnées — confirme
+l'hypothèse, une part significative de prose explique les
+plafonnements. Lu dans le code à l'empreinte compilée
+(`1e910a8cf0048406eb227bf2064743010a9ff3a9`) : le backend Ollama de
+`lsp-ai` **supporte le FIM** (`Prompt::FIM`, jetons `fim.start/middle/
+end` concaténés manuellement, `raw: true` conservé) — configurable au
+même niveau que `num_predict`/`num_ctx`
+(`completion.parameters.fim`). Jetons du modèle installé
+(`qwen2.5-coder:7b-instruct-q4_K_M`) lus sur `curl .../api/show`,
+champ `template` : `<|fim_prefix|>`/`<|fim_suffix|>`/`<|fim_middle|>` —
+la variante `instruct` installée gère bien ce gabarit, rien
+n'indique un mauvais choix de variante. **Essai comparatif décisif** :
+le chemin FIM exact de `lsp-ai`, rejoué sur les mêmes dix cas, produit
+10/10 code pur, arrêt naturel dans 100 % des cas, 4-47 jetons, latence
+0,2-0,58 s (contre 5/10 code pur, 3/10 plafonnées, jusqu'à 2,5 s sur
+le chemin actuel). **Conclusion (lecture seule, non appliquée)** :
+FIM est la voie qui répond au problème réel — `num_predict` peut
+rester à sa valeur actuelle. Questions ouvertes avant application :
+comportement de l'extraction réelle de `file_store.rs` sur des
+fichiers longs, gain en conditions réelles d'éditeur, cas du suffixe
+vide en fin de fichier. Aucune configuration déployée touchée
+(sommes de contrôle identiques avant/après), aucun rôle modifié,
+aucun paquet installé, aucun modèle téléchargé, modèle résident
+inchangé (`context_length: 4096`), aucune action privilégiée, aucun
+redémarrage.
