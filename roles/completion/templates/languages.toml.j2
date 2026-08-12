@@ -45,6 +45,17 @@ model = "completion-model"
 [language-server.lsp-ai.config.completion.parameters]
 max_context = {{ completion_max_context }}
 
+# FIM (remplissage au milieu, TRO-4) : jetons propres au modèle
+# installé (completion_ollama_model), sourcés par lecture du gabarit
+# Ollama — jamais devinés, docs/completion.md § 15.1. Même niveau que
+# max_context (completion.parameters), pas sous .options : `fim` est
+# un champ propre de OllamaRunParams côté lsp-ai, pas une clé
+# arbitraire transmise à Ollama comme num_predict/num_ctx.
+[language-server.lsp-ai.config.completion.parameters.fim]
+start = "{{ completion_fim_start }}"
+middle = "{{ completion_fim_middle }}"
+end = "{{ completion_fim_end }}"
+
 [language-server.lsp-ai.config.completion.parameters.options]
 num_predict = {{ completion_num_predict }}
 num_ctx = {{ completion_num_ctx }}

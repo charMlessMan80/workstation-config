@@ -271,6 +271,26 @@ completion_max_context: 2000
 # code source de lsp-ai une seconde fois.
 completion_num_ctx: 4096
 
+# [AJOUTÉ, TRO-4, 2026-08-12] Jetons FIM (remplissage au milieu),
+# sourcés directement sur le modèle installé — pas devinés, pas repris
+# d'une documentation générique sur les modèles de la famille Qwen.
+# Lus par lecture du gabarit exposé par Ollama lui-même :
+#   curl -s http://127.0.0.1:11434/api/show \
+#     -d '{"model":"qwen2.5-coder:7b-instruct-q4_K_M"}' \
+#     | python3 -c "import json,sys;print(json.load(sys.stdin)['template'])"
+# → `{{- if .Suffix }}<|fim_prefix|>{{ .Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>`
+# **Couplage à consigner** : ces trois valeurs sont propres au modèle
+# retenu (`completion_ollama_model`), pas à `lsp-ai` — changer de
+# modèle (D21 à revoir) invaliderait ces jetons sans qu'aucune erreur
+# ne le signale nécessairement à l'écriture de la configuration (la
+# garde ci-dessous vérifie la cohérence interne des trois valeurs,
+# jamais leur exactitude vis-à-vis du modèle réellement chargé — une
+# vérification par lecture du gabarit du modèle reste nécessaire à
+# chaque changement de modèle, docs/completion.md § 15.1).
+completion_fim_start: "<|fim_prefix|>"
+completion_fim_middle: "<|fim_suffix|>"
+completion_fim_end: "<|fim_middle|>"
+
 # [AJOUTÉ, TRO-2, 2026-08-12] Bornes de `completion_num_predict` et
 # `completion_num_ctx` — motif de chacune consigné dans le message de
 # la garde (roles/completion/tasks/main.yml) et détaillé dans

@@ -15,7 +15,8 @@ Même binaire, même modèle, même API locale que
 saisie séparément : {{ completion_bin_dir }}/{{ completion_bin_name }},
 {{ completion_ollama_model }}, {{ completion_ollama_generate_url }},
 {{ completion_ollama_chat_url }}, {{ completion_max_context }},
-{{ completion_num_predict }}, {{ completion_num_ctx }}.
+{{ completion_num_predict }}, {{ completion_num_ctx }},
+{{ completion_fim_start }}/{{ completion_fim_middle }}/{{ completion_fim_end }}.
 #}
 {%- set lsp_ai_options = {
   'memory': {'file_store': {}},
@@ -31,6 +32,7 @@ saisie séparément : {{ completion_bin_dir }}/{{ completion_bin_name }},
     'model': 'completion-model',
     'parameters': {
       'max_context': completion_max_context,
+      'fim': {'start': completion_fim_start, 'middle': completion_fim_middle, 'end': completion_fim_end},
       'options': {'num_predict': completion_num_predict, 'num_ctx': completion_num_ctx}
     }
   }

@@ -2513,6 +2513,443 @@ aucun appel de ce livrable n'a demandé un `num_ctx` différent de la
 valeur actuellement chargée. Aucun paquet installé, aucun modèle
 téléchargé, aucun redémarrage.
 
+## 15. TRO-4 — application du mode FIM (2026-08-12)
+
+Fait la suite de TRO-3 (§ 14, lecture seule) : accord explicite donné
+pour appliquer le mode FIM. Rappel du motif retenu, à ne pas rouvrir
+sans nouvelle mesure : le chemin FIM a produit 10/10 complétions de
+code pur avec arrêt naturel (4-47 jetons, 0,2-0,58 s) contre 5/10 sur
+le chemin brut (3 plafonnements, jusqu'à 2,5 s) — § 14.4-14.5.
+**Conséquence pour la demande initiale de l'opérateur** (augmenter
+`num_predict` contre les troncatures) : ce livrable ne le fait pas, et
+ne doit pas le faire. Avec FIM, les complétions de code s'arrêtent
+seules bien en deçà de 256 jetons (§ 15.3.1) — augmenter le plafond
+n'aurait fait que produire des **explications complètes** là où le
+problème réel était des **explications tronquées** : pas un mieux,
+juste un défaut différent. `completion_num_predict` (256) et
+`completion_num_ctx` (4096), avec leurs gardes de TRO-2, restent
+inchangés dans ce livrable — vérifié § 15.7.
+
+### 15.1 — Jetons FIM : source et couplage au modèle
+
+Trois jetons exposés en variables dans
+`roles/completion/defaults/main.yml` : `completion_fim_start`,
+`completion_fim_middle`, `completion_fim_end`. Valeurs sourcées par
+lecture directe du gabarit exposé par Ollama pour le modèle installé
+— pas devinées, pas reprises d'une documentation générique sur la
+famille Qwen :
+```
+curl -s http://127.0.0.1:11434/api/show \
+  -d '{"model":"qwen2.5-coder:7b-instruct-q4_K_M"}' \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['template'])"
+```
+Extrait pertinent du gabarit : `{{- if .Suffix }}<|fim_prefix|>{{
+.Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>`. Valeurs
+retenues, identiques à celles déjà validées à la main en TRO-3 :
+```
+completion_fim_start:  "<|fim_prefix|>"
+completion_fim_middle: "<|fim_suffix|>"
+completion_fim_end:    "<|fim_middle|>"
+```
+
+**Couplage à consigner, explicitement** : ces trois valeurs sont
+propres au modèle retenu (`completion_ollama_model`, D21), pas à
+`lsp-ai` — un changement de modèle (D21 à rouvrir) invaliderait ces
+jetons **sans qu'aucune erreur ne le signale nécessairement à
+l'écriture de la configuration** (le champ reste un `String` Rust
+ordinaire côté `lsp-ai`, aucune valeur n'est rejetée pour son
+contenu — seulement pour sa présence, § 15.2). Une nouvelle lecture du
+gabarit du modèle (même commande que ci-dessus) est donc nécessaire à
+chaque changement de modèle, pas une simple relecture de ce document.
+
+### 15.2 — Garde : `lsp-ai` guarde déjà la présence, pas la valeur
+
+Établi **par lecture du code source à l'empreinte compilée**
+(`1e910a8cf0048406eb227bf2064743010a9ff3a9`, `/tmp/lsp-ai-src`) puis
+**confirmé empiriquement** par un test Rust autonome reproduisant
+exactement la structure `FIM` de `lsp-ai`
+(`crates/lsp-ai/src/config.rs:172-176` : `{ start: String, middle:
+String, end: String }`, tous trois requis, sans `Option` ni
+`#[serde(default)]`, struct annoté `#[serde(deny_unknown_fields)]`) :
+
+```rust
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FIM { start: String, middle: String, end: String }
+
+// {"start": "...", "middle": "..."}  (end manquant)
+// → Err(Error("missing field `end`", line: 0, column: 0))
+
+// {"start": "...", "middle": "...", "end": "..."}
+// → Ok(FIM { ... })
+```
+
+**Conclusion : `lsp-ai` rejette déjà, avec une erreur explicite, une
+configuration FIM où l'une des trois clés est absente** — le champ
+`fim: Option<FIM>` de `OllamaRunParams`
+(`crates/lsp-ai/src/transformer_backends/ollama.rs:19-20`) est
+désérialisé par `serde_json::from_value(params)?`
+(`ollama.rs:226`) : si la clé `"fim"` est absente du JSON, `fim`
+devient `None` (chemin sans FIM, valide) ; si elle est présente mais
+incomplète, la désérialisation entière échoue et l'erreur remonte
+jusqu'à la réponse LSP — un échec bruyant, jamais un repli silencieux.
+
+**Ce que cette garde ne peut pas faire, et que ce livrable ne tente
+pas de faire** : `String` accepte une chaîne vide ou un jeton erroné
+sans la moindre erreur — `lsp-ai` garantit la **présence structurelle
+des trois clés ensemble**, jamais l'**exactitude de leur valeur**
+vis-à-vis du modèle réellement chargé. C'est la même distinction que
+celle déjà posée en TRO-2 entre « valeur dans le domaine admissible »
+et « valeur correcte » — ici transposée à la présence plutôt qu'aux
+bornes numériques.
+
+**Décision : aucune garde Ansible ajoutée.** L'outil garde déjà,
+loudly, l'incohérence structurelle que ce livrable devait empêcher —
+en ajouter une au niveau du rôle serait de la sur-couverture pour un
+cas déjà couvert, contrairement à la garde de bornes de TRO-2 qui,
+elle, comblait une lacune réelle (`lsp-ai` n'a jamais borné
+`num_predict`/`num_ctx`).
+
+**Démonstration, dans les deux sens** (§ 4 du cadrage, transposé à la
+présence plutôt qu'aux bornes) :
+- **Absence complète de la clé `fim`** (état d'avant ce livrable,
+  `76705f4`) : chemin valide, aucune erreur — § 15.5.3.
+- **Présence incomplète** (un jeton non défini) : testé en supprimant
+  `completion_fim_end` de `roles/completion/defaults/main.yml` (aucune
+  autre variable ne le fournit) et en relançant le rôle :
+  ```
+  TASK [... Déployer languages.toml ...] ***
+  [ERROR]: Task failed: 'completion_fim_end' is undefined
+  fatal: [localhost]: FAILED! => {"changed": false,
+    "msg": "Task failed: 'completion_fim_end' is undefined"}
+  ```
+  Échec **avant toute écriture** — Ansible refuse de rendre un modèle
+  Jinja2 référençant une variable non définie, la tâche
+  `ansible.builtin.template` échoue en amont de toute opération sur le
+  fichier cible. Sommes de contrôle des deux fichiers déployés,
+  identiques avant et après cet essai :
+  ```
+  616eaf2ebc0e92ef4aac3f4d27973bdebde36f8ab6ac0d8740e2300715b2ad61  languages.toml
+  a84d2c46f28cc02389ea4947512abcaa3b1b2b312d11c46083e0e43b8e103cf7  settings.json
+  ```
+  Variable restaurée immédiatement après l'essai
+  (`diff` contre la sauvegarde : aucune différence).
+- **Présence complète mais chaînes vides** (`-e completion_fim_start=""
+  -e completion_fim_middle="" -e completion_fim_end=""`) : **accepté
+  sans rejet**, écrit tel quel (`start = ""` etc., § 15.5.4) — c'est
+  exactement la limite décrite ci-dessus : `lsp-ai` garde la
+  structure, pas le contenu. Utilisé délibérément comme mécanisme de
+  neutralisation pour la démonstration d'échec forcé (§ 15.5.4),
+  pas comme un défaut à corriger.
+
+### 15.3 — Configuration : une seule source, six occurrences côté Kate
+
+`languages.toml.j2` (Helix) : nouveau bloc
+`[language-server.lsp-ai.config.completion.parameters.fim]`, au même
+niveau que `max_context` (`completion.parameters`), **pas** sous
+`.options` — `fim` est un champ propre de `OllamaRunParams` côté
+`lsp-ai` (`ollama.rs:19-20`), pas une clé arbitraire transmise à
+Ollama comme le sont `num_predict`/`num_ctx` (établi par lecture du
+code, § 14.2, confirmé en pratique § 15.4.1).
+
+`kate-lspclient-settings.json.j2` : le dictionnaire `lsp_ai_options`
+partagé (§ 9, KAT-1) reçoit la même clé `fim`, générée depuis les
+mêmes trois variables — toujours la source Jinja2 unique, jamais
+recopiée pour les trois langages Kate. Comptage confirmé après
+déploiement :
+```
+grep -c fim ~/.config/kate/lspclient/settings.json
+18
+```
+18 occurrences du jeton `fim` (6 par langage × 3 langages : la clé
+`fim` elle-même + `start`/`middle`/`end`, 2 fois chacune —
+`initializationOptions` et `settings` portent le même bloc,
+duplication déjà actée en KAT-1, § 9.3, pas ajoutée par ce livrable)
+— toutes générées depuis `completion_fim_start/middle/end`, aucune
+valeur saisie séparément.
+
+### 15.4 — Preuve que la requête porte réellement la structure FIM
+
+TRO-3 avait comparé les deux chemins en construisant les requêtes à la
+main (§ 14.4). Ce livrable prouve que `lsp-ai`, une fois configuré,
+envoie réellement la même structure — pas seulement que le fichier de
+configuration contient le bloc `fim`.
+
+#### 15.4.1 — Helix : configuration reçue par `lsp-ai`
+
+Journal Helix (`~/.cache/helix/helix.log`, lancé avec `hx -vv`),
+message `Using custom LSP config` envoyé à l'initialisation :
+```
+helix_lsp::client [INFO] Using custom LSP config: {"completion":
+{"model":"completion-model","parameters":{"fim":{"end":"<|fim_middle|>",
+"middle":"<|fim_suffix|>","start":"<|fim_prefix|>"},"max_context":2000,
+"options":{"num_ctx":4096,"num_predict":256}}}, ...}
+```
+Confirme que la structure `fim` complète (les trois jetons) atteint
+bien `lsp-ai` via `initializationOptions`/`workspace/didChangeConfiguration`
+— pas seulement écrite dans le fichier, réellement transmise au
+serveur. La requête HTTP que `lsp-ai` envoie ensuite à Ollama
+(`ollama.rs:196-211`, concaténation manuelle
+`{start}{prefix}{suffix}{end}` avec `raw:true`) n'est pas elle-même
+journalisée côté Helix (elle sort du processus `lsp-ai`, pas de
+`helix`) — mais la **nature des réponses obtenues** (§ 15.4.2, code
+pur, arrêts naturels dans la fourchette 4-47 jetons de TRO-3) est la
+preuve indirecte que la requête a bien pris la forme FIM : le chemin
+brut (§ 15.5.3, TRO-3 § 14.4) produit un tout autre profil de réponse
+sur les mêmes fichiers.
+
+#### 15.4.2 — Helix : complétions réelles sur les trois langages
+
+Fichiers de test préparés (`/tmp/tro4-test/{test.py,test.sh,test.yaml}`),
+pilotage par `tmux`, déclenchement `Ctrl-x` en fin de dernière ligne.
+
+**Python** (`def fibonacci(n): ... for _ in range(2, n + 1):`) —
+requête à 12:17:19.295, réponse à 12:17:19.744, **latence 0,449 s** :
+```
+lsp-ai <- {"jsonrpc":"2.0","id":1,"result":{"isIncomplete":false,
+"items":[{"filterText":"def fibonacci(n):","kind":1,
+"label":"ai - \n    \"\"\"Return the nth Fibonacci number using an
+iterative approach.\"\"\"\n    # Base cases: if n is 0 or 1, return n
+itself.", ...}]}}
+```
+Code pur (docstring + commentaire, pas de dialogue), arrêt naturel.
+
+**Bash** (`#!/bin/bash\ncount_files() {\n    local dir="$1"`) —
+requête à 12:17:53.713, réponse à 12:17:56.275, **latence 2,562 s**
+(hors norme des 0,2-0,58 s API directe de TRO-3, à consigner
+honnêtement plutôt qu'à masquer — § 15.4.4) :
+```
+lsp-ai <- {"jsonrpc":"2.0","id":1,"result":{"isIncomplete":false,
+"items":[{"filterText":"#!/bin/bash","kind":1,
+"label":"ai - \n# Function to count the number of files in a
+directory recursively\n\n# Importing necessary packages\nimport
+os\n\n# Define the function\ncount_files() {\n    local
+dir=\"$1\"\n ... }]}}
+```
+Code pur (aucune prose explicative en fin de réponse), mais une
+dérive notable : `import os` — Python glissé dans un script bash, un
+défaut de nature différente de la troncature/prose visée par ce
+livrable, pas corrigé ici (hors périmètre : aucune modification des
+jetons ou du modèle n'est demandée par ce cas isolé).
+
+**YAML** (`services:\n  web:\n    image: nginx\n    ports:`) —
+requête à 12:18:14.275, réponse à 12:18:14.683, **latence 0,408 s** :
+```
+lsp-ai <- {"jsonrpc":"2.0","id":1,"result":{"isIncomplete":false,
+"items":[{"filterText":"services:","kind":1,
+"label":"ai - \n  db:\n    image: mysql\n    environment:\n
+MYSQL_ROOT_PASSWORD: example\n  redis:\n    image: redis", ...}]}}
+```
+Code YAML pur, arrêt naturel, aucune trace de prose.
+
+#### 15.4.3 — Point d'attention YAML, dit franchement
+
+TRO-3 avait relevé qu'un cas YAML manuel laissait passer de la prose
+(§ 14.4). **Sur ce test-ci, FIM produit un résultat propre pour
+YAML** (§ 15.4.2 ci-dessus) — mais un seul cas ne suffit pas à
+conclure à un gain systématique : le remplissage au milieu est conçu
+pour du code, et YAML/Jinja n'a pas la même structure syntaxique
+qu'un langage de programmation portant des jetons de bloc explicites.
+**Conclusion honnête** : le gain FIM est **confirmé sur ce cas précis**,
+**pas généralisable** à tout contenu YAML à partir d'un seul essai —
+contrairement à Python et bash, testés de façon répétée à travers
+TRO-3 et ce livrable.
+
+#### 15.4.4 — Latence à travers l'éditeur, comparée à TRO-3
+
+| Cas | TRO-3 (API directe) | TRO-4 (Helix, éditeur complet) |
+|---|---|---|
+| Python | 0,2-0,58 s | 0,449 s |
+| Bash | 0,2-0,58 s | **2,562 s** (hors norme) |
+| YAML | 0,2-0,58 s | 0,408 s |
+
+Python et YAML restent dans la fourchette API directe malgré le coût
+additionnel du magasin de mémoire et du transport LSP — cohérent avec
+l'observation de TRO-1 (§ 12.5) que ce coût est faible. Le cas bash
+est un écart, pas expliqué par ce livrable : une seule mesure, pas
+reproduite plusieurs fois, ne permet pas de trancher entre une
+variation ponctuelle du service (aucune preuve d'un rechargement de
+modèle en cours, `ollama ps` non revérifié à cet instant précis — un
+marqueur `@VERIF` serait de mise si une conclusion en dépendait, mais
+aucune n'est tirée ici) et une propriété du prompt bash en particulier.
+Consigné sans explication forcée plutôt que masqué.
+
+### 15.5 — Kate : preuve par geste opérateur
+
+Fichiers de test préparés dans `/tmp/tro4-kate/` (mêmes contenus que
+§ 15.4.2), Kate lancé par la session avec `LSPCLIENT_DEBUG=1`,
+`lsp-ai` confirmé démarré (`pgrep -a lsp-ai` → pid actif) avant de
+solliciter le geste de l'opérateur (complétion sur les 3 fichiers,
+un par un). Journal lu par `journalctl --user _PID=<pid kate>
+--no-pager` — **jamais** par redirection de sortie standard, Kate se
+re-dédouble en interne et la redirection ne suit pas le processus
+réel (établi au prix d'une dizaine de tentatives lors du livrable
+KAT-1, § 9.4 ; **rappel de méthode pour toute session future** :
+c'est la seule voie fiable observée à ce jour sur ce poste).
+
+#### 15.5.1 — Configuration FIM reçue par `lsp-ai` (Kate)
+
+```
+"start": "<|fim_prefix|>"
+"start": "<|fim_prefix|>"
+calling textDocument/completion
+```
+Occurrences multiples de `<|fim_prefix|>` dans le journal — la
+configuration porte bien la structure FIM avant chaque requête de
+complétion, cohérent avec Helix (§ 15.4.1).
+
+#### 15.5.2 — Complétions réelles (Kate)
+
+**Python** — réponse reçue :
+```
+{"jsonrpc":"2.0","id":2,"result":{"isIncomplete":false,"items":
+[{"filterText":"","kind":1,"label":"ai -         a, b = b, a +
+b\n    return b\n\n# Example usage:\nn = 10\nprint(f\"Fibonacci
+number at position {n} is: {fibonacci(n)}\")", ...}]}}
+```
+Code pur, arrêt naturel — cohérent avec Helix.
+
+**YAML** — réponse reçue :
+```
+{"jsonrpc":"2.0","id":2,"result":{"isIncomplete":false,"items":
+[{"filterText":"","kind":1,"label":"ai -       - \"80:80\"", ...}]}}
+```
+Code YAML pur, très court, arrêt naturel.
+
+**Bash** — réponse reçue :
+```
+{"jsonrpc":"2.0","id":2,"result":{"isIncomplete":false,"items":
+[{"filterText":"","kind":1,"label":"ai -     find \"$dir\" -type f |
+wc -l\n}\n\nusage() {\n ... \n```\n\nThis script defines a function
+`count_files` ... The script then checks if exactly one argument
+(the directory) is provided and if it exists, counts the number of
+files and prints it.", ...}]}}
+```
+**À dire franchement** : ce cas Kate porte encore une explication en
+prose après le code, malgré la configuration FIM active et confirmée
+(§ 15.5.1) — contrairement au même cas testé sous Helix (§ 15.4.2, où
+le résultat bash était du code pur sans prose). Deux exécutions
+distinctes du même modèle sur un prompt structurellement identique
+peuvent produire des sorties différentes (génération non
+déterministe côté Ollama, absence de graine fixée) — **ce n'est pas
+une régression de la configuration**, la structure FIM est bien
+transmise dans les deux cas (§ 15.4.1/15.5.1), mais un résultat non
+garanti à 100 % même une fois FIM actif, cohérent avec le taux de
+10/10 mesuré par TRO-3 sur des essais à la main (un taux élevé,
+jamais annoncé comme absolu).
+
+#### 15.5.3 — Distinction complétion du modèle / complétion par mots
+
+Rappel établi en TRO-1 (§ 12.4) : la complétion du modèle et celle,
+interne, de Kate par mots du document sont visuellement
+indiscernables à l'écran. Cette limite n'est pas levée par ce
+livrable — **la preuve continue de reposer exclusivement sur le
+journal LSP** (présence de `calling textDocument/completion` et de la
+réponse `result` associée), jamais sur la présence d'un popup.
+
+#### 15.5.4 — Échec forcé (Kate/Helix, config neutralisée)
+
+Configuration FIM neutralisée par trois chaînes vides (`-e
+completion_fim_start="" -e completion_fim_middle="" -e
+completion_fim_end=""`, § 15.2 — accepté sans rejet par `lsp-ai`,
+`start = ""` etc. écrits dans les deux fichiers déployés) puis testé
+sous Helix sur le cas Python :
+```
+lsp-ai <- {"jsonrpc":"2.0","id":1,"result":{"isIncomplete":false,
+"items":[{"filterText":"def fibonacci(n):","kind":1,
+"label":"ai -  \n    if n==0: \n        return 0\n    elif n==1: \n
+return 1\n    else: \n        return(fibonacci(n-1)+fibonacci(n-2))\n
+\nprint(fibonacci(5)) # Output will be 5\n\n# In this program, we
+have used a recursive function to calculate the nth Fibonacci
+number.\n# A Fibonacci number is a sequence of numbers where each
+number after the first two is the sum of the two preceding ones. \n
+# The first two numbers are usually defined as 0 and 1. \n\n# In
+this case, when n=5, the output will be 5 because the Fibonacci
+sequence is 0, 1, 1, 2, 3, 5 and so on.", ...}]}}
+```
+550 caractères, code + longue explication en prose — le comportement
+dégradé est bien revenu. **Le résultat n'est pas identique dans les
+deux cas** (FIM actif contre FIM neutralisé) : la démonstration
+prouve donc quelque chose de réel. Configuration restaurée
+immédiatement après l'essai (`ansible-playbook
+roles/completion/completion.yml`, sommes de contrôle revenues à
+`616eaf2e.../a84d2c46...`).
+
+#### 15.5.5 — Validation par le code d'avant (`76705f4`)
+
+Rôle restauré à l'état exact de `76705f4` (`git checkout 76705f4 --
+roles/completion/`, confirmé : `grep -c fim` sur les trois fichiers
+concernés → `0` partout, aucune trace de FIM), rôle réexécuté,
+même cas Python testé sous Helix :
+```
+lsp-ai <- {"jsonrpc":"2.0","id":1,"result":{"isIncomplete":false,
+"items":[{"filterText":"def fibonacci(n):","kind":1,
+"label":"ai -  \n    if n==0: \n        return 0\n    elif n==1: \n
+        return 1\n    else: \n        return(fibonacci(n-1)+
+fibonacci(n-2))\n\nprint(fibonacci(5)) # Output will be 5\n\n# In
+this program, we have used a recursive function to calculate the
+nth Fibonacci number.\n# A Fibonacci number is a sequence of numbers
+...", ...}]}}
+```
+550 caractères, comportement dégradé identique à celui obtenu par
+neutralisation (§ 15.5.4) — confirme que le code d'avant ce livrable
+produit bien le défaut que ce livrable corrige, et que la
+configuration FIM de ce livrable est la cause réelle de
+l'amélioration, pas une coïncidence. Rôle restauré ensuite à l'état
+de ce livrable (`git checkout HEAD -- roles/completion/`, puis
+`git stash pop` pour les modifications non commitées de la session),
+sommes de contrôle des fichiers déployés revenues à
+`616eaf2e.../a84d2c46...` après réexécution.
+
+### 15.6 — Non-régression : trois langages, deux éditeurs
+
+Confirmée par construction des essais eux-mêmes (§ 15.4.2, § 15.5.2) :
+python/bash/yaml produisent tous une réponse de complétion exploitée
+par Kate et par Helix, aucune erreur de handshake, aucun échec de
+démarrage de `lsp-ai` observé sur aucun des six essais (3 langages ×
+2 éditeurs).
+
+### 15.7 — Confirmation : `num_predict`/`num_ctx` inchangés
+
+```
+grep -E "^completion_num_predict|^completion_num_ctx" \
+  roles/completion/defaults/main.yml
+completion_num_ctx: 4096
+completion_num_predict: 256
+```
+Valeurs identiques à celles fixées en TRO-1 phase B et bornées en
+TRO-2 — ce livrable ne touche ni les valeurs ni leurs gardes
+(`completion_num_predict_min/max`, `completion_num_ctx_min/max`,
+inchangées, `git diff` ne montre aucune modification de ces lignes).
+
+### 15.8 — Branches exercées et non exercées
+
+| Branche | Exercée | Comment |
+|---|---|---|
+| Clé `fim` absente (chemin d'avant, `Option<FIM> = None`) | Oui | § 15.5.5, reconstruit depuis `76705f4` |
+| Clé `fim` présente, complète (chemin nominal) | Oui | § 15.4, § 15.5.1-15.5.2 |
+| Clé `fim` présente, incomplète (un jeton non défini) | Oui | § 15.2, `completion_fim_end` retiré, échec Ansible avant écriture |
+| Clé `fim` présente, complète mais valeurs vides (accepté par `lsp-ai`) | Oui | § 15.2, § 15.5.4, neutralisation délibérée |
+| Exécution du rôle seul (`completion.yml`) | Oui | tous les essais ci-dessus |
+| Exécution depuis `site.yml` | **Non** | ce livrable n'a pas rejoué `site.yml` — le rôle `completion` y est inclus sans changement structurel depuis KAT-1/BSH-1 (aucune variable de portée changée, `role_path`/`playbook_dir` non concernés ici, contrairement au cas `local_ai_gpu_cdi_playbook`, TRO-1 note technique) ; branche non exercée, signalée plutôt qu'omise |
+| Complétion multi-essai sur le même cas (déterminisme du résultat) | Partiellement | un seul essai par cas et par éditeur ; § 15.5.2 (bash Kate contre bash Helix) montre déjà que deux exécutions du même prompt peuvent diverger |
+
+### 15.9 — Actions privilégiées
+
+| Action | Tentative sans privilège : résultat |
+|---|---|
+| Aucune action privilégiée dans ce livrable | Non applicable — modification de fichiers utilisateur (`roles/completion/`, configurations déployées sous `$HOME`), lecture de code source local, appels HTTP locaux ; aucune écriture sous `/etc/`, aucun `sudo` |
+
+### 15.10 — Confirmations finales
+
+Aucun paquet installé, aucun modèle téléchargé (modèle résident
+inchangé : `qwen2.5-coder:7b-instruct-q4_K_M`, aucun nouveau
+téléchargement). `completion_num_predict`/`completion_num_ctx`
+inchangés (§ 15.7). Fichiers interdits intacts (`roles/local_ai/`,
+`roles/editor/`, `sudoers`, `terra.repo`, `/etc/cdi/`, `gpu_mux_mode`,
+`kwinrulesrc`, `site.yml` — `git status` ne montre aucune modification
+en dehors du périmètre annoncé). Aucun redémarrage.
+
 ## Voir aussi
 
 - [`docs/local-ai.md`](local-ai.md) § 8.6 — la résolution d'IA-2,

@@ -4414,3 +4414,44 @@ vide en fin de fichier. Aucune configuration déployée touchée
 aucun paquet installé, aucun modèle téléchargé, modèle résident
 inchangé (`context_length: 4096`), aucune action privilégiée, aucun
 redémarrage.
+
+### 2026-08-12 — TRO-4 : application du mode FIM
+
+Accord donné pour appliquer FIM après TRO-3 (résolution en lecture
+seule, décisive : 10/10 code pur, 100 % arrêts naturels contre 5/10 et
+3 plafonnements sur le chemin brut). Jetons FIM
+(`<|fim_prefix|>`/`<|fim_suffix|>`/`<|fim_middle|>`) exposés en
+variables (`completion_fim_start/middle/end`,
+`roles/completion/defaults/main.yml`), sourcés sur le gabarit Ollama
+du modèle installé, couplage au modèle explicitement consigné.
+`lsp-ai` s'est révélé, par lecture du code puis test Rust autonome
+reproduisant sa structure `FIM` (`deny_unknown_fields`, trois champs
+`String` requis), **déjà garant contre une configuration FIM
+incomplète** (erreur de désérialisation explicite) — aucune garde
+Ansible ajoutée, la sur-couverture aurait été un défaut symétrique à
+celui déjà écarté en TRO-2 pour `max_context`. Cette garde native ne
+couvre que la présence des trois jetons ensemble, jamais leur
+exactitude vis-à-vis du modèle — consigné explicitement, pas laissé
+supposer.
+
+Preuve par l'éditeur, pas seulement par l'API comme en TRO-3 : Helix
+(3 langages, `Ctrl-x`, journal `helix.log`) et Kate (geste opérateur,
+journal `journalctl --user _PID=<pid>`) confirment tous deux que
+`lsp-ai` reçoit et transmet la structure FIM complète, et que les
+réponses obtenues sont majoritairement du code pur à arrêt naturel —
+Python et YAML propres dans les deux éditeurs ; le cas bash a montré
+une explication en prose résiduelle sous Kate (non reproduite sous
+Helix sur le même prompt), consigné comme variation non déterministe
+plutôt que masqué. Échec forcé (jetons neutralisés à vide) a fait
+réapparaître le comportement dégradé (code + longue prose) ; le même
+essai rejoué contre le code de `76705f4` a produit un résultat
+identique — confirmant que la correction de ce livrable est réelle,
+pas une coïncidence de mesure. Latence à travers l'éditeur cohérente
+avec TRO-3 sur Python (0,449 s) et YAML (0,408 s) ; un cas bash isolé
+à 2,562 s, hors norme, non expliqué et consigné tel quel plutôt que
+justifié à tort. `completion_num_predict`/`completion_num_ctx`
+inchangés, leurs gardes de TRO-2 également. Aucune configuration
+déployée laissée dans un état intermédiaire (sommes de contrôle
+revenues à l'état nominal après chaque essai destructif), aucun
+paquet installé, aucun modèle téléchargé, aucune action privilégiée,
+aucun redémarrage.
