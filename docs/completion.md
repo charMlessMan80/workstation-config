@@ -154,7 +154,7 @@ qui n'expose pas cette voie standard — généraliser cette conclusion à
 | `llm-lsp` (RubyGems) | **Ruby** (`gem install`) — dépendance nouvelle, ni npm ni Fedora | Non vérifié en détail (nom seul établi, hors périmètre : dépendance Ruby, pas npm, mais surface nouvelle quand même) | Ollama et compatibles OpenAI annoncés | Oui (FIM annoncé) | Non établi |
 | `minuet-ai.nvim` | Lua, greffon Neovim | **Ne s'applique pas à Helix/Kate** — consomme les sources de complétion internes de Neovim, pas le protocole LSP | Oui | Oui | Non vérifié — hors sujet |
 
-**Aucun des six trouvés n'est empaqueté dans les onze dépôts activés** :
+**Aucun des six trouvés n'est empaqueté dans les dépôts activés (`docs/repositories.md` § 4)** :
 ```
 $ dnf repoquery --available 2>/dev/null | grep -iE '^lsp-ai|^llm-ls|^tabby|^ai-lsp'
 (vide)

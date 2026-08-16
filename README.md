@@ -44,8 +44,10 @@ clôture de chaque série.
 
 ## Contenu
 
-**Sept rôles Ansible**, chacun ciblant `localhost`, chacun avec son propre
-`README.md` (« ce que ce rôle fait » / « ce que ce rôle ne fait jamais ») :
+**Les rôles Ansible que [`site.yml`](site.yml) orchestre**, chacun ciblant
+`localhost`, chacun avec son propre `README.md` (« ce que ce rôle fait » /
+« ce que ce rôle ne fait jamais ») — table qui liste aussi `roles/desktop/`,
+seul rôle du dépôt tenu à l'écart de cet enchaînement :
 
 | Rôle | Fait |
 |---|---|
@@ -56,9 +58,13 @@ clôture de chaque série.
 | [`roles/local_ai/`](roles/local_ai/) | Infrastructure d'inférence locale : Ollama conteneurisé, réseau confiné |
 | [`roles/editor/`](roles/editor/) | Helix (terminal) et Kate (graphique), configurés sobrement |
 | [`roles/completion/`](roles/completion/) | `lsp-ai` compilé depuis les sources, câblé à Helix et Kate, même configuration pour les deux |
+| [`roles/copilot_cli/`](roles/copilot_cli/) | GitHub Copilot CLI, second agent de code — n'authentifie jamais (geste manuel de l'opérateur) |
+| [`roles/android_jdk/`](roles/android_jdk/) | JDK complet pour la chaîne de build Android CLI d'un dépôt distinct (`glass-hud`) |
+| [`roles/desktop/`](roles/desktop/) | Kitty positionné sur le ScreenPad Plus à l'ouverture de session — joué par son propre playbook (`roles/desktop/desktop.yml`), jamais par `site.yml` |
 
-**Un point d'entrée unique**, [`site.yml`](site.yml), qui enchaîne les sept
-rôles dans l'ordre de leurs dépendances réelles et s'arrête une seule fois,
+**Un point d'entrée unique**, [`site.yml`](site.yml), qui enchaîne les
+rôles ci-dessus — à l'exception de `roles/desktop/`, joué séparément —
+dans l'ordre de leurs dépendances réelles et s'arrête une seule fois,
 avant tout redémarrage — jamais déclenché par le playbook lui-même :
 
 ```
@@ -82,8 +88,8 @@ et datée :
   dépôt.
 - [`docs/machine-facts.md`](docs/machine-facts.md) — inventaire sourcé du
   poste : matériel, système, dépôts, GPU, stockage, affichage, conteneurs,
-  chaîne Ansible, vingt-deux décisions datées (D1-D22) et journal complet
-  de chaque série.
+  chaîne Ansible, des décisions datées et numérotées, et le journal
+  complet de chaque série.
 - [`docs/orchestration.md`](docs/orchestration.md) — reconstruction
   complète d'un poste neuf, séquence, point d'arrêt, ce qui reste hors
   d'Ansible.

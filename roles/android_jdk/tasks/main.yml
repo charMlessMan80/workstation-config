@@ -1,0 +1,121 @@
+---
+# Rôle android_jdk — installe le JDK complet requis par la chaîne de
+# build Android CLI de glass-hud (dépôt distinct, jamais référencé ici
+# au-delà de ce commentaire). N'installe aucun SDK Android, aucun
+# cmdline-tools, aucun Gradle, ne modifie aucune variable
+# d'environnement ni aucun fichier de shell (~/.bashrc, ~/.profile,
+# /etc/profile.d/) — objets de rôles ultérieurs, hors périmètre ici.
+#
+# Le poste porte déjà java-25-openjdk-headless (JRE seul, sans javac) —
+# ce rôle installe le paquet -devel correspondant, jamais installé
+# par-dessus un headless existant avant ce livrable (glass-hud,
+# livrable 8). La garde post-installation ci-dessous existe précisément
+# pour ce cas : une installation qui réussit en apparence sans que javac
+# soit réellement utilisable ne doit jamais passer pour un succès
+# (livrable 7 de glass-hud : un code de retour 0 peut ne rien avoir
+# accepté/installé réellement).
+
+- name: "Asserter que ce poste est bien Fedora 44 avant toute action"
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Fedora'
+      - ansible_facts.distribution_major_version == '44'
+    fail_msg: >-
+      Ce rôle ne vise que Fedora 44 (galaxy_info.platforms, meta/main.yml)
+      — distribution détectée : {{ ansible_facts.distribution }}
+      {{ ansible_facts.distribution_version }}. Le nom exact du paquet
+      {{ android_jdk_package }} et sa fermeture de dépendances n'ont été
+      mesurés que sur Fedora 44 (docs/machine-facts.md § Décisions) —
+      ne pas poursuivre sans revérifier sur cette version précise.
+    success_msg: "Fedora {{ ansible_facts.distribution_major_version }} confirmé."
+
+- name: "Relever les paquets Java déjà installés sur ce poste, avant toute action"
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: >-
+    Installer le JDK complet (dépôts déjà activés uniquement — jamais
+    terra, aucune surface nouvelle) : {{ android_jdk_package }}
+  ansible.builtin.dnf:
+    name: "{{ android_jdk_package }}"
+    state: present
+    disablerepo: terra
+  become: true
+  register: android_jdk_install
+  when: not ansible_check_mode
+  # Idempotent par construction du module dnf (CLAUDE.md § Avant d'agir :
+  # déterminer ce que l'outil gère déjà lui-même) — pas de conditionnel
+  # "si absent" écrit à la main, même patron que roles/editor/. Ignoré
+  # sous --check : une simulation d'installation dnf ne garantit pas la
+  # même conclusion qu'une exécution réelle (patron déjà en usage dans
+  # ce dépôt, ex. roles/editor/tasks/main.yml) ; la garde ci-dessous
+  # s'exécute quand même, en lecture seule, et rapporte l'état réel
+  # plutôt que de supposer.
+
+- name: >-
+    Vérifier PAR L'EFFET que javac est réellement présent et utilisable
+    — pas que la tâche d'installation a renvoyé un succès :
+    {{ android_jdk_javac_path_expected }}
+  ansible.builtin.command:
+    cmd: "{{ android_jdk_javac_path_expected }} -version"
+  register: android_jdk_javac_check
+  changed_when: false
+  failed_when: false  # interprété explicitement par l'assertion suivante,
+  # pas par ce module — pour distinguer un échec réel (assertion,
+  # ci-dessous) d'un simple constat sous --check avant toute
+  # installation réelle.
+  check_mode: false  # lecture seule réelle, même sous --check — même
+  # patron que roles/recovery/tasks/main.yml (grep authorized_keys,
+  # firewall-cmd --query-service) : ignorée par défaut sous --check,
+  # cette tâche produirait un faux « rien à vérifier » plutôt que l'état
+  # réel du poste.
+
+- name: >-
+    Échouer bruyamment si javac n'est pas réellement utilisable
+    (hors simulation — --check ne peut pas prouver un effet qu'il n'a
+    pas produit)
+  ansible.builtin.assert:
+    that:
+      - android_jdk_javac_check.rc == 0
+      - >-
+        ('javac ' ~ android_jdk_expected_major_version) in
+        (android_jdk_javac_check.stdout ~ android_jdk_javac_check.stderr)
+    fail_msg: >-
+      {{ android_jdk_javac_path_expected }} -version a échoué ou n'a pas
+      produit la version majeure attendue
+      ({{ android_jdk_expected_major_version }}) — rc=
+      {{ android_jdk_javac_check.rc }}, sortie=
+      {{ (android_jdk_javac_check.stdout ~ android_jdk_javac_check.stderr) | trim }}.
+      L'installation de {{ android_jdk_package }} a pu renvoyer un succès
+      sans que le compilateur soit réellement utilisable à ce chemin —
+      ne pas considérer ce rôle comme réussi tant que ce message
+      s'affiche. Si {{ android_jdk_javac_path_expected }} a été
+      substitué par -e pour une démonstration, ceci est le comportement
+      attendu, pas une panne réelle.
+    success_msg: >-
+      javac réellement présent et fonctionnel :
+      {{ (android_jdk_javac_check.stdout ~ android_jdk_javac_check.stderr) | trim }}
+  when: not ansible_check_mode
+
+- name: "Relever l'état alternatives pour java après ce rôle (lecture seule)"
+  ansible.builtin.command:
+    cmd: alternatives --list
+  register: android_jdk_alternatives_after
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  # Non filtré ici (grep) : alternatives --list liste TOUS les groupes du
+  # poste (pas seulement java) — filtrer sur "java" appartient au rapport
+  # de livrable, pas à ce rôle, pour ne pas coupler ce rôle à un motif de
+  # filtrage qui pourrait un jour cacher un groupe pertinent qu'on n'a
+  # pas anticipé.
+
+- name: "Rapporter l'état du JDK sur ce poste"
+  ansible.builtin.debug:
+    msg:
+      - "Paquet visé : {{ android_jdk_package }}"
+      - "Installation dnf (ignorée sous --check) : {{ android_jdk_install.changed | default('non exécutée sous --check') }}"
+      - "javac réellement utilisable : {{ (android_jdk_javac_check.rc == 0) if not ansible_check_mode else 'non vérifiable sous --check' }}"
+      - >-
+        java-25-openjdk-headless déjà présent avant ce rôle :
+        {{ 'java-25-openjdk-headless' in ansible_facts.packages }}

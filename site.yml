@@ -9,7 +9,7 @@
 #   ansible-playbook --ask-become-pass site.yml
 #
 # Étiquettes pour rejouer un rôle seul : bootstrap, recovery, gpu_cdi,
-# gpu_mux, local_ai, editor, completion, copilot_cli — voir
+# gpu_mux, local_ai, editor, completion, copilot_cli, android_jdk — voir
 # docs/orchestration.md pour l'usage complet, y compris la reprise
 # après le point d'arrêt.
 #
@@ -90,6 +90,14 @@
     # docs/orchestration.md) — ce rôle ne fait qu'installer le binaire.
     - role: copilot_cli
       tags: ['copilot_cli']
+
+    # Indépendant de tout ce qui précède, comme editor/copilot_cli —
+    # placé après par regroupement (outillage de développement, premier
+    # rôle d'une chaîne de build Android CLI pour glass-hud, dépôt
+    # distinct), pas par dépendance réelle. N'installe que le JDK ;
+    # aucun rôle de ce dépôt n'en dépend à ce jour.
+    - role: android_jdk
+      tags: ['android_jdk']
 
   post_tasks:
     # --- Point d'arrêt — jamais un redémarrage déclenché ici -----------

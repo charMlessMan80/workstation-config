@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: android_jdk
+  author: Mickael Mahieu
+  description: >-
+    Installe le JDK complet requis par la chaîne de build Android CLI de
+    glass-hud (dépôt distinct). N'installe aucun SDK Android, aucun
+    cmdline-tools, aucun Gradle, ne modifie aucune variable
+    d'environnement ni fichier de shell — voir docs/machine-facts.md
+    § Décisions pour le choix du JDK 25 (livrables 6/7 de glass-hud,
+    validé en conteneur jetable avant cette écriture).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

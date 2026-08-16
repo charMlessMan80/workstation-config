@@ -1531,6 +1531,89 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
 `/usage` (consommation de la session courante) ou
 `github.com/settings/copilot` (relevé mensuel, hors CLI).
 
+**D26 (2026-08-16) — JDK complet : `java-25-openjdk-devel`, pas
+d'ouverture de la surface Adoptium Temurin.** Première décision d'une
+chaîne de build Android CLI destinée au dépôt `glass-hud` (distinct,
+séparé de la production de ce poste, jamais géré depuis ici —
+préambule). Mesuré sur ce poste : les dépôts déjà activés
+(`fedora`/`updates`) n'offrent que `java-25-openjdk-devel` et
+`java-latest-openjdk-devel` (26, préversion) — aucun JDK 17 ni 21
+n'existe pour Fedora 44 dans ces dépôts (`dnf list --available
+"java-*-openjdk-devel"`, glass-hud livrable 6). L'Android Gradle Plugin
+documente un minimum de JDK 17, sans borne haute
+(`developer.android.com/build/releases/gradle-plugin`, table de
+compatibilité lue en entier, glass-hud livrable 7). **Validé
+empiriquement avant toute écriture sur ce poste** : dans un conteneur
+Fedora 44 jetable (`quay.io/fedora/fedora-minimal`, épinglé par
+empreinte, détruit après usage), un projet Kotlin/Compose généré par
+l'outillage officiel (`android create`) compile et s'empaquette avec
+succès sous ce JDK — Gradle 9.1.0, auto-téléchargé par le wrapper du
+projet, annonçant lui-même « Full Java 25 support » (glass-hud
+livrable 7, rapport `07-rapport.md`, hors de ce dépôt). Retenu plutôt
+que d'ouvrir Adoptium Temurin — paquet bootstrap
+(`adoptium-temurin-java-repository`) déjà résoluble depuis `fedora`
+mais jamais installé, sur-couverture évitée sur une incertitude que la
+mesure a levée (`CLAUDE.md` § Avant d'agir).
+
+`@VERIF : le livrable 7 (glass-hud) a démontré la compatibilité pour un
+AGP résolu par un template (« empty-activity », tag « agp-9 »), sous
+Gradle 9.1.0. Or la table de compatibilité officielle donne pour l'AGP
+courant (9.3.0, lue le 2026-08-16) une exigence de Gradle 9.5.0,
+strictement supérieure à 9.1.0 : l'AGP exercé n'était donc PAS l'AGP
+courant. Ce qui est établi est plus étroit que « l'AGP courant
+fonctionne sous JDK 25 ». À lever quand glass-hud épinglera ses
+versions réelles (AGP et Gradle), pas avant — non bloquant pour ce
+livrable, qui n'installe que le JDK.`
+
+**Fermeture de dépendances, mesurée avant écriture** (`dnf install
+--assumeno java-25-openjdk-devel`) : 5 paquets — `java-25-openjdk-devel`
+(11,6 Mio), `java-25-openjdk` (960,5 Kio), `mkfontscale` (44,9 Kio),
+`ttmkfdir` (142,2 Kio), `xorg-x11-fonts-Type1` (863,3 Kio). Total : 7 Mio
+à télécharger, 14 Mio installés. **Le paquet `-devel` tire bien le
+paquet non-headless, qui tire lui-même des paquets liés à X11 (polices)
+— confirmé par mesure, pas supposé** ; volume négligeable, pas les
+gigaoctets qu'une supposition non vérifiée aurait pu laisser craindre.
+Retour arrière exact : `dnf remove java-25-openjdk-devel
+java-25-openjdk mkfontscale ttmkfdir xorg-x11-fonts-Type1` (non
+rejoué : ces cinq paquets restent voulus sur ce poste après ce
+livrable).
+
+**Point de vigilance nommé par le pilote, exercé pour la première fois
+ici** : installation de `java-25-openjdk-devel` par-dessus
+`java-25-openjdk-headless` déjà présent — jamais fait avant ce
+livrable (le conteneur du livrable 7 partait vierge de tout Java).
+Mesuré avant/après (`alternatives --list`, filtré `java`) : les quatre
+entrées déjà présentes (`java`, `jre_openjdk`, `jre_25`,
+`jre_25_openjdk`) sont restées **inchangées**, `java` résolvant
+toujours vers le même chemin (`/usr/lib/jvm/java-25-openjdk/bin/java`)
+— trois nouvelles entrées sont apparues (`javac`, `java_sdk_openjdk`,
+`java_sdk_25`), toutes vers le même répertoire. **Nuance à ne pas
+perdre** : ceci confirme la coexistence propre entre un paquet headless
+et son complément `-devel` de LA MÊME VERSION — pas la coexistence de
+DEUX VERSIONS DIFFÉRENTES de JDK via `alternatives` (ex. 17 à côté de
+25), scénario resté hors de portée puisqu'aucun second JDK n'a été
+nécessaire (D26 ci-dessus). Ce second scénario, plus délicat, reste
+à exercer si un jour une version différente devient nécessaire.
+
+**Mesure complémentaire, par le `PATH`, pas seulement par le chemin
+absolu.** Le rôle vérifie `javac` par son chemin absolu
+(`/usr/lib/jvm/java-25-openjdk/bin/javac`, correct pour son objet : la
+garde post-installation cible précisément ce fichier). Avant ce
+livrable, `command -v javac` était vide (rc=1, `glass-hud` livrable 8,
+état de départ). Après, rejouée :
+```
+$ command -v javac
+/usr/bin/javac
+rc=0
+```
+Établit que `javac` est aussi atteignable par le `PATH` (via
+`/usr/bin/javac`, le lien `alternatives` — voir ci-dessus), ce que la
+garde du rôle ne vérifie pas et n'a pas à vérifier pour son objet
+propre. Observation d'abord rapportée par l'opérateur, rejouée et
+confirmée directement ici (`CLAUDE.md` § Sourcing des faits — une
+observation rapportée devient une mesure directe une fois rejouée avec
+succès, elle ne le reste pas indéfiniment comme classe à part).
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -1996,6 +2079,22 @@ aucun flag CLI documenté ne la donne hors session, recherché) ;
   fichier pour la révision de sa garde D12, sans rapport avec D24.
   Signalé pour un prochain livrable qui touchera ce fichier,
   non corrigé ici (hors périmètre de celui-ci).
+- **Branche non exercée, signalée plutôt que forcée (2026-08-16, D26,
+  `roles/android_jdk/`)** : la séquence réellement jouée a été
+  installation-en-échouant (chemin `javac` substitué, l'installation
+  réelle du paquet a eu lieu à ce moment) puis vérification-réussie sur
+  un système déjà installé (exécutions suivantes, idempotentes) — jamais
+  « installation puis vérification réussie dans la même passe, sur un
+  système qui ne l'avait pas », le cas qui se produira sur une machine
+  redéployée depuis zéro, raison d'être de ce dépôt. Non exercée
+  délibérément : désinstaller le JDK déjà en place sur ce poste pour
+  rejouer proprement aurait démonté quelque chose de réel afin de
+  produire une preuve — jugé disproportionné, même patron que le refus
+  déjà posé dans `roles/bootstrap/README.md` (§ Amorçage) de désactiver
+  `NOPASSWD` sur une machine où il fonctionne déjà. Se referme
+  naturellement au premier redéploiement réel depuis zéro (§ Ce qui
+  reste hors de ce flux, `docs/orchestration.md`, ou une machine de
+  test dédiée si l'opérateur en construit une avant).
 
 ## Journal des séries
 

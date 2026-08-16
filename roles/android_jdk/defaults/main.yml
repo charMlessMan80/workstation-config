@@ -1,0 +1,40 @@
+---
+# Rôle android_jdk — installe le JDK complet pour la chaîne de build
+# Android CLI de glass-hud. N'installe aucun SDK Android, aucun
+# cmdline-tools, aucun Gradle, ne touche à aucune variable
+# d'environnement ni fichier de shell — voir tasks/main.yml et
+# README.md.
+
+# --- Choix du paquet — sourcé, pas supposé --------------------------------
+# Mesuré sur ce poste (dnf list --available "java-*-openjdk-devel",
+# glass-hud livrable 6) : seuls java-25-openjdk-devel et
+# java-latest-openjdk-devel (26, préversion) sont disponibles dans les
+# dépôts déjà activés — aucun JDK 17 ni 21 n'existe dans fedora/updates
+# pour Fedora 44. L'Android Gradle Plugin documente un minimum de JDK 17,
+# sans borne haute (developer.android.com/build/releases/gradle-plugin,
+# lu le 2026-08-16, glass-hud livrable 7) ; validé empiriquement en
+# conteneur jetable (Fedora 44 vierge) : un projet Kotlin/Compose réel
+# compile et s'empaquette sous ce JDK, Gradle 9.1.0 annonçant lui-même
+# « Full Java 25 support » (glass-hud livrable 7, docs/machine-facts.md
+# § Décisions pour la décision datée correspondante). Retenu plutôt que
+# d'ouvrir la surface Adoptium Temurin (paquet bootstrap déjà résoluble,
+# jamais utilisé) — sur-couverture évitée (CLAUDE.md § Avant d'agir).
+android_jdk_package: java-25-openjdk-devel
+
+# Version majeure attendue, utilisée UNIQUEMENT pour la garde
+# post-installation (tasks/main.yml) — jamais pour choisir le paquet
+# ci-dessus, qui reste la source de vérité. Ne pas figer le patch exact
+# (ex. 25.0.4) : ce paquet suit les mises à jour de sécurité de la ligne
+# 25 sur ce poste (updates), un patch plus récent ne doit pas faire
+# échouer cette garde.
+android_jdk_expected_major_version: "25"
+
+# Chemin réel de javac une fois le paquet installé (patron Fedora/RHEL —
+# constaté pour java lui-même au livrable 6, glass-hud :
+# /usr/lib/jvm/java-25-openjdk/bin/java, déjà présent via le paquet
+# headless). Substituable pour la démonstration d'échec forcé (garde
+# post-installation, tasks/main.yml) SANS jamais changer le chemin
+# réellement utilisé par ce rôle pour son propre fonctionnement :
+# -e android_jdk_javac_path_expected=/chemin/qui/n/existe/pas
+android_jdk_javac_path: /usr/lib/jvm/java-{{ android_jdk_expected_major_version }}-openjdk/bin/javac
+android_jdk_javac_path_expected: "{{ android_jdk_javac_path }}"

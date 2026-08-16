@@ -120,6 +120,12 @@ D9 en place, les invocations suivantes n'ont plus besoin de
    runtime Node.js et le paquet npm à sa version épinglée —
    **n'authentifie jamais** (§ 2bis ci-dessous, geste manuel de
    l'opérateur).
+9. **`android_jdk`** — JDK complet pour la chaîne de build Android CLI
+   d'un dépôt distinct (D26, `docs/machine-facts.md` § Décisions).
+   Indépendant de tout ce qui précède, comme `editor`/`copilot_cli`,
+   placé après par regroupement (outillage de développement). N'installe
+   que le JDK, ne touche à aucune variable d'environnement ni fichier de
+   shell.
 
 **Puis, `post_tasks`** : relève `pending_reboot`
 (`gpu_mux_mode`) et la valeur active de
@@ -230,8 +236,12 @@ qu'il inclut, 0 défaut ; `--check` complet — `bootstrap`, `recovery`,
 `gpu_cdi`, `gpu_mux`, `local_ai`, `editor`, `completion`, `copilot_cli`
 s'enchaînent **tous**, `local_ai` compris (§ ci-dessous), sans erreur en
 simulation (`copilot_cli` ajouté et revérifié le 2026-08-10, D24 —
-`docs/editor.md` § Copilot CLI) ; le point d'arrêt post-redémarrage a
-été exercé dans son
+`docs/editor.md` § Copilot CLI). **`android_jdk` ajouté et revérifié
+séparément le 2026-08-16, D26** (`--check` complet et exécution réelle
+isolée par tag depuis `site.yml`, `glass-hud` livrable 8) — daté
+distinctement pour ne pas laisser croire qu'il faisait partie de la
+même série que la revérification `copilot_cli` ci-dessus. Le point
+d'arrêt post-redémarrage a été exercé dans son
 état **nominal réel** de cette machine (`pending_reboot=0`,
 `PreserveVideoMemoryAllocations: 1` — les deux déjà satisfaits ici,
 héritage de redémarrages antérieurs à cette série) et a correctement

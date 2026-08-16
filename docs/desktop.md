@@ -258,7 +258,7 @@ topologie de sorties à l'horodatage de démarrage du premier processus
 autostart réel — les deux journaux existent déjà indépendamment,
 lisibles sans rien créer de nouveau.
 
-## 3. Candidats terminaux — disponibles dans les onze dépôts activés
+## 3. Candidats terminaux — disponibles dans les dépôts activés (`docs/repositories.md` § 4)
 
 **Incident de méthode à signaler** : la première requête de cette
 recherche (`dnf list --available <liste de candidats>`) a été lancée

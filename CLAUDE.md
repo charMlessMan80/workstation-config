@@ -218,9 +218,12 @@ sans comprendre pourquoi elle a été posée.
 
 ## Modes d'échec qui imitent le sourcing — bilan de la série (2026-08-09)
 
-Quatre modes distincts, trouvés à des dates différentes au fil de
-cette série (2026-08-04 → 2026-08-08), regroupés ici en un seul
-endroit plutôt que recopiés à chacun de leurs points d'usage — les
+Cinq modes distincts à ce jour — quatre trouvés à des dates
+différentes au fil de cette série (2026-08-04 → 2026-08-08) et
+regroupés ici lors du bilan du 2026-08-09, un cinquième **[AJOUTÉ le
+2026-08-16, Livrable 8d]** trouvé après coup dans ce même dépôt — en
+un seul endroit plutôt que recopiés à chacun de leurs points d'usage
+— les
 règles ci-dessus et `§ Matériel spécifique` continuent d'y renvoyer
 plutôt que de reporter le détail complet. **Ce qu'ils ont en
 commun** : chacun **a l'apparence du sourcing** — une commande a été
@@ -281,6 +284,19 @@ c'est précisément ce qui les rend plus difficiles à repérer.
    change de régime, pas seulement quand sa propre logique interne est
    mise en cause (cas distinct, déjà couvert par la règle sur les
    gardes modifiées, § Avant d'agir).
+5. **Recherche calée sur le dernier élément ajouté [AJOUTÉ le
+   2026-08-16]** — Un fait dérivé du contenu du dépôt, recopié à la
+   main dans un document, se périme silencieusement. Ne pas l'écrire
+   supprime le problème ; une recherche supplémentaire ne fait que le
+   repousser. Corollaire sur les contrôles : une recherche de renvois
+   calée sur le dernier élément ajouté ne détecte que ce qui est faux
+   **depuis** cet ajout — un document faux plus anciennement y échappe
+   par construction, donc l'angle mort croît avec l'ancienneté de
+   l'erreur, donc avec sa gravité. *Motif : `README.md` annonçait
+   « Sept rôles Ansible » avec une table nominative correspondante,
+   faux depuis D24 (2026-08-10) ; la recherche de renvois calée sur
+   `copilot_cli` ne pouvait pas le trouver, puisqu'elle cherchait la
+   trace d'un rôle dans un document déjà faux avant son existence.*
 
 **Quatre règles, initialement de simples principes, ont depuis reçu
 une étape de validation qui les rend vérifiables plutôt que

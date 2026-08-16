@@ -410,7 +410,7 @@ nouveau mécanisme inventé)** — deux leviers distincts, combinables :
 **Non implémenté ici** (résolution en lecture seule) — nommé pour un
 livrable ultérieur qui aurait le mandat d'écrire une unité systemd.
 
-## 3. Ce qui existe dans les onze dépôts activés
+## 3. Ce qui existe dans les dépôts activés (`docs/repositories.md` § 4)
 
 **Méthode** : réutilise l'extraction de métadonnées déjà faite pour
 EDI-0 le même jour (`dnf repoquery --available`, dix dépôts hors Terra
@@ -465,8 +465,8 @@ compilation plutôt qu'au dépôt).
 **Conséquence directe pour ce poste** : le GPU pertinent ici est une
 **RTX 4090 NVIDIA** — ROCm ne pilote jamais de matériel NVIDIA, quel
 que soit l'état de l'iGPU AMD. **Installer `ollama`, `llama-cpp` ou
-`python3-torch` depuis les onze dépôts activés ne donnerait accès à la
-RTX 4090 sous aucune forme** — au mieux un repli CPU (non vérifié ici,
+`python3-torch` depuis les dépôts activés (`docs/repositories.md` § 4)
+ne donnerait accès à la RTX 4090 sous aucune forme** — au mieux un repli CPU (non vérifié ici,
 aucun de ces paquets n'a été installé), jamais un chemin GPU vers cette
 carte. `@VERIF : comportement runtime exact de llama-cpp/ollama
 empaquetés par Fedora en l'absence d'un périphérique ROCm valide —
@@ -1398,8 +1398,8 @@ générique utilisable par n'importe quel client LSP — c'est un serveur
 compagnon d'extensions spécifiques.
 
 **Aucun autre serveur de langage packagé pour le remplissage au milieu
-n'a été trouvé** dans les onze dépôts activés (recherche par nom et
-par résumé, `dnf repoquery`, aucune correspondance sur `llm-ls`,
+n'a été trouvé** dans les dépôts activés (`docs/repositories.md` § 4 ;
+recherche par nom et par résumé, `dnf repoquery`, aucune correspondance sur `llm-ls`,
 `tabby`, `continue`, `twinny`, `codeium`, en dehors de faux positifs
 sans rapport — paquets Haskell `copilot`, polices).
 
