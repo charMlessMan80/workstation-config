@@ -126,6 +126,18 @@ D9 en place, les invocations suivantes n'ont plus besoin de
    placé après par regroupement (outillage de développement). N'installe
    que le JDK, ne touche à aucune variable d'environnement ni fichier de
    shell.
+10. **`android_sdk`** — command-line tools du SDK Android dans le
+    domaine utilisateur (`~/Android/Sdk`), licences acceptées (D27,
+    `docs/machine-facts.md` § Décisions). **Dépend réellement de
+    `android_jdk`** (`javac` utilisable) — premier cas de dépendance
+    réelle entre deux rôles de ce dépôt, contrairement à tous ceux qui
+    précèdent dans cette liste : exprimée par cet ordre-ci ET vérifiée
+    par le rôle lui-même en première tâche, par l'effet
+    (`roles/android_sdk/meta/main.yml` pour l'argument complet sur le
+    choix de ne pas utiliser `dependencies:` de rôle Ansible). N'installe
+    ni `platform-tools`, ni `platform`, ni `build-tools`, ni Gradle ; ne
+    touche à aucune variable d'environnement ni fichier de shell (objet
+    d'un rôle ultérieur, `android_env`).
 
 **Puis, `post_tasks`** : relève `pending_reboot`
 (`gpu_mux_mode`) et la valeur active de
@@ -240,7 +252,14 @@ simulation (`copilot_cli` ajouté et revérifié le 2026-08-10, D24 —
 séparément le 2026-08-16, D26** (`--check` complet et exécution réelle
 isolée par tag depuis `site.yml`, `glass-hud` livrable 8) — daté
 distinctement pour ne pas laisser croire qu'il faisait partie de la
-même série que la revérification `copilot_cli` ci-dessus. Le point
+même série que la revérification `copilot_cli` ci-dessus. **`android_sdk`
+ajouté et vérifié séparément le 2026-08-16, D27** (`--syntax-check`,
+`ansible-lint --profile production`, `--check` — deux assertions
+seulement, le reste sauté par nature, § « Ce que `--check` couvre
+réellement », `roles/android_sdk/README.md` — puis exécution réelle
+isolée par tag depuis `site.yml`, deux fois, la seconde prouvant
+l'idempotence) — daté distinctement du D26 qui précède, dans le même
+tour cette fois (les deux décisions de ce même livrable). Le point
 d'arrêt post-redémarrage a été exercé dans son
 état **nominal réel** de cette machine (`pending_reboot=0`,
 `PreserveVideoMemoryAllocations: 1` — les deux déjà satisfaits ici,

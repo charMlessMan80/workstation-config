@@ -1,0 +1,27 @@
+---
+galaxy_info:
+  role_name: android_sdk
+  author: Mickael Mahieu
+  description: >-
+    Installe les command-line tools du SDK Android dans le domaine
+    utilisateur (~/Android/Sdk) et accepte les licences requises.
+    N'installe ni platform-tools, ni platform, ni build-tools, ni
+    Gradle ; ne modifie aucune variable d'environnement ni fichier de
+    shell — voir docs/machine-facts.md § Décisions.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+# Dépend réellement de android_jdk (javac doit être utilisable pour que
+# sdkmanager fonctionne) — exprimé par l'ORDRE dans site.yml (android_sdk
+# après android_jdk), PAS ici : ce dépôt n'utilise jamais les
+# dépendances de rôle Ansible (qui ré-exécuteraient android_jdk à chaque
+# tour), même patron que completion/ vis-à-vis d'editor/local_ai
+# (site.yml, commentaires). La garde réelle est une assertion d'effet
+# en première tâche de ce rôle (tasks/main.yml) — les deux mécanismes
+# ne s'excluent pas : l'ordre évite l'échec dans le cas nominal,
+# l'assertion le détecte si l'ordre est un jour rompu ou si ce rôle est
+# rejoué seul sur un poste sans javac.
+dependencies: []

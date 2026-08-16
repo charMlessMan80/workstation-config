@@ -1614,6 +1614,118 @@ confirmée directement ici (`CLAUDE.md` § Sourcing des faits — une
 observation rapportée devient une mesure directe une fois rejouée avec
 succès, elle ne le reste pas indéfiniment comme classe à part).
 
+**D27 (2026-08-16) — command-line tools du SDK Android dans
+`~/Android/Sdk`, licences acceptées, socle seul.** Deuxième rôle de la
+chaîne de build Android CLI pour `glass-hud` (distinct, préambule).
+Dépend réellement de D26 (`javac` utilisable) — vérifié par l'effet en
+première tâche du rôle, pas supposé depuis l'ordre de `site.yml`
+(`roles/android_sdk/tasks/main.yml`).
+
+**Racine du SDK — sourcée en partie, pas confirmée intégralement.**
+Décision du pilote : `~/Android/Sdk`. Vérification demandée sur
+documentation officielle Google, lue le 2026-08-16 :
+`developer.android.com/tools/variables` (HTML brut, pas le rendu
+résumé) documente `ANDROID_SDK_ROOT` comme **explicitement déprécié**
+(« is deprecated ») au profit d'`ANDROID_HOME`, mais ne documente
+**aucun chemin par défaut pour Linux** — son unique exemple d'export
+est macOS (`~/Library/Android/sdk`) ; `developer.android.com/studio/intro/studio-config`
+documente un défaut, mais seulement pour Windows
+(`%USERPROFILE%\AppData\Local\Android\SDK`) ;
+`developer.android.com/tools/agents/android-cli` confirme que le SDK
+« par défaut » de ce outil est celui que pointe `ANDROID_HOME`, pas un
+chemin fixe. **Ni confirmée ni infirmée par la documentation
+consultée** : `~/Android/Sdk` reste une convention répandue
+(installateur graphique historique), jamais une valeur qu'aucune de
+ces trois pages n'affirme comme défaut Linux. `@VERIF : emplacement
+par défaut du SDK Android sous Linux tel que documenté par Google —
+non trouvé aux trois pages listées ci-dessus, le 2026-08-16 ; à
+revérifier si une page plus spécifique existe et n'a pas été trouvée,
+ou si Google publie un jour une telle page.` Ce que ce rôle n'a pas à
+trancher : `ANDROID_HOME`/`ANDROID_SDK_ROOT` ne concernent que l'usage
+interactif de `sdkmanager` (résolution `--sdk_root` explicite,
+`glass-hud` livrable 7) — pertinents pour `roles/android_env/`
+(ultérieur), pas pour ce rôle.
+
+**Archive et empreinte — établies par lecture du HTML brut de
+`developer.android.com/studio`, pas d'un résumé.** Un premier appel
+d'outil de résumé automatique a renvoyé `edgedl.me.gvt1.com` comme
+hôte de téléchargement — écart déjà connu du livrable 7 (`glass-hud`,
+même symptôme, même conclusion) — écarté ici par lecture directe du
+`href` réel du bouton de téléchargement dans le HTML servi
+(`https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip`,
+ligne du tableau « Linux », build **15859902** — identique à celui du
+livrable 7, par coïncidence de calendrier de publication Google, pas
+supposé stable). Empreinte sha256 lue dans la même ligne de tableau
+(`4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583`),
+**recroisée par téléchargement réel et `sha256sum` local** — identique.
+
+**Licences : le rc de `sdkmanager --licenses` ne porte toujours aucune
+information — reproduit le 2026-08-16, même conclusion que le
+livrable 7.** `yes n | sdkmanager --licenses --sdk_root=<racine de
+test isolée>` (refus intégral) : `rc=0`, `<racine>/licenses/`
+**n'existe même pas**. `yes | sdkmanager --licenses --sdk_root=<même
+racine>` (acceptation intégrale) : `rc=0` également —
+indiscernable du refus par le seul code de retour. Seul l'état du
+répertoire distingue les deux : **sept fichiers de 41 octets chacun**
+après acceptation (`android-googletv-license`, `android-googlexr-license`,
+`android-sdk-arm-dbt-license`, **`android-sdk-license`** — celui que ce
+rôle exige, seul à bloquer tout usage ultérieur de `sdkmanager` en son
+absence —, `android-sdk-preview-license`, `google-gdk-license`,
+`mips-android-sysimage-license`). Compte non figé dans le rôle
+lui-même (`roles/android_sdk/defaults/main.yml` — un compte figé se
+périmerait au premier ajout/retrait d'identifiant de licence par
+Google, même défaut que celui consigné `CLAUDE.md` § Modes d'échec qui
+imitent le sourcing, item 5) : la garde vérifie la présence non vide du
+seul fichier de porte, `android-sdk-license`.
+
+**Application réelle sur ce poste** (`ansible-playbook
+roles/android_sdk/android_sdk.yml`, puis depuis `site.yml --tags
+android_sdk`) : `~/Android/Sdk/cmdline-tools/latest/` et
+`~/Android/Sdk/licenses/` (sept fichiers) créés, **174 Mio** réels
+(`du -sh ~/Android`) — aucun `platform-tools`, aucune `platform`, aucun
+`build-tools` (mesuré, `find ~/Android -maxdepth 2`, deux entrées
+seulement sous `Sdk/`). Idempotence prouvée par une seconde exécution
+réelle : `changed=0`, `skipped=7` (téléchargement, extraction,
+déplacement et acceptation tous sautés — le fichier de porte et
+`cmdline-tools/latest/bin/sdkmanager` étaient déjà en place). Retour
+arrière exact : `rm -rf ~/Android` (rôle purement dans le domaine
+utilisateur, aucun paquet système, aucune trace ailleurs).
+
+**Gardes démontrées dans les deux sens, sans rien casser de réel** :
+empreinte forcée à zéro (`-e
+android_sdk_cmdline_tools_sha256_expected=000...000`) — échec à la
+tâche de téléchargement elle-même (`get_url`, comportement natif du
+module : rien n'est déplacé vers `dest` si l'empreinte ne correspond
+pas), `~/Android` absent après l'échec, répertoire de secours sous
+`/tmp` vérifié vide de tout fichier. Garde des licences : rejouée via
+`--start-at-task` directement sur la tâche de relevé + assertion,
+contre une racine de test isolée (copie de `cmdline-tools/latest/`
+réelle, licences réellement refusées par `yes n |`, hors dépôt) —
+assertion échoue sur `matched > 0` (0 fichier trouvé) ; même
+`--start-at-task`, même assertion, contre la racine réelle du poste
+(licences réellement acceptées) — passe, rapportant les sept fichiers.
+Aucune des deux démonstrations n'a modifié quoi que ce soit de réel
+déjà en place.
+
+**[COMPLÉTÉ le 2026-08-16, livrable 9b] Portée de l'acceptation des
+licences — décision du pilote, laisser en l'état.** Les sept licences
+acceptées (liste nommée, `roles/android_sdk/README.md` § Ce que ce
+rôle fait) couvrent des composants dont au moins trois ne concernent
+aucun usage prévu sur ce poste
+(`android-sdk-preview-license`, `mips-android-sysimage-license`,
+`google-gdk-license`). **Décision : ne pas restreindre l'acceptation à
+un sous-ensemble.** Motifs : c'est la pratique générale (accepter
+l'ensemble proposé par `sdkmanager --licenses`, jamais une sélection) ;
+un refus sélectif par licence n'est pas raisonnablement automatisable
+(`sdkmanager` accepte ou refuse par appel, pas par identifiant
+individuel adressable en une passe) ; restreindre rendrait ce rôle
+fragile à chaque composant futur nécessitant une licence aujourd'hui
+écartée — chaque ajout obligerait à revenir corriger une liste
+d'exclusion, exactement le type de compteur/liste périmable déjà
+écarté ailleurs dans ce dépôt (`CLAUDE.md` § Modes d'échec qui imitent
+le sourcing, item 5). Rien à corriger dans le rôle — décision prise,
+pas un point ouvert.
+
 ## Points ouverts
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
@@ -2095,6 +2207,52 @@ succès, elle ne le reste pas indéfiniment comme classe à part).
   naturellement au premier redéploiement réel depuis zéro (§ Ce qui
   reste hors de ce flux, `docs/orchestration.md`, ou une machine de
   test dédiée si l'opérateur en construit une avant).
+- **Point ouvert (2026-08-16, D27, `roles/android_sdk/`) — la garde
+  d'idempotence des licences est calée sur un fait qui peut cesser
+  d'être suffisant, sans que rien ne le signale.** Vérifié contre le
+  code réel (`roles/android_sdk/tasks/main.yml`), pas supposé :
+  l'acceptation des licences est sautée dès que
+  `licenses/android-sdk-license` existe (`stat.exists`, seule
+  condition — aucune comparaison au manifeste de licences
+  effectivement requis aujourd'hui par `sdkmanager`). **Quatrième mode
+  d'échec catalogué (`CLAUDE.md` § Modes d'échec qui imitent le
+  sourcing, item 4)** : une garde correcte aujourd'hui devient fausse
+  non par une erreur de conception mais parce que le système qu'elle
+  surveille change de régime — ici, si Google ajoute un jour une
+  licence pour un composant nouveau, le fichier de porte existera
+  toujours (accepté lors d'un run antérieur), l'acceptation ne sera
+  **jamais rejouée**, et la nouvelle licence ne sera jamais acceptée.
+  L'assertion finale du rôle ne le détecterait pas non plus : elle
+  vérifie une présence minimale (`android-sdk-license` non vide, au
+  moins un fichier), pas l'exhaustivité face au manifeste courant.
+  **Pendant du refus, par ailleurs correct, de figer le compte de
+  licences à sept** (`roles/android_sdk/defaults/main.yml`) : le
+  compteur périmable a été évité, la garde reste sensible au même
+  changement par un autre chemin. **Conséquence observable** : une
+  build (`glass-hud`) qui tenterait de faire installer par
+  `sdkmanager` un composant couvert par cette nouvelle licence
+  échouerait bruyamment, avec le message d'erreur explicite de
+  `sdkmanager` lui-même (licence non acceptée) — pas un échec
+  silencieux. **Ce qui le lèverait** : rejouer l'acceptation
+  manuellement (supprimer le fichier de porte, ou exécuter `sdkmanager
+  --licenses` directement) suffit dans l'immédiat ; une revue de la
+  logique de la garde elle-même resterait une décision du pilote, non
+  prise ici (livrable de documentation seul, aucune modification de
+  code — livrable 9b). Non corrigé, seulement consigné.
+- **Point ouvert (2026-08-16, D27, `roles/android_sdk/`) — ce rôle a
+  une date de péremption inconnue : l'URL et l'empreinte de l'archive
+  command-line tools sont épinglées en dur.** Épinglage volontaire et
+  correct pour la sécurité (une empreinte non épinglée ne protège de
+  rien) — mais quand Google publiera un nouveau build, l'URL actuelle
+  rendra probablement 404 et un redéploiement complet du poste
+  échouera bruyamment sur ce rôle, faute d'archive valide à cette
+  adresse. **C'est le comportement attendu** (échec bruyant, pas un
+  défaut) — ce qui manquait avant ce livrable est la procédure pour en
+  sortir : écrite dans `roles/android_sdk/README.md` § Mise à jour de
+  l'archive command-line tools, pas dupliquée ici. C'est une limite de
+  redéployabilité que ce dépôt existe précisément pour porter au jour —
+  consignée plutôt que découverte au premier redéploiement réel après
+  péremption.
 
 ## Journal des séries
 
@@ -2694,8 +2852,10 @@ succès, elle ne le reste pas indéfiniment comme classe à part).
   au risque nommé par la demande, mais l'ordre de démarrage des
   processus n'est pas prouvé équivalent à la disponibilité de l'état
   interne de KWin (topologie entièrement énumérée).
-  Vingt candidats terminaux recensés dans les onze dépôts activés
-  (Terra : aucun), provenance et coût mesurés par simulation
+  Vingt candidats terminaux recensés dans les dépôts activés à cette
+  date (`docs/repositories.md` § 4 pour le compte et le détail
+  courants — Terra : aucun ici), provenance et coût mesurés par
+  simulation
   `--assumeno` (0 à 82 paquets selon le candidat, `cool-retro-term`
   seul à tirer une pile Qt5 complète en plus du Qt6 déjà présent).
   Support Wayland natif établi par les dépendances déclarées (boîte à

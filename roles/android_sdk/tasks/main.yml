@@ -1,0 +1,215 @@
+---
+# Rôle android_sdk — installe les command-line tools du SDK Android dans
+# le domaine utilisateur (~/Android/Sdk) et accepte les licences.
+# N'installe aucun platform-tools, aucune platform, aucun build-tools,
+# aucun Gradle ; ne touche à aucune variable d'environnement ni fichier
+# de shell (~/.bashrc, ~/.profile, /etc/profile.d/) — objets d'un rôle
+# ultérieur (android_env), hors périmètre ici.
+#
+# Dépend réellement de android_jdk (javac utilisable) — vérifié par
+# l'effet ci-dessous, pas supposé depuis l'ordre de site.yml (meta/main.yml
+# pour l'argument complet sur pourquoi ce n'est pas une dépendance de
+# rôle Ansible).
+#
+# Modèle : roles/android_jdk/ pour le squelette (assertion Fedora en
+# première tâche, vérification par l'effet plutôt que par le code de
+# retour, check_mode: false sur les tâches de lecture seule). Écart
+# assumé, motivé par la nature du rôle : android_jdk installe un paquet
+# système (become: true, dnf, idempotent par construction du module) —
+# ce rôle télécharge et extrait une archive dans le domaine utilisateur,
+# sans aucune élévation nulle part ; le patron de téléchargement vérifié
+# avant écriture est emprunté à roles/gpu_cdi/ (clé GPG du COPR,
+# get_url + vérification avant confiance), adapté ici avec le paramètre
+# `checksum` natif de `get_url` plutôt qu'une vérification manuelle
+# après coup (CLAUDE.md § Avant d'agir : déterminer ce que l'outil gère
+# déjà lui-même — get_url télécharge dans un fichier temporaire et ne
+# le déplace vers `dest` que si l'empreinte correspond, jamais l'inverse).
+
+- name: "Asserter que ce poste est bien Fedora 44 avant toute action"
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Fedora'
+      - ansible_facts.distribution_major_version == '44'
+    fail_msg: >-
+      Ce rôle ne vise que Fedora 44 (galaxy_info.platforms, meta/main.yml)
+      — distribution détectée : {{ ansible_facts.distribution }}
+      {{ ansible_facts.distribution_version }}.
+    success_msg: "Fedora {{ ansible_facts.distribution_major_version }} confirmé."
+
+- name: "Vérifier PAR L'EFFET que javac est réellement utilisable (dépendance réelle sur android_jdk)"
+  ansible.builtin.command:
+    cmd: javac -version
+  register: android_sdk_javac_check
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: "Échouer bruyamment si javac n'est pas utilisable — ne pas supposer la dépendance depuis l'ordre de site.yml"
+  ansible.builtin.assert:
+    that:
+      - android_sdk_javac_check.rc == 0
+    fail_msg: >-
+      `javac -version` a échoué (rc={{ android_sdk_javac_check.rc }}) —
+      ce rôle dépend réellement de roles/android_jdk/ (javac utilisable
+      sur le PATH), jamais seulement de l'ordre dans site.yml. Jouer
+      android_jdk avant de rejouer ce rôle.
+    success_msg: >-
+      javac utilisable, dépendance sur android_jdk confirmée par
+      l'effet : {{ (android_sdk_javac_check.stdout ~ android_sdk_javac_check.stderr) | trim }}
+
+# --- Idempotence : relevé AVANT toute action, gate pour tout ce qui suit --
+# Motif : ne pas retélécharger ni ré-extraire une archive de 181,8 Mio si
+# les command-line tools sont déjà en place au bon endroit.
+
+- name: "Relever si les command-line tools sont déjà en place (avant toute action)"
+  ansible.builtin.stat:
+    path: "{{ android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+  register: android_sdk_sdkmanager_stat
+  check_mode: false
+
+# --- Téléchargement, empreinte vérifiée AVANT extraction ------------------
+# get_url télécharge dans un fichier temporaire et ne le copie vers
+# `dest` que si l'empreinte `checksum` correspond (comportement natif du
+# module, pas réimplémenté ici) — la tâche échoue et RIEN n'atteint
+# `dest` si l'empreinte ne correspond pas, avant même que unarchive
+# (tâche suivante) ait quoi que ce soit à extraire. Toute la séquence
+# télécharger/extraire/déplacer se passe dans un répertoire temporaire
+# isolé sous /tmp, jamais directement sous android_sdk_root — un échec à
+# n'importe quelle étape laisse la racine SDK réelle intacte.
+
+- name: "Créer un répertoire temporaire isolé pour le téléchargement et l'extraction"
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: android_sdk_staging.
+  register: android_sdk_staging_tmpdir
+  changed_when: false
+  when: not android_sdk_sdkmanager_stat.stat.exists and not ansible_check_mode
+
+- name: >-
+    Télécharger l'archive command-line tools, empreinte sha256 vérifiée
+    AVANT tout déplacement vers sa destination finale :
+    {{ android_sdk_cmdline_tools_url }}
+  ansible.builtin.get_url:
+    url: "{{ android_sdk_cmdline_tools_url }}"
+    dest: "{{ android_sdk_staging_tmpdir.path }}/commandlinetools-linux-{{ android_sdk_cmdline_tools_build }}_latest.zip"
+    checksum: "sha256:{{ android_sdk_cmdline_tools_sha256_expected }}"
+    mode: "0600"
+  register: android_sdk_download
+  when: not android_sdk_sdkmanager_stat.stat.exists and not ansible_check_mode
+
+- name: "Extraire l'archive dans le répertoire temporaire (jamais directement dans android_sdk_root)"
+  ansible.builtin.unarchive:
+    src: "{{ android_sdk_staging_tmpdir.path }}/commandlinetools-linux-{{ android_sdk_cmdline_tools_build }}_latest.zip"
+    dest: "{{ android_sdk_staging_tmpdir.path }}"
+    remote_src: true
+  when: not android_sdk_sdkmanager_stat.stat.exists and not ansible_check_mode
+
+- name: "Créer android_sdk_root/cmdline-tools/ (parent de la destination finale)"
+  ansible.builtin.file:
+    path: "{{ android_sdk_root }}/cmdline-tools"
+    state: directory
+    mode: "0755"
+  when: not android_sdk_sdkmanager_stat.stat.exists and not ansible_check_mode
+
+- name: >-
+    Déplacer cmdline-tools/ extrait vers cmdline-tools/latest/ — arborescence
+    que sdkmanager attend réellement (livrable 7, glass-hud), jamais
+    cmdline-tools/ directement
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ android_sdk_staging_tmpdir.path }}/cmdline-tools
+      {{ android_sdk_root }}/cmdline-tools/latest
+    creates: "{{ android_sdk_root }}/cmdline-tools/latest"
+  when: not android_sdk_sdkmanager_stat.stat.exists and not ansible_check_mode
+
+- name: "Purger le répertoire temporaire (chemin de succès — un échec plus haut le laisse sous /tmp, reclamé par le système)"
+  ansible.builtin.file:
+    path: "{{ android_sdk_staging_tmpdir.path }}"
+    state: absent
+  changed_when: false
+  when: >-
+    not android_sdk_sdkmanager_stat.stat.exists and not ansible_check_mode
+    and android_sdk_staging_tmpdir is defined
+
+- name: "Vérifier PAR L'EFFET que sdkmanager est réellement en place à l'arborescence attendue"
+  ansible.builtin.stat:
+    path: "{{ android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+  register: android_sdk_sdkmanager_stat_after
+  check_mode: false
+
+- name: "Échouer bruyamment si sdkmanager n'est pas là où ce rôle l'attend"
+  ansible.builtin.assert:
+    that:
+      - android_sdk_sdkmanager_stat_after.stat.exists
+    fail_msg: >-
+      {{ android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager est
+      absent après ce rôle — l'extraction ou le déplacement a échoué
+      silencieusement, ou android_sdk_root a été changé par -e entre
+      deux exécutions.
+    success_msg: "sdkmanager réellement en place : {{ android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+  when: not ansible_check_mode
+
+# --- Licences : relevé AVANT, effet vérifié APRÈS — jamais le code de retour
+# `sdkmanager --licenses` renvoie 0 aussi bien quand rien n'est accepté
+# que quand tout l'est (livrable 7, glass-hud, reproduit le 2026-08-16 —
+# docs/machine-facts.md § Décisions) : la présence du fichier de porte
+# (android_sdk_license_gate_file) est le seul signal utilisé ici, avant
+# ET après, jamais rc.
+
+- name: "Relever si les licences sont déjà acceptées (fichier de porte, avant toute action)"
+  ansible.builtin.stat:
+    path: "{{ android_sdk_root }}/licenses/{{ android_sdk_license_gate_file }}"
+  register: android_sdk_license_gate_before
+  check_mode: false
+
+- name: "Accepter les licences (yes | sdkmanager --licenses, --sdk_root explicite — livrable 7 : sdkmanager ignore ANDROID_SDK_ROOT exporté)"
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail && yes | {{ android_sdk_root }}/cmdline-tools/latest/bin/sdkmanager
+      --licenses --sdk_root={{ android_sdk_root }}
+    executable: /bin/bash
+  register: android_sdk_licenses_run
+  changed_when: true
+  failed_when: false
+  when: not android_sdk_license_gate_before.stat.exists and not ansible_check_mode
+  # failed_when: false — le rc de sdkmanager ne porte aucune information
+  # (livrable 7) ; interprété exclusivement par l'assertion suivante, sur
+  # l'effet relevé après coup, jamais sur ce rc.
+
+- name: "Relever le contenu de licenses/ APRÈS action — c'est l'effet, pas le rc, qui fait foi"
+  ansible.builtin.find:
+    paths: "{{ android_sdk_root }}/licenses"
+    patterns: "*"
+    file_type: file
+  register: android_sdk_license_files
+  check_mode: false
+  # ansible.builtin.find ne échoue pas si le chemin n'existe pas
+  # (matched: 0, files: [] — vérifié par mesure avant d'écrire cette
+  # tâche, docs/machine-facts.md § Décisions) : couvre nativement le cas
+  # "aucune licence acceptée, licenses/ n'existe même pas".
+
+- name: "Échouer bruyamment si les licences ne sont pas réellement acceptées — jamais sur la base du rc de sdkmanager"
+  ansible.builtin.assert:
+    that:
+      - android_sdk_license_files.matched > 0
+      - android_sdk_license_gate_file in (android_sdk_license_files.files | map(attribute='path') | map('basename') | list)
+      - android_sdk_license_files.files | selectattr('size', 'equalto', 0) | list | length == 0
+    fail_msg: >-
+      {{ android_sdk_root }}/licenses/ ne contient pas de fichier
+      {{ android_sdk_license_gate_file }} non vide ({{ android_sdk_license_files.matched }}
+      fichier(s) trouvé(s)) — les licences ne sont pas réellement
+      acceptées, quel qu'ait été le code de retour de sdkmanager.
+    success_msg: >-
+      Licences réellement acceptées : {{ android_sdk_license_files.matched }}
+      fichier(s) sous {{ android_sdk_root }}/licenses/, dont
+      {{ android_sdk_license_gate_file }}.
+  when: not ansible_check_mode
+
+- name: "Rapporter l'état du SDK Android sur ce poste"
+  ansible.builtin.debug:
+    msg:
+      - "Racine SDK : {{ android_sdk_root }}"
+      - "sdkmanager déjà présent avant ce rôle : {{ android_sdk_sdkmanager_stat.stat.exists }}"
+      - "sdkmanager réellement en place après ce rôle : {{ android_sdk_sdkmanager_stat_after.stat.exists | default('non vérifiable sous --check') }}"
+      - "Licences déjà acceptées avant ce rôle : {{ android_sdk_license_gate_before.stat.exists }}"
+      - "Fichiers de licence après ce rôle : {{ android_sdk_license_files.matched | default('non vérifiable sous --check') }}"

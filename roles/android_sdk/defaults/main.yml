@@ -1,0 +1,69 @@
+---
+# Rôle android_sdk — installe les command-line tools du SDK Android dans
+# le domaine utilisateur et accepte les licences. N'installe ni
+# platform-tools, ni platform, ni build-tools, ni Gradle ; ne touche à
+# aucune variable d'environnement ni fichier de shell — voir
+# tasks/main.yml et README.md.
+
+# --- Racine du SDK ---------------------------------------------------------
+# Décision du pilote pour ce livrable (livrable 9). Sourcée seulement en
+# partie : developer.android.com/tools/variables (lu le 2026-08-16) ne
+# documente aucun chemin par défaut pour Linux — l'unique exemple
+# d'export fourni sur cette page est macOS (`~/Library/Android/sdk`),
+# et developer.android.com/studio/intro/studio-config ne documente que
+# Windows (`%USERPROFILE%\AppData\Local\Android\SDK`). Absence de
+# contradiction, pas confirmation : `~/Android/Sdk` reste une convention
+# largement répandue (celle de l'installateur graphique Android Studio,
+# historiquement), jamais une valeur que Google documente comme défaut
+# CLI. `@VERIF : emplacement par défaut du SDK sous Linux tel que
+# documenté par Google — non trouvé aux pages consultées le 2026-08-16
+# (docs/machine-facts.md § Décisions pour le détail complet des pages
+# lues).` Ce que la même page établit sans ambiguïté et qui EST
+# actionnable ici : `ANDROID_SDK_ROOT` est explicitement déprécié,
+# `ANDROID_HOME` fait autorité — pertinent pour roles/android_env/
+# (ultérieur, hors périmètre ici), pas pour ce rôle (sdkmanager résout
+# sa racine par --sdk_root explicite, jamais par une variable
+# d'environnement — livrable 7 de glass-hud).
+android_sdk_root: "{{ ansible_facts.env.HOME }}/Android/Sdk"
+
+# --- Archive command-line tools ---------------------------------------------
+# Empreinte et URL établies par lecture directe du HTML brut de
+# developer.android.com/studio (curl, pas le rendu JS), section
+# "Command line tools only", ligne du tableau correspondant à Linux —
+# PAS celle du livrable 7 (glass-hud), qui pourrait dater d'une version
+# antérieure : rejouée ici, le 2026-08-16, et confirmée identique par
+# coïncidence (même build 15859902). Empreinte recroisée par
+# téléchargement réel et sha256sum local, identique à la valeur publiée
+# (docs/machine-facts.md § Décisions pour la preuve complète). URL
+# retenue : celle du bouton de téléchargement réel
+# (`href="https://dl.google.com/..."`, ligne 12816 du HTML sourcé),
+# jamais le domaine `edgedl.me.gvt1.com` qu'un résumé automatique de la
+# même page a renvoyé à tort — écart déjà connu du livrable 7
+# (glass-hud), reproduit puis évité ici par lecture directe du HTML
+# plutôt que par confiance dans un résumé.
+android_sdk_cmdline_tools_build: "15859902"
+android_sdk_cmdline_tools_url: >-
+  https://dl.google.com/android/repository/commandlinetools-linux-{{ android_sdk_cmdline_tools_build }}_latest.zip
+android_sdk_cmdline_tools_sha256: 4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583
+
+# Substituable pour la démonstration d'échec forcé de la garde
+# d'empreinte (tasks/main.yml) SANS jamais changer l'empreinte
+# réellement utilisée par ce rôle pour son propre fonctionnement :
+# -e android_sdk_cmdline_tools_sha256_expected=0000000000000000000000000000000000000000000000000000000000000000
+android_sdk_cmdline_tools_sha256_expected: "{{ android_sdk_cmdline_tools_sha256 }}"
+
+# --- Licence de contrôle, effet plutôt que code de retour -------------------
+# `sdkmanager --licenses` renvoie 0 aussi bien quand aucune licence n'est
+# acceptée que quand toutes le sont (livrable 7, glass-hud — reproduit
+# ici le 2026-08-16 : refus intégral avec `licenses/` absent du tout,
+# acceptation intégrale avec `licenses/` peuplé de sept fichiers de 41
+# octets chacun, docs/machine-facts.md § Décisions). `android-sdk-license`
+# est le seul dont ce rôle a besoin de garantir la présence pour être
+# considéré réussi (c'est celui qui bloque tout usage ultérieur de
+# sdkmanager en son absence) — retenu comme fichier de porte plutôt
+# qu'un compte figé (sept aujourd'hui, potentiellement différent demain
+# si Google ajoute ou retire un identifiant de licence : un compte figé
+# se périmerait au premier changement du même type que celui déjà
+# consigné dans CLAUDE.md § Modes d'échec qui imitent le sourcing,
+# item 5).
+android_sdk_license_gate_file: android-sdk-license
