@@ -220,11 +220,37 @@
 # l'installation d'origine (2026-08-04). --repofrompath est éphémère :
 # rien n'est écrit dans /etc, vérifié en écrivant ce rôle (`ls
 # /etc/yum.repos.d/` avant/après, identique).
+#
+# [CORRIGÉ, livrable 12] --refresh ajouté. Motif mesuré : le dépôt
+# éphémère « bootstrap-terra » n'est pas sans cache pour autant — dnf5
+# lui tient un cache persistant propre, distinct de celui du dépôt
+# `terra` déjà activé sur ce poste (~/.cache/libdnf5/bootstrap-terra-<hash>,
+# clé dérivée de repoid+baseurl), soumis au même metadata_expire par
+# défaut que tout dépôt (`man dnf.conf` : « Default: 60 * 60 * 48,
+# 48 hours »). Rien ne le rafraîchit d'une exécution de ce rôle à
+# l'autre : constaté en écrivant ce correctif, un `dnf download`
+# identique sans --refresh réutilise ce cache tel quel (aucune requête
+# réseau, `Repositories loaded.` sans ligne de progression) — jusqu'à
+# ce qu'il expire de lui-même, sans rapport avec la disponibilité réelle
+# du paquet demandé. Terra ayant publié terra-gpg-keys 44-6 le
+# 2026-08-17 pendant que ce cache pointait encore vers 44-5, retiré du
+# miroir entre-temps, `dnf download` échouait (404) tant que le cache
+# n'expirait pas de lui-même — reproduit puis corrigé ici,
+# docs/machine-facts.md § Décisions. Portée mesurée de --refresh sur
+# CETTE commande : seul le cache de bootstrap-terra a été réécrit
+# (ligne de progression « bootstrap-terra ... 5,5 Kio » dans la sortie) ;
+# les caches d'autres dépôts déjà activés (fedora, updates — horodatage
+# de la veille, inchangé) ne sont pas touchés. Position de --refresh :
+# option GÉNÉRALE de dnf5, avant la sous-commande (`dnf5 --help` :
+# « Usage: dnf5 [GLOBAL OPTIONS] <COMMAND> ... » — absente de
+# `dnf5 download --help`, qui ne liste que les options propres à cette
+# sous-commande), pas un argument de `download` lui-même.
 # noqa: command-instead-of-module — aucun module ansible.builtin ne couvre `dnf download`
 - name: "D10 — télécharger le paquet porteur de la clé, dépôt temporaire non approuvé (lecture seule, aucun privilège)"  # noqa: command-instead-of-module
   ansible.builtin.command:
     argv:
       - dnf
+      - --refresh
       - download
       - --repofrompath
       - "bootstrap-terra,{{ bootstrap_terra_base_url }}"
@@ -247,7 +273,7 @@
       s'arrête : aucun fichier de clé n'a été récupéré, rien à vérifier.
     success_msg: "Paquet porteur de la clé téléchargé."
 
-- name: "D10 — trouver le fichier RPM téléchargé (nom exact non figé — dnf download résout la version courante)"
+- name: "D10 — trouver le fichier RPM téléchargé (nom exact non figé — version courante grâce à --refresh ci-dessus, sinon cache périmé)"
   ansible.builtin.find:
     paths: "{{ bootstrap_work_dir }}"
     patterns: "{{ bootstrap_terra_key_carrier_package }}-*.rpm"

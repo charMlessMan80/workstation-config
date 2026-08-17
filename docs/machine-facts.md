@@ -1014,6 +1014,103 @@ de `gpgcheck` ni de `repo_gpgcheck`.
 pourrait obtenir la publication de l'empreinte de la clé de signature du
 dépôt par un canal indépendant. Action humaine, non entreprise ici.
 
+**[CORRIGÉ le 2026-08-17, livrable 12] Défaut du mécanisme de
+téléchargement/vérification de D10 — cache dnf silencieux d'un dépôt
+créé à la volée, jamais rafraîchi.** `roles/bootstrap/` télécharge le
+paquet porteur de la clé (`terra-gpg-keys`) via `dnf download
+--repofrompath bootstrap-terra,<url> --repoid=bootstrap-terra` (§ ci-dessus,
+journal COR-2, 2026-08-06) avant toute vérification d'empreinte —
+présenté comme « éphémère » parce que rien n'est écrit dans
+`/etc/yum.repos.d/`. **Faux au sens du cache** : dnf5 tient malgré tout
+un cache persistant propre à ce dépôt, sous
+`~/.cache/libdnf5/bootstrap-terra-<hash dérivé de repoid+baseurl>`,
+constaté sur ce poste, soumis au même `metadata_expire` par défaut que
+tout dépôt (`man dnf.conf` : « Default: 60 * 60 * 48, 48 hours »).
+Personne d'autre sur ce poste ne requête jamais ce `repoid` — à
+la différence d'un dépôt enregistré (`terra`, `fedora`, `updates`...),
+rafraîchi en pratique par tout usage ordinaire de `dnf` ailleurs sur le
+poste, ce cache ne se rafraîchit jamais tout seul entre deux exécutions
+de ce rôle.
+
+**Manifestation mesurée** : Terra a publié `terra-gpg-keys 44-6` le
+2026-08-17 ; le cache local de `bootstrap-terra`, encore sur `44-5`
+(dernière exécution de ce rôle antérieure à cette publication),
+résolvait une URL de fichier retirée du miroir entre-temps —
+`dnf download` échouait avec un 404 explicite sur les quatre miroirs
+essayés, tant que ce cache spécifique n'expirait pas de lui-même
+(jusqu'à 48h). **Non reproduit à l'identique dans ce livrable** : le
+cache avait déjà été rafraîchi par une tentative antérieure dans la
+même session (un `--check` complet de `site.yml`, plus tôt le même
+jour, dont la résolution de métadonnées avait abouti même si le
+téléchargement du fichier avait ensuite échoué) — `dnf download`
+sans `--refresh` réussissait donc déjà au moment d'écrire ce correctif.
+Le mécanisme a été établi autrement, par mesure directe et par
+documentation, pas par supposition : `man dnf5` (« --refresh : Force
+refreshing metadata before running the command »), et par contraste —
+un `dnf download` répété sans `--refresh` ne produit aucune ligne de
+progression de rafraîchissement (« Repositories loaded. » directement,
+cache réutilisé tel quel, aucune requête réseau) alors que le même
+appel avec `--refresh` en produit une (« bootstrap-terra ... 5,5 Kio »,
+requête réseau réelle) — la réutilisation silencieuse du cache est
+donc un fait mesuré sur ce poste, à défaut du 404 original lui-même.
+
+**Correctif** : `--refresh` ajouté à la commande, **en position
+d'option générale** (`dnf --refresh download ...`), pas comme argument
+de la sous-commande — `dnf5 --help` la liste parmi les options
+générales (« Usage: dnf5 [GLOBAL OPTIONS] <COMMAND> ... »),
+`dnf5 download --help` ne la liste pas parmi les siennes. **Portée
+mesurée, pas supposée** : sur cette commande précise, seul le cache de
+`bootstrap-terra` a été réécrit (ligne de progression dans la sortie) ;
+les caches d'autres dépôts déjà activés sur ce poste (`fedora`,
+`updates` — horodatage de la veille, inchangé après l'exécution) n'ont
+pas été touchés — `--refresh` ici n'a pas eu le coût d'un rafraîchissement
+de tous les dépôts du système, seulement de celui réellement interrogé
+par cette commande.
+
+**Affirmation fausse corrigée dans le nom de la tâche suivante**
+(`roles/bootstrap/tasks/main.yml`). **ÉTAIT** : « nom exact non figé —
+dnf download résout la version courante » — faux sans `--refresh` (la
+commande résout la version présente dans SON cache, pas la version
+publiée courante, exactement la confusion à l'origine du défaut
+ci-dessus). Reformulé pour dire ce qui est vrai désormais : la
+résolution à la version courante est une conséquence de `--refresh`
+ajouté à la tâche précédente, pas une propriété intrinsèque de
+`dnf download`.
+
+**Empreinte rejouée sur le nouvel artefact (44-6), pas seulement sur
+44-5.** Mesurée par la même inspection à sec que D10
+(`gpg --with-colons --import-options show-only --import`, aucun
+import) sur `/etc/pki/rpm-gpg/RPM-GPG-KEY-terra44` extrait du RPM
+`terra-gpg-keys-0:44-6` : `fpr:::::::::AE09157A4DE88B497EA1D5D300CDAB43DE226D6F:`
+— **identique** à l'empreinte épinglée et à celle vérifiée pour 44-5.
+Une seconde ligne `fpr` (`DDD6F3C8F77F833483AEB42301DC082ACDE96E5A`,
+une sous-clé) est également présente, sans incidence : la garde ne
+recherche que la sous-chaîne exacte de l'empreinte primaire épinglée.
+Garde redémontrée dans les deux sens sur cet artefact précis (pas
+réputée valide par transitivité depuis la démonstration de D10 sur
+44-5) : exécution réelle → empreinte confirmée, clé/dépôt déployés
+(contenu déjà identique sur ce poste depuis le 2026-07-22, `ok`, pas
+`changed`) ; substitution forcée
+(`-e bootstrap_terra_key_fingerprint_expected=000...000`) contre ce
+même artefact 44-6 → échec avant tout déploiement, message citant les
+deux empreintes réelles trouvées, `/etc/pki/rpm-gpg/RPM-GPG-KEY-terra44`
+et `/etc/yum.repos.d/terra.repo` inchangés (sommes de contrôle et
+horodatages identiques avant/après cette tentative).
+
+**Observation contredisant la prémisse du livrable, mesurée plutôt que
+supposée** : `terra-gpg-keys` est **resté en version 44-5** après
+l'exécution réelle du rôle corrigé (`rpm -q terra-gpg-keys`, `dnf
+history list` — aucune nouvelle transaction). Le rôle télécharge et
+vérifie bien le RPM 44-6 pour en extraire la clé, mais la tâche finale
+(`ansible.builtin.dnf: state: present`) ne force jamais une mise à
+jour d'un paquet déjà installé — `present` garantit une présence, pas
+la dernière version (`ansible-doc ansible.builtin.dnf`, sémantique déjà
+connue du module, indépendante de ce correctif). Rien à corriger ici :
+l'objet de D10 est un dépôt/clé de confiance correctement établis, pas
+un paquet à sa dernière version — mais l'attente initiale (« son
+exécution mettra à jour terra-gpg-keys ») ne s'est pas vérifiée, corrigée
+par cette mesure plutôt que reconduite.
+
 **D11 (2026-08-06) — placement de fenêtre KWin : `position`+`size` en
 `Apply initially`, pas `screen`+`Force`.**
 
@@ -4714,3 +4811,47 @@ déployée laissée dans un état intermédiaire (sommes de contrôle
 revenues à l'état nominal après chaque essai destructif), aucun
 paquet installé, aucun modèle téléchargé, aucune action privilégiée,
 aucun redémarrage.
+
+### 2026-08-17 — correctif `roles/bootstrap/` : `--refresh` sur le
+téléchargement de la clé Terra (livrable 12)
+
+`site.yml --check` complet échouait dans `roles/bootstrap/` sur un 404
+au téléchargement de `terra-gpg-keys` — dépôt joignable
+(`repomd.xml` répond 200), Terra ayant simplement publié `44-6` pendant
+que le cache dnf propre au dépôt éphémère `bootstrap-terra` restait sur
+`44-5`. Détail complet, mécanisme, correctif, portée de `--refresh`
+mesurée, redémonstration de la garde d'empreinte sur l'artefact 44-6,
+et correction de l'affirmation fausse sur la tâche suivante : § Décisions,
+immédiatement après D10, plus haut dans ce document — pas dupliqué ici.
+
+**Autres commandes du dépôt exposées au même défaut, recherchées,
+non corrigées (hors périmètre de ce livrable)** : aucune autre tâche de
+ce dépôt n'utilise `--repofrompath`/`dnf download` (`grep -rn
+repofrompath roles/`, une seule occurrence, celle corrigée ici).
+`roles/gpu_cdi/` déploie une clé COPR par un mécanisme apparenté
+(télécharger, vérifier l'empreinte à sec, déployer seulement après) mais
+via un dépôt **enregistré** (`/etc/yum.repos.d/`, `ansible.builtin.template`)
+— rafraîchi en pratique par tout usage ordinaire de `dnf` ailleurs sur ce
+poste, pas exposé à la même classe de cache oublié. Les autres rôles
+utilisant `ansible.builtin.dnf` (`editor`, `copilot_cli`, `android_jdk`,
+`completion` ×2, `desktop` ×2) s'appuient sur le comportement natif du
+module, non concerné par ce défaut spécifique aux dépôts créés à la
+volée par `--repofrompath`.
+
+Validations : `--syntax-check`, `ansible-lint --profile production`
+(0 défaut), `--check` et exécution réelle du rôle complet (tag
+`bootstrap-sudoers` exclu, comme toujours hors invocation explicite) —
+`changed=4` (les quatre tâches intrinsèquement toujours « changed » :
+répertoire de travail, téléchargement, extraction, nettoyage), toutes
+les tâches touchant l'état système persistant (clé, dépôt, paquets)
+`ok`. Garde d'empreinte redémontrée dans les deux sens sur le nouvel
+artefact 44-6 (détail § D10 ci-dessus). Recherche de renvois à
+l'affirmation corrigée dans `roles/bootstrap/README.md` : aucune
+occurrence, rien à corriger là. Aucun fichier du livrable 11
+(`roles/android_env/`, `site.yml`, `README.md`, `docs/orchestration.md`)
+touché — `git status --porcelain -uall` avant/après confirme le
+périmètre non commité de ce livrable-là intact. Aucun `dnf update`,
+aucune mise à jour de paquet hormis celles que le rôle lui-même
+effectue déjà par conception (aucune ici : `terra-gpg-keys` reste en
+44-5, § D10, `state: present` ne force pas la mise à jour d'un paquet
+déjà présent). Aucun autre rôle modifié. Aucun commit, aucun push.
