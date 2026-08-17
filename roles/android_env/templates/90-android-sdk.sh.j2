@@ -1,0 +1,24 @@
+
+# Généré par roles/android_env/ (workstation-config) — jamais écrit à la
+# main, écrasé intégralement à chaque exécution du rôle. Chargé par la
+# boucle native de ~/.bashrc (gabarit Fedora, /etc/skel/, jamais modifiée
+# par ce rôle ni par aucun autre — livrable 10/11, roles/android_env/README.md).
+#
+# ANDROID_SDK_ROOT n'est PAS posée ici — explicitement dépréciée au profit
+# d'ANDROID_HOME (developer.android.com/tools/variables, D27,
+# docs/machine-facts.md § Décisions).
+# ANDROID_USER_HOME n'est PAS posée ici — laissée à son défaut
+# ({{ ansible_facts.env.HOME }}/.android/, déjà présent, D27/D28,
+# docs/machine-facts.md § Décisions).
+
+export ANDROID_HOME="{{ android_env_sdk_root }}"
+
+# Idempotence du PATH — patron repris tel quel de ~/.bashrc (gabarit
+# Fedora : vérification par sous-chaîne avant tout ajout, jamais un ajout
+# inconditionnel) : n'allonge PATH que si les deux répertoires n'y figurent
+# pas déjà, y compris si ce fichier est rechargé plusieurs fois dans le même
+# shell (source manuel).
+if ! [[ "$PATH" =~ "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:" ]]; then
+    PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+fi
+export PATH

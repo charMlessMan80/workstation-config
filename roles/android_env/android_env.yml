@@ -1,0 +1,11 @@
+---
+# Playbook d'exécution/test du rôle android_env, ciblant localhost.
+# `role: "{{ playbook_dir }}"` charge ce répertoire lui-même comme rôle —
+# même patron que roles/android_sdk/android_sdk.yml et
+# roles/android_jdk/android_jdk.yml.
+- name: Android env — pose ANDROID_HOME et le PATH pour les shells interactifs
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - role: "{{ playbook_dir }}"

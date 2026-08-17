@@ -61,6 +61,7 @@ seul rôle du dépôt tenu à l'écart de cet enchaînement :
 | [`roles/copilot_cli/`](roles/copilot_cli/) | GitHub Copilot CLI, second agent de code — n'authentifie jamais (geste manuel de l'opérateur) |
 | [`roles/android_jdk/`](roles/android_jdk/) | JDK complet pour la chaîne de build Android CLI d'un dépôt distinct (`glass-hud`) |
 | [`roles/android_sdk/`](roles/android_sdk/) | Command-line tools du SDK Android dans le domaine utilisateur, licences acceptées — dépend réellement d'`android_jdk`, aucun `platform-tools`/`platform`/`build-tools` |
+| [`roles/android_env/`](roles/android_env/) | `ANDROID_HOME` et `PATH` pour les shells interactifs, via un fichier dans `~/.bashrc.d/` — dépend réellement d'`android_sdk`, n'écrit jamais dans `~/.bashrc` |
 | [`roles/desktop/`](roles/desktop/) | Kitty positionné sur le ScreenPad Plus à l'ouverture de session — joué par son propre playbook (`roles/desktop/desktop.yml`), jamais par `site.yml` |
 
 **Un point d'entrée unique**, [`site.yml`](site.yml), qui enchaîne les

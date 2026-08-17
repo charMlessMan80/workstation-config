@@ -1,0 +1,173 @@
+---
+# Rôle android_env — pose ANDROID_HOME et le PATH (cmdline-tools/latest/bin,
+# platform-tools) pour les shells interactifs, via un fichier déposé dans
+# ~/.bashrc.d/. N'écrit JAMAIS dans ~/.bashrc, ~/.bash_profile, ~/.profile,
+# /etc/profile.d/ ni ~/.config/environment.d/ — la boucle qui charge
+# ~/.bashrc.d/ existe déjà nativement dans le gabarit Fedora (/etc/skel/,
+# jamais modifié par le pilote, livrable 10) : ce rôle dépose un fichier
+# dans un répertoire déjà chargé, il ne touche à aucun fichier qui
+# appartient au pilote.
+#
+# Troisième rôle d'une chaîne de trois (android_jdk → android_sdk →
+# android_env) : dépend réellement d'android_sdk (racine du SDK et
+# cmdline-tools/latest/bin réellement en place), vérifié par l'effet en
+# deuxième tâche ci-dessous, jamais supposé depuis l'ordre de site.yml
+# (meta/main.yml pour l'argument complet sur pourquoi ce n'est pas une
+# dépendance de rôle Ansible).
+#
+# Modèle : roles/android_sdk/ (squelette identique : assertion Fedora en
+# première tâche, vérification par l'effet plutôt que par le code de
+# retour, check_mode: false sur les lectures pures). Écarts assumés,
+# motivés par la nature du rôle : android_sdk télécharge une archive et
+# n'a aucune garde sur le contenu d'un fichier du pilote ; ce rôle ne
+# télécharge rien, mais porte une garde spécifique et centrale — le
+# contenu réel de ~/.bashrc doit porter la boucle native de chargement de
+# ~/.bashrc.d/, faute de quoi le fichier déposé plus bas ne serait jamais
+# chargé et ce rôle rapporterait un succès sans effet (§ garde ci-dessous).
+
+- name: "Asserter que ce poste est bien Fedora 44 avant toute action"
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Fedora'
+      - ansible_facts.distribution_major_version == '44'
+    fail_msg: >-
+      Ce rôle ne vise que Fedora 44 (galaxy_info.platforms, meta/main.yml)
+      — distribution détectée : {{ ansible_facts.distribution }}
+      {{ ansible_facts.distribution_version }}.
+    success_msg: "Fedora {{ ansible_facts.distribution_major_version }} confirmé."
+
+- name: "Vérifier PAR L'EFFET que la racine SDK et cmdline-tools/latest/bin sont réellement en place (dépendance réelle sur android_sdk)"
+  ansible.builtin.stat:
+    path: "{{ android_env_sdk_root }}/cmdline-tools/latest/bin/sdkmanager"
+  register: android_env_sdkmanager_stat
+  check_mode: false
+
+- name: "Échouer bruyamment si le SDK n'est pas en place — ne pas supposer la dépendance depuis l'ordre de site.yml"
+  ansible.builtin.assert:
+    that:
+      - android_env_sdkmanager_stat.stat.exists
+    fail_msg: >-
+      {{ android_env_sdk_root }}/cmdline-tools/latest/bin/sdkmanager est
+      absent — ce rôle dépend réellement de roles/android_sdk/ (racine SDK
+      et cmdline-tools/latest/bin réellement en place), jamais seulement
+      de l'ordre dans site.yml. Jouer android_sdk avant de rejouer ce rôle.
+    success_msg: >-
+      SDK réellement en place, dépendance sur android_sdk confirmée par
+      l'effet : {{ android_env_sdk_root }}/cmdline-tools/latest/bin/sdkmanager
+
+# --- Garde centrale : le contenu réel de ~/.bashrc, pas son existence -----
+# Sans cette boucle, le fichier déposé plus bas ne serait jamais chargé par
+# aucun shell — ce rôle rapporterait un succès sans effet. android_env_bashrc_path
+# est substituable par -e pour la démonstration d'échec forcé (README.md),
+# SANS jamais toucher au ~/.bashrc réel du pilote.
+
+- name: "Relever le contenu réel du fichier de shell ciblé par la garde — jamais sur la seule existence : {{ android_env_bashrc_path }}"
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -F
+      - "{{ android_env_bashrc_loop_marker }}"
+      - "{{ android_env_bashrc_path }}"
+  register: android_env_bashrc_loop_check
+  changed_when: false
+  failed_when: false  # interprété explicitement par l'assertion suivante :
+  # grep renvoie 1 (motif absent) aussi bien que 2 (fichier illisible/absent)
+  # — les deux sont des échecs de cette garde, distingués dans le message.
+  check_mode: false
+
+- name: "Échouer bruyamment si le fichier de shell ne porte pas la boucle native de chargement de ~/.bashrc.d/ : {{ android_env_bashrc_path }}"
+  ansible.builtin.assert:
+    that:
+      - android_env_bashrc_loop_check.rc == 0
+    fail_msg: >-
+      {{ android_env_bashrc_path }} ne contient pas la sous-chaîne
+      {{ android_env_bashrc_loop_marker | to_json }} (grep rc=
+      {{ android_env_bashrc_loop_check.rc }}) — sans cette boucle native
+      (gabarit Fedora, /etc/skel/.bashrc), le fichier que ce rôle
+      déposerait dans ~/.bashrc.d/ ne serait JAMAIS chargé par aucun
+      shell : ce rôle refuse de continuer plutôt que de rapporter un
+      succès sans effet. Ce rôle N'ÉCRIT JAMAIS dans ~/.bashrc lui-même —
+      si cette boucle a réellement disparu du fichier du pilote, c'est une
+      décision du pilote à traiter séparément, pas quelque chose que ce
+      rôle corrige de sa propre initiative.
+    success_msg: >-
+      {{ android_env_bashrc_path }} porte bien la boucle native de
+      chargement de ~/.bashrc.d/ — le fichier déposé par ce rôle sera
+      réellement chargé par les shells interactifs non-login.
+
+# --- Dépôt — répertoire puis fichier, entièrement propriété de ce rôle ----
+
+- name: "Créer ~/.bashrc.d/ s'il n'existe pas déjà"
+  ansible.builtin.file:
+    path: "{{ android_env_bashrc_d_dir }}"
+    state: directory
+    mode: "0755"
+  register: android_env_bashrc_d_dir_result
+  when: not ansible_check_mode
+
+- name: "Déposer le fichier d'environnement Android — contenu entièrement propriété de ce rôle, écrasé intégralement à chaque exécution"
+  ansible.builtin.template:
+    src: 90-android-sdk.sh.j2
+    dest: "{{ android_env_bashrc_d_file }}"
+    mode: "0644"
+  register: android_env_file_result
+  when: not ansible_check_mode
+
+# --- Vérification de l'effet réel — pas seulement la présence des fichiers.
+# Un shell interactif non-login, environnement délibérément assaini (env -i,
+# seul HOME conservé) pour ne dépendre d'aucune pollution héritée de la
+# session Ansible elle-même — bash charge alors ~/.bashrc PAR SON PROPRE
+# MÉCANISME DE DÉMARRAGE (pas un `source` manuel dans cette tâche), exactement
+# comme le ferait un terminal kitty ouvert par le pilote (kitty lance un bash
+# interactif non-login par défaut — livrable 10, docs/machine-facts.md).
+# Couvre : le chargement réel par un shell interactif non-login. Ne couvre
+# PAS : un shell de connexion (~/.bash_profile), ni ce qu'un lanceur
+# graphique KDE verrait (~/.config/environment.d/, mécanisme distinct, non
+# posé par ce rôle — § Points ouverts, docs/machine-facts.md) — limites
+# consignées, pas vérifiables depuis une tâche Ansible non interactive.
+
+- name: "Vérifier PAR L'EFFET RÉEL qu'un shell interactif non-login charge bien ANDROID_HOME et le PATH attendus"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - bash
+      - -ic
+      - 'printf "ANDROID_HOME=%s\nPATH=%s\n" "$ANDROID_HOME" "$PATH"'
+    # expand_argument_vars (défaut natif du module, true) tenterait de
+    # substituer $ANDROID_HOME/$PATH par les valeurs de CE processus Ansible
+    # AVANT même de lancer bash — désactivé explicitement : c'est le bash
+    # lancé ci-dessous, après avoir chargé ~/.bashrc, qui doit les résoudre,
+    # pas Ansible lui-même (CLAUDE.md § Sourcing des faits, « reproduire une
+    # commande » — un comportement par défaut non désactivé aurait mesuré un
+    # autre objet que celui annoncé).
+    expand_argument_vars: false
+  register: android_env_shell_verify
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Échouer bruyamment si l'effet réel ne correspond pas à ce que ce rôle vient de déposer"
+  ansible.builtin.assert:
+    that:
+      - "('ANDROID_HOME=' ~ android_env_sdk_root) in android_env_shell_verify.stdout"
+      - "(android_env_sdk_root ~ '/cmdline-tools/latest/bin') in android_env_shell_verify.stdout"
+      - "(android_env_sdk_root ~ '/platform-tools') in android_env_shell_verify.stdout"
+    fail_msg: >-
+      Un shell interactif non-login n'a pas chargé ANDROID_HOME/PATH tels
+      que ce rôle vient de les déposer — sortie brute :
+      {{ android_env_shell_verify.stdout }}
+    success_msg: >-
+      Effet réel confirmé dans un shell interactif non-login :
+      {{ android_env_shell_verify.stdout | trim }}
+  when: not ansible_check_mode
+
+- name: "Rapporter l'état de l'environnement Android sur ce poste"
+  ansible.builtin.debug:
+    msg:
+      - "ANDROID_HOME visé : {{ android_env_sdk_root }}"
+      - "Fichier déposé : {{ android_env_bashrc_d_file }}"
+      - "~/.bashrc.d/ créé par ce rôle (changed) : {{ android_env_bashrc_d_dir_result.changed | default('non exécuté sous --check') }}"
+      - "Fichier déposé (changed) : {{ android_env_file_result.changed | default('non exécuté sous --check') }}"
+      - "Effet vérifié dans un shell interactif non-login : {{ (android_env_shell_verify.stdout | default('non vérifiable sous --check')) }}"

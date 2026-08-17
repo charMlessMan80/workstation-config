@@ -1,0 +1,26 @@
+---
+galaxy_info:
+  role_name: android_env
+  author: Mickael Mahieu
+  description: >-
+    Pose ANDROID_HOME et le PATH (cmdline-tools/latest/bin,
+    platform-tools) pour les shells interactifs, via un fichier dans
+    ~/.bashrc.d/ — jamais une écriture dans ~/.bashrc lui-même (la
+    boucle qui charge ce répertoire existe déjà nativement dans le
+    gabarit Fedora, /etc/skel/, jamais modifiée par le pilote,
+    livrable 10). Ne pose jamais ANDROID_SDK_ROOT (dépréciée) ni
+    ANDROID_USER_HOME (laissée à son défaut). N'installe aucun paquet,
+    aucun composant SDK — voir docs/machine-facts.md § Décisions.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+# Dépend réellement de android_sdk (racine du SDK et cmdline-tools/latest/bin
+# réellement en place) — exprimé par l'ORDRE dans site.yml (android_env après
+# android_sdk), PAS par `dependencies:` de rôle Ansible, même patron que
+# android_sdk vis-à-vis d'android_jdk (roles/android_sdk/meta/main.yml pour
+# l'argument complet). Garde réelle : assertion d'effet en deuxième tâche de
+# ce rôle (tasks/main.yml).
+dependencies: []

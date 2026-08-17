@@ -1,0 +1,35 @@
+---
+# Rôle android_env — pose ANDROID_HOME et le PATH pour les shells
+# interactifs, via un fichier déposé dans ~/.bashrc.d/. N'écrit jamais
+# dans ~/.bashrc, ~/.bash_profile, ~/.profile, /etc/profile.d/ ni
+# ~/.config/environment.d/ — voir tasks/main.yml et README.md.
+
+# --- Racine du SDK — même valeur que android_sdk_root (roles/android_sdk/
+# defaults/main.yml), jamais réimportée depuis ce rôle (aucune dépendance de
+# rôle Ansible dans ce dépôt) : répétée ici, et vérifiée PAR L'EFFET en
+# deuxième tâche (tasks/main.yml) plutôt que supposée identique par
+# construction — si les deux valeurs divergent un jour (l'une éditée sans
+# l'autre), c'est cette vérification qui le détecterait, pas une supposition.
+android_env_sdk_root: "{{ ansible_facts.env.HOME }}/Android/Sdk"
+
+# --- Répertoire et fichier déposés — entièrement propriété de ce rôle
+# (aucun contenu du pilote n'y vit jamais) : dépôt intégral à chaque
+# exécution, aucune fusion requise. Nom préfixé "90-" : convention Fedora
+# usuelle pour /etc/profile.d/-like (ordre alphabétique de chargement,
+# aucun autre fichier attendu dans ~/.bashrc.d/ à ce jour, mesuré livrable 10
+# — répertoire absent avant ce rôle).
+android_env_bashrc_d_dir: "{{ ansible_facts.env.HOME }}/.bashrc.d"
+android_env_bashrc_d_file: "{{ android_env_bashrc_d_dir }}/90-android-sdk.sh"
+
+# --- Garde sur la boucle native de ~/.bashrc — fichier ciblé et sous-chaîne
+# recherchée. Fichier substituable pour la démonstration d'échec forcé de
+# cette garde SANS jamais toucher au ~/.bashrc réel du pilote :
+# -e android_env_bashrc_path=/chemin/vers/une/copie/sans/la/boucle
+android_env_bashrc_path: "{{ ansible_facts.env.HOME }}/.bashrc"
+
+# Sous-chaîne exacte de la boucle native (gabarit Fedora /etc/skel/.bashrc,
+# relevée mot pour mot au livrable 10 — docs/machine-facts.md § Décisions) :
+# recherchée littéralement (grep -F) dans android_env_bashrc_path, jamais un
+# motif plus lâche qui pourrait matcher autre chose qu'un chargement réel de
+# ~/.bashrc.d/.
+android_env_bashrc_loop_marker: "for rc in ~/.bashrc.d/*; do"

@@ -136,8 +136,22 @@ D9 en place, les invocations suivantes n'ont plus besoin de
     (`roles/android_sdk/meta/main.yml` pour l'argument complet sur le
     choix de ne pas utiliser `dependencies:` de rôle Ansible). N'installe
     ni `platform-tools`, ni `platform`, ni `build-tools`, ni Gradle ; ne
-    touche à aucune variable d'environnement ni fichier de shell (objet
-    d'un rôle ultérieur, `android_env`).
+    touche à aucune variable d'environnement ni fichier de shell (rôle
+    `android_env`, point suivant).
+11. **`android_env`** — pose `ANDROID_HOME` et le `PATH`
+    (`cmdline-tools/latest/bin`, `platform-tools`) pour les shells
+    interactifs, via un fichier déposé dans `~/.bashrc.d/` (D28,
+    `docs/machine-facts.md` § Décisions). **N'écrit jamais dans
+    `~/.bashrc`** — la boucle qui charge `~/.bashrc.d/` existe déjà
+    nativement dans le gabarit Fedora (`/etc/skel/`, jamais modifié par
+    le pilote). **Dépend réellement de `android_sdk`** (racine SDK et
+    `cmdline-tools/latest/bin` réellement en place) — deuxième cas de
+    dépendance réelle entre deux rôles de ce dépôt, premier cas d'une
+    chaîne de trois (`android_jdk` → `android_sdk` → `android_env`),
+    même patron (ordre + vérification par l'effet en tâche dédiée,
+    jamais `dependencies:` de rôle Ansible). Ne pose jamais
+    `ANDROID_SDK_ROOT` (dépréciée) ni `ANDROID_USER_HOME` (laissée à son
+    défaut). N'installe aucun paquet, aucun composant SDK.
 
 **Puis, `post_tasks`** : relève `pending_reboot`
 (`gpu_mux_mode`) et la valeur active de
@@ -259,7 +273,18 @@ seulement, le reste sauté par nature, § « Ce que `--check` couvre
 réellement », `roles/android_sdk/README.md` — puis exécution réelle
 isolée par tag depuis `site.yml`, deux fois, la seconde prouvant
 l'idempotence) — daté distinctement du D26 qui précède, dans le même
-tour cette fois (les deux décisions de ce même livrable). Le point
+tour cette fois (les deux décisions de ce même livrable). **`android_env`
+ajouté et vérifié le 2026-08-17, D28** (`--syntax-check`, `ansible-lint
+--profile production`, `--check` complet depuis `site.yml` limité à la
+chaîne `android_jdk,android_sdk,android_env` — le `--check` complet
+sans limitation de tags a été tenté mais interrompu par un échec réseau
+externe et préexistant dans `roles/bootstrap/` (404 sur
+`repos.fyralabs.com`, sans rapport avec ce livrable, § ci-dessous —
+non un défaut de ce rôle) ; exécution réelle isolée par tag et depuis
+`site.yml`, deux fois, la seconde prouvant l'idempotence, plus une
+preuve d'effet réel dans un shell interactif non-login et une preuve
+de non-duplication du `PATH` par double chargement dans le même
+shell). Le point
 d'arrêt post-redémarrage a été exercé dans son
 état **nominal réel** de cette machine (`pending_reboot=0`,
 `PreserveVideoMemoryAllocations: 1` — les deux déjà satisfaits ici,
@@ -325,8 +350,12 @@ redémarrer ni provisionner de machine neuve.
   motivé ce document, et le graphe de dépendances reconstitué par
   lecture qui en est le matériau de départ.
 - [`docs/machine-facts.md`](machine-facts.md) § Décisions — D2bis/D2ter,
-  D6, D9, D10, D14-D25, texte complet de chaque décision reconstruite
-  ici.
+  D6, D9, D10, D14-D28, texte complet de chaque décision reconstruite
+  ici. **[CORRIGÉ le 2026-08-17, livrable 11]** ÉTAIT : « D14-D25 » —
+  périmé depuis D26/D27 (2026-08-16, livrable 9/9b) sans que ce renvoi
+  ait été relu à ce moment ; trouvé et corrigé ici, hors périmètre
+  strict de ce livrable mais par la même recherche systématique que
+  celle menée pour la révision de la voie `adb` (D28).
 - [`roles/bootstrap/README.md`](../roles/bootstrap/README.md) — D6/D9/D10,
   amorçage, tag `bootstrap-sudoers`.
 - [`docs/editor.md`](editor.md) § Copilot CLI — D24/D25, résolution

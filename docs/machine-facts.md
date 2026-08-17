@@ -1787,6 +1787,10 @@ déplacement et acceptation tous sautés — le fichier de porte et
 `cmdline-tools/latest/bin/sdkmanager` étaient déjà en place). Retour
 arrière exact : `rm -rf ~/Android` (rôle purement dans le domaine
 utilisateur, aucun paquet système, aucune trace ailleurs).
+**[CORRIGÉ le 2026-08-17, D28 plus bas]** — incomplet : `~/.android/`
+(hors `~/Android/`) a aussi été créé par ce rôle, non couvert par cette
+commande ; retour arrière corrigé au même endroit que la mesure qui
+l'établit, § D28.
 
 **Gardes démontrées dans les deux sens, sans rien casser de réel** :
 empreinte forcée à zéro (`-e
@@ -1822,6 +1826,166 @@ d'exclusion, exactement le type de compteur/liste périmable déjà
 écarté ailleurs dans ce dépôt (`CLAUDE.md` § Modes d'échec qui imitent
 le sourcing, item 5). Rien à corriger dans le rôle — décision prise,
 pas un point ouvert.
+
+**D28 (2026-08-17) — ANDROID_HOME et PATH posés via ~/.bashrc.d/, jamais
+par écriture dans ~/.bashrc ; `adb` viendra du SDK seul.** Troisième
+rôle d'une chaîne de trois (`android_jdk` → `android_sdk` → `android_env`)
+pour la chaîne de build Android CLI de `glass-hud` (distinct, préambule).
+Dépend réellement de D27 (racine SDK et `cmdline-tools/latest/bin`
+réellement en place) — vérifié par l'effet en deuxième tâche du rôle,
+pas supposé depuis l'ordre de `site.yml` (`roles/android_env/tasks/main.yml`).
+
+**État de départ, mesuré avant toute écriture (livrable 10, rejoué
+identique ici — mêmes sommes de contrôle et horodatages)** :
+`~/.bashrc` et `~/.bash_profile` sont le gabarit `/etc/skel/` de Fedora
+**non modifié** (`diff /etc/skel/.bashrc ~/.bashrc` vide, livrable 10) ;
+`~/.bashrc` porte déjà une boucle native, jamais exercée avant ce
+livrable, qui source tout fichier de `~/.bashrc.d/*` ; ce répertoire
+n'existait pas (`stat`, rc=2). Sommes sha256 relevées avant toute
+écriture : `~/.bashrc`
+`c5566fb3645f14ef9f8fd2bcb0ad468bf6ef8a0c51a55633cb57f4c3e572aac6`,
+`~/.bash_profile`
+`53fb514aefa7b5280314277abffc9b008910c0689304c267be0d38ba16dd5319` —
+**identiques après ce livrable**, `Modify`/`Change` inchangés
+(`stat`) : aucune écriture dans l'un ou l'autre, à aucun moment.
+
+**Mécanisme retenu (décision du pilote, A1)** : le rôle dépose
+`~/.bashrc.d/90-android-sdk.sh` (contenu entièrement propriété du rôle,
+écrasé intégralement à chaque exécution — `ansible.builtin.template`,
+aucune fusion requise) et NE TOUCHE JAMAIS à `~/.bashrc`. Garde centrale
+du rôle : une assertion sur le CONTENU réel de `~/.bashrc` (recherche
+littérale de la sous-chaîne exacte de la boucle native, `grep -F`),
+jamais sur la seule existence du fichier — sans elle, le fichier déposé
+ne serait jamais chargé et le rôle rapporterait un succès sans effet.
+Démontrée dans les deux sens sans toucher au `~/.bashrc` réel
+(substitution de `android_env_bashrc_path` vers une copie hors dépôt) :
+échec exact contre une copie sans la boucle (`grep rc=1`, message
+explicite, **rien déposé après l'échec** — `~/.bashrc.d/` resté absent,
+vérifié) ; succès contre le `~/.bashrc` réel (boucle présente).
+
+**Idempotence du PATH — patron repris de ~/.bashrc lui-même (Fedora),
+pas inventé** : même construction que le bloc natif `$HOME/.local/bin`
+(`if ! [[ "$PATH" =~ "..." ]]; then PATH="...:$PATH"; fi`). Prouvé par
+mesure : sourcer `~/.bashrc` deux fois dans le même shell produit un
+PATH strictement identique aux deux passages (aucune duplication).
+
+**Répertoire absent du PATH — testé, pas supposé.** `platform-tools`
+n'existe pas encore sous `~/Android/Sdk` (D27, aucun composant au-delà
+du socle). Mesuré avant d'écrire le rôle : un répertoire absent placé
+dans `PATH` ne produit ni erreur, ni avertissement, ni effet de bord —
+`command -v`/résolution de commande le traversent silencieusement
+(`bash -c` avec un répertoire inexistant en tête de `PATH` : `ls`
+résolu normalement, `rc=0`). Conséquence : `platform-tools` est ajouté
+au `PATH` dès ce livrable, prêt à fonctionner sans reconfiguration dès
+qu'une build `glass-hud` l'installera.
+
+**Effet réel vérifié — pas seulement la présence des fichiers.** Le
+rôle exécute lui-même, en dernière garde, un shell interactif
+non-login dans un environnement assaini (`env -i HOME=... bash -ic
+'printf ...'`) — c'est le mécanisme natif de démarrage de bash qui
+charge `~/.bashrc`, jamais un `source` manuel dans la tâche — et
+échoue bruyamment si `ANDROID_HOME`/`PATH` ne portent pas ce que ce
+rôle vient de déposer. Rejoué indépendamment ici, hors du rôle,
+commande identique : `ANDROID_HOME=/home/mahieumi/Android/Sdk`,
+`PATH` commençant par
+`/home/mahieumi/Android/Sdk/cmdline-tools/latest/bin:/home/mahieumi/Android/Sdk/platform-tools:...`.
+Ce que cette vérification COUVRE : le chargement réel par un shell
+interactif non-login — représentatif d'un terminal `kitty` ouvert par
+le pilote (`roles/desktop/`, qui lance un bash interactif non-login par
+défaut, livrable 10). Ce qu'elle NE COUVRE PAS : un shell de connexion
+(`~/.bash_profile` — jamais exercé par ce livrable, aucun usage réel
+identifié qui en dépendrait) ; ce qu'un lanceur graphique KDE verrait
+(`~/.config/environment.d/`, § Points ouverts ci-dessous, mécanisme
+distinct).
+
+**Révision de la voie `adb` (réouverture d'un point non tranché,
+livrable 8) — décision du pilote (B) : `adb` viendra du SDK seul,
+`android-tools` ne sera JAMAIS installé, ni par ce rôle ni par un rôle
+ultérieur.** Précision nécessaire, la prémisse du livrable telle
+qu'énoncée était imprécise et corrigée ici par la sortie qui l'établit
+(`CLAUDE.md` § Sourcing des faits — contredire une prémisse fausse,
+y compris contre le pilote) : recherche exhaustive de `android-tools`/
+`adb` dans tout `workstation-config` (`grep -rn` sur `*.md`/`*.yml`,
+racine du dépôt) — **aucune occurrence, aucun `Dxx` numéroté n'a jamais
+retenu `android-tools`.** Le seul document existant est un *constat*,
+non une décision (`../workstation-config-reports/08-rapport.md` § 2,
+hors dépôt, cité ici pour mémoire) : `android-tools` (37.0.0, fournit
+`/usr/bin/adb`) est disponible dans `updates` (déjà activé),
+**aucune installation n'y a eu lieu**, et ce rapport concluait
+explicitement « le choix entre les deux voies reste entier, non tranché ».
+Ce que D28 fait : trancher ce point, pas annuler un `Dxx` qui n'a
+jamais existé. Motif du choix retenu (SDK seul) : la build `glass-hud`
+installe déjà son propre `platform-tools` (livrable 7, `glass-hud`) —
+installer un paquet système dont le binaire ne serait jamais celui
+réellement invoqué par une build est de la sur-couverture
+(`CLAUDE.md` § Avant d'agir) ; deux `adb` de versions différentes sur
+le même poste provoquent des redémarrages du serveur `adb` à chaque
+alternance de client (mécanisme documenté pour l'architecture
+client/serveur, `developer.android.com/tools/adb`, comportement exact
+de désaccord de version confirmé par sources secondaires convergentes
+seulement, livrable 10). Recherche de renvois à ce point non tranché
+dans tout le dépôt (`grep -rn "android-tools\|adb" --include=*.md
+--include=*.yml .`, hors `.git/`) : **aucune occurrence** — rien
+d'autre à corriger.
+
+**`ANDROID_HOME` contre `sdk.dir` (`local.properties`) pour l'Android
+Gradle Plugin — marqueur du livrable 10 levé ici, par le code source du
+projet, source externe recevable et nommée précisément.** Lu
+directement (`curl`, HTML/texte brut, pas un résumé) :
+`android.googlesource.com/platform/tools/base/+/studio-master-dev/build-system/gradle-core/src/main/java/com/android/build/gradle/internal/SdkLocator.kt`
+(branche `studio-master-dev`, lue le 2026-08-17 — **externe au poste,
+au dépôt de production réel de l'AGP, pas figée à une version
+précise**). L'énumération `SdkLocationSource` y est commentée
+littéralement « Order defines the preference for matching an SDK
+directory » et énumère, dans cet ordre :
+`TEST_SDK_DIRECTORY`, `LOCAL_SDK_DIR` (`sdk.dir` de
+`local.properties`), `LOCAL_ANDROID_DIR`, `ENV_ANDROID_HOME`
+(`ANDROID_HOME`), `ENV_SDK_ROOT` (`ANDROID_SDK_ROOT`, déjà dépréciée —
+D27), `SYS_ANDROID_HOME` (propriété système JVM). La boucle qui
+consomme cette énumération (`getSdkLocation`,
+`for (source in SdkLocationSource.values()) { ...; return it }`)
+retourne à la **première** correspondance trouvée — confirme, par
+lecture du code, pas par supposition, que **`sdk.dir` (`local.properties`)
+prend le pas sur `ANDROID_HOME` dès qu'il est défini** ; `ANDROID_HOME`
+n'intervient que si `local.properties` ne fixe pas `sdk.dir`. Conclusion
+inchangée par rapport au livrable 10 : si `local.properties` (généré
+par l'IDE, propre à chaque poste/projet) suffit à `glass-hud`,
+`ANDROID_HOME` ne sert alors qu'au confort d'un usage `sdkmanager`/`adb`
+en ligne de commande hors d'un IDE — ce rôle ne garantit donc pas ce
+que Gradle utilisera à l'intérieur d'un projet `glass-hud` donné, il ne
+garantit que l'usage interactif en ligne de commande. `@VERIF :
+`SdkLocator.kt` lu sur `studio-master-dev` (dev courant), pas sur la
+version d'AGP effectivement épinglée par `glass-hud` — à revérifier si
+un écart de comportement est un jour observé.`
+
+**`ANDROID_USER_HOME` — non posée, laissée à son défaut.** Mesuré :
+`~/.android/` existe déjà (créé silencieusement par l'exécution de
+`roles/android_sdk/`, § correction de D27 ci-dessous), contient `cache/`
+— cohérent avec le défaut documenté (`$HOME/.android/`,
+`developer.android.com/tools/variables`, cité D27). Rien à poser :
+le défaut est déjà satisfait.
+
+**Application réelle sur ce poste** (`ansible-playbook
+roles/android_env/android_env.yml`, puis depuis `site.yml --tags
+android_jdk,android_sdk,android_env`) : `~/.bashrc.d/` créé,
+`~/.bashrc.d/90-android-sdk.sh` déposé (`changed=2` au premier passage).
+Idempotence prouvée par une seconde exécution réelle, isolée par rôle
+et depuis `site.yml` : `changed=0` dans les deux cas. Retour arrière
+exact : `rm -f ~/.bashrc.d/90-android-sdk.sh` (et `rmdir ~/.bashrc.d`
+s'il est vide après ce retrait — vide sur ce poste à ce jour, aucun
+autre fichier n'y a jamais été déposé) ; `~/.bashrc`/`~/.bash_profile`
+n'étant jamais touchés, aucun retour arrière n'y est nécessaire.
+
+**[CORRIGÉ le 2026-08-17, livrable 11] Retour arrière de D27 —
+incomplet, corrigé ici.** ÉTAIT : « Retour arrière exact : `rm -rf
+~/Android` (rôle purement dans le domaine utilisateur, aucun paquet
+système, aucune trace ailleurs). » — la dernière clause (« aucune trace
+ailleurs ») est fausse, établie par mesure (§ ci-dessus) : l'exécution
+de `roles/android_sdk/` (`sdkmanager --licenses`) a silencieusement
+créé `~/.android/` (mesuré 2026-08-16, `cache/` présent), hors de
+`~/Android/`, donc non couvert par `rm -rf ~/Android`. Retour arrière
+corrigé pour D27 : `rm -rf ~/Android ~/.android` — non rejoué (ces
+répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
 
@@ -2350,6 +2514,23 @@ pas un point ouvert.
   redéployabilité que ce dépôt existe précisément pour porter au jour —
   consignée plutôt que découverte au premier redéploiement réel après
   péremption.
+- **Point ouvert (2026-08-17, D28, `roles/android_env/`) —
+  `~/.config/environment.d/` n'est pas posé.** Mesuré (livrable 10) :
+  c'est un mécanisme distinct de `~/.bashrc`/`~/.bashrc.d/`, lu par
+  `systemd-environment-d-generator` au démarrage de l'instance
+  `systemd --user` — c'est l'environnement que voient les lanceurs
+  graphiques KDE (menu, KRunner, `.desktop`), **pas** un shell
+  interactif. Ce livrable pose uniquement le mécanisme shell : un
+  `android-studio.desktop` ou tout lancement d'IDE Android depuis le
+  menu KDE plutôt que depuis un terminal ne verrait donc PAS
+  `ANDROID_HOME`/le `PATH` posés ici. **Ce qui rendrait ce mécanisme
+  nécessaire** : un usage graphique réel d'un outil Android (Android
+  Studio installé et lancé depuis le menu, pas seulement en ligne de
+  commande) — aucun à ce jour sur ce poste (`glass-hud` livrable 8 :
+  `android-studio`/`studio` absents, `docs/glass-hud-evidence.md`).
+  Tant que cet usage n'existe pas, laisser ce point ouvert plutôt que
+  de poser un mécanisme sans consommateur réel à vérifier
+  (`CLAUDE.md` § Avant d'agir — sur-couverture).
 
 ## Journal des séries
 

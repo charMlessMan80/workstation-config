@@ -10,8 +10,8 @@
 #
 # Étiquettes pour rejouer un rôle seul : bootstrap, recovery, gpu_cdi,
 # gpu_mux, local_ai, editor, completion, copilot_cli, android_jdk,
-# android_sdk — voir docs/orchestration.md pour l'usage complet, y
-# compris la reprise après le point d'arrêt.
+# android_sdk, android_env — voir docs/orchestration.md pour l'usage
+# complet, y compris la reprise après le point d'arrêt.
 #
 # Ne redémarre JAMAIS lui-même — s'arrête explicitement (post_tasks,
 # plus bas) si un redémarrage est encore requis, avec le message exact
@@ -113,6 +113,19 @@
     # protéger.
     - role: android_sdk
       tags: ['android_sdk']
+
+    # Troisième cas de dépendance réelle entre deux rôles de ce dépôt
+    # (après android_sdk → android_jdk ci-dessus), premier cas d'une
+    # chaîne de TROIS. DÉPEND RÉELLEMENT de android_sdk (racine du SDK
+    # et cmdline-tools/latest/bin réellement en place) — exprimée par
+    # l'ORDRE ci-dessous, jamais par `dependencies:` (même patron que
+    # android_sdk, roles/android_env/meta/main.yml pour l'argument
+    # complet) — ET vérifiée par ce rôle lui-même, en deuxième tâche,
+    # par l'effet (stat sur sdkmanager) plutôt que supposée depuis cet
+    # ordre. Pose ANDROID_HOME et le PATH dans ~/.bashrc.d/ (jamais dans
+    # ~/.bashrc lui-même — D28, docs/machine-facts.md § Décisions).
+    - role: android_env
+      tags: ['android_env']
 
   post_tasks:
     # --- Point d'arrêt — jamais un redémarrage déclenché ici -----------
