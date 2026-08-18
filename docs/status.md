@@ -31,6 +31,30 @@ entre décision documentée et valeur effective (`docs/machine-facts.md`
 permanente » de la table des options écartées, ci-dessous, ne décrit
 plus l'état actuel et a été corrigée en conséquence.
 
+**Rafraîchi une quatrième fois le 2026-08-18 (clôture de la série
+Android, livrable 15)** : trois rôles publiés (`android_jdk`,
+`android_sdk`, `android_env`, D26-D28, `docs/machine-facts.md` §
+Décisions) plus un correctif sur `roles/bootstrap/` (cache dnf périmé
+d'un dépôt créé à la volée, `--refresh` ajouté). Le blocage qui
+empêchait de revérifier l'enchaînement complet (404 sur
+`terra-gpg-keys`, dépendant du correctif ci-dessus) est levé :
+`ansible-playbook --check site.yml`, sans filtre de tags, rejoué en
+entier ce même jour, **réussi** —
+`localhost : ok=163 changed=5 unreachable=0 failed=0 skipped=149`,
+`rc=0`, message final « Reconstruction Ansible terminée —
+pending_reboot= 0, PreserveVideoMemoryAllocations: 1 » — première fois
+depuis l'ajout d'`android_jdk` que l'enchaînement réel de `site.yml`
+(`bootstrap` jusqu'à `android_env`) est revérifié de bout en bout,
+pas seulement par tags isolés. Le point d'arrêt post-tâches n'a pas
+été atteint : les deux faits qu'il surveille (`pending_reboot`,
+`NVreg_PreserveVideoMemoryAllocations`) étaient déjà dans l'état
+attendu sur cette machine — franchi sans s'arrêter, pas ignoré (les
+cinq `changed` viennent de tâches intrinsèquement toujours « changed »
+sous `--check`, dans `roles/bootstrap/` et `roles/gpu_mux/`, aucune
+n'a modifié d'état système réel — voir `../workstation-config-reports/15-rapport.md`,
+hors dépôt, pour le détail rôle par rôle). Dette accumulée par cette
+série, non traitée : voir § Points ouverts restants, plus bas.
+
 ## Ce qui est en place et prouvé
 
 | Composant | Décision(s) | Preuve | Document |
@@ -49,7 +73,8 @@ plus l'état actuel et a été corrigée en conséquence.
 | GitHub Copilot CLI, second agent de code | D24/D25 | `@github/copilot@1.0.78` installé (version épinglée, domaine utilisateur `~/.local`), runtime Node.js 22 depuis `fedora`/`updates`. Authentification établie par l'opérateur (`copilot login`, jamais scriptée) ; modèle actif confirmé `claude-sonnet-5` (medium) — **parité de génération de modèle** avec Claude Code, pas d'effort ; consommation lisible (3 700/20 000 AIC, 18 %, période de renouvellement inconnue) — **preuve par sortie de commande copiable**, datée 2026-08-10 | `docs/editor.md` § Copilot CLI |
 | Amorçage (D6/D9/D10 scriptés) | `roles/bootstrap/` | `power-profiles-daemon`, dépôt `terra` (clé vérifiée par inspection hors ligne avant tout usage privilégié), règle `NOPASSWD` — les trois reconstructibles par ce rôle | `roles/bootstrap/README.md`, `docs/orchestration.md` § 7.1 |
 | Règle `sudo` sans mot de passe déplacée en `/etc/sudoers.d/` | D9 (déplacée) | Séquence stricte à cinq étapes, provenance de la règle effective prouvée (`sudo -n -l -l`, pas seulement `sudo -n true`) avant tout retrait de l'ancienne ligne | `docs/machine-facts.md` § Décisions, D9, journal 2026-08-08 (SUD-1) |
-| Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne les huit rôles sans erreur sur **cette** machine (`copilot_cli` ajouté, D24) ; point d'arrêt exercé dans son état nominal réel | `docs/orchestration.md` |
+| Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne, sans erreur, l'ensemble des rôles orchestrés par `site.yml` sur **cette** machine (`bootstrap` jusqu'à `android_env`, chaîne de build Android CLI comprise) ; point d'arrêt exercé dans son état nominal réel — rejoué et confirmé le 2026-08-18, § refresh ci-dessus | `docs/orchestration.md` |
+| Chaîne de build Android CLI (JDK, SDK, environnement shell) pour `glass-hud` (dépôt distinct) | D26/D27/D28 | Trois rôles enchaînés (`android_jdk` → `android_sdk` → `android_env`), chaque dépendance réelle vérifiée par l'effet, pas seulement par l'ordre de `site.yml`. Garde de contenu sur `~/.bashrc` démontrée dans les deux sens ; `ANDROID_HOME`/`PATH` posés uniquement via `~/.bashrc.d/`, jamais d'écriture dans `~/.bashrc` lui-même | `docs/machine-facts.md` § Décisions, `roles/android_jdk/README.md`, `roles/android_sdk/README.md`, `roles/android_env/README.md` |
 | Chaîne Ansible de ce dépôt | D3a | `ansible-core` système fait autorité pour l'exécution ET la vérification (pas seulement l'édition) | `docs/ansible-chain.md`, `docs/machine-facts.md` § Chaîne Ansible |
 
 ### Nuance sur la preuve Kate, à ne pas lire comme équivalente à Helix
@@ -146,14 +171,56 @@ Détail complet, ancrage réel et écart résiduel assumé pour chacune :
 
 ## Points ouverts restants
 
-**27 occurrences du jeton de vérification** recensées hors
+**27 occurrences du jeton de vérification, chiffre daté du
+2026-08-09, non recompté depuis.** Recensées à cette date hors
 `CLAUDE.md` (0 par construction) et hors `docs/review-2026-08.md`
 (8 occurrences, toutes non actionables — citations ou explications du
 jeton lui-même, aucune sous forme nue) — **environ dix-neuf questions
 distinctes encore actionables** une fois les renvois consolidés
-(inventaire complet, non repris ici : `docs/review-2026-08.md` § 5).
-Aucune de priorité haute — la revue globale n'en a trouvé aucune de
-niveau 1 (faux aujourd'hui) parmi les marqueurs eux-mêmes.
+(inventaire complet à cette date, non repris ici : `docs/review-2026-08.md`
+§ 5). Aucune de priorité haute à cette date — la revue globale n'en
+avait trouvé aucune de niveau 1 (faux aujourd'hui) parmi les marqueurs
+eux-mêmes. **Périmé, pas recorrigé ici** : plusieurs livrables
+ultérieurs (dont la chaîne Android, D26-D28) en ont ouvert de nouveaux
+— un chiffre à jour demanderait la même revue dédiée que celle qui a
+produit celui-ci (`docs/review-2026-08.md` § 5), pas une simple
+relecture ; non refaite dans ce livrable, hors de son objet.
+
+**Dette accumulée par la série Android, close le 2026-08-18 (livrable
+15), non traitée** :
+
+- Garde d'idempotence des licences du SDK (`roles/android_sdk/`),
+  calée sur la présence du fichier de porte, jamais sur une
+  comparaison au manifeste de licences réellement requis par
+  `sdkmanager` — `roles/android_sdk/README.md` § Ce que ce rôle ne
+  fait jamais.
+- Garde d'idempotence du téléchargement de l'archive `cmdline-tools`
+  (même rôle), calée sur la seule présence de `sdkmanager`, jamais sur
+  sa version — même document.
+- Péremption inconnue de l'archive `cmdline-tools` elle-même (URL et
+  empreinte épinglées en dur) — procédure de mise à jour écrite,
+  `roles/android_sdk/README.md` § Mise à jour de l'archive
+  command-line tools.
+- `~/.config/environment.d/` non posé par `roles/android_env/` —
+  mécanisme distinct pour les lanceurs graphiques KDE, sans usage réel
+  qui le rendrait nécessaire à ce jour — `docs/machine-facts.md` §
+  Points ouverts.
+- Tâches D9 (`/etc/sudoers`, `roles/bootstrap/`) qui s'exécutent
+  réellement même sans passer le tag `bootstrap-sudoers`, contrairement
+  à ce que la documentation du dépôt affirme actuellement — trouvé au
+  livrable 12, non corrigé (hors périmètre de ce livrable de clôture
+  également).
+- Plusieurs dizaines de paquets en attente de mise à jour sur ce poste
+  (`dnf check-update`, relevé le 2026-08-18, chiffre volontairement
+  non figé ici), dont deux gérés par le dépôt COPR que
+  `roles/gpu_cdi/` déploie (`nvidia-container-toolkit`,
+  `nvidia-container-toolkit-selinux`) et `selinux-policy`/
+  `selinux-policy-targeted`, pertinents pour le mode `Enforcing` que
+  ce même rôle suppose déjà actif. Le pilote NVIDIA propriétaire
+  lui-même n'est PAS dans cette liste à ce jour (vérifié, pas supposé).
+  Appliquer ces mises à jour est un livrable à part entière, avec ses
+  propres mesures avant/après ; aucune mise à jour de paquet n'a eu
+  lieu pendant la série Android ni pendant sa clôture.
 
 **Priorités, reprises de `docs/review-2026-08.md` § « Ce qu'il
 faudrait traiter en premier »** (statut détaillé de chacun des
@@ -186,7 +253,7 @@ constats de la revue : `docs/review-2026-08.md`, marquage 2026-08-09) :
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — l'histoire complète,
-  décisions datées (D1-D25) et journal de chaque série.
+  décisions datées (D1-D28) et journal de chaque série.
 - [`docs/review-2026-08.md`](review-2026-08.md) — l'audit complet,
   statut de chaque constat.
 - [`docs/orchestration.md`](orchestration.md) — la séquence de
