@@ -616,6 +616,56 @@ dépôt (`COPILOT_GITHUB_TOKEN`/`GH_TOKEN`/`GITHUB_TOKEN` — authentification
 interactive par `copilot login`, jamais scriptée, `docs/editor.md` §
 Copilot CLI, `docs/orchestration.md`).
 
+## 12. `dl.google.com` — surface ouverte au livrable 9, jamais inscrite ici avant celui-ci
+
+**Manquée, pas nouvelle** : ouverte par `roles/android_sdk/`
+(`docs/machine-facts.md` § Décisions, D27) pour récupérer l'archive
+`cmdline-tools` du SDK Android — analysée et vérifiée dans le rôle
+depuis son écriture, jamais reportée dans ce document jusqu'à ce
+livrable. **Sur la numérotation ordinale** (« quatrième »/« cinquième »/
+« sixième surface », § 7/§ 8/§ 11) : déjà identifiée comme peu fiable
+par la revue globale (livrable 6, rapport hors dépôt — « le total réel
+se situe plutôt entre 7 et 8 selon le découpage retenu » — comptage
+distinct de la numérotation en « Nième surface » du texte), constat
+repris dans `docs/status.md` § Points ouverts restants
+(« numérotation redondante des surfaces d'approvisionnement »),
+délibérément non corrigé à l'époque. **Exemple concret trouvé en
+relisant le document pour ce livrable, cohérent avec ce constat, pas
+un nouveau défaut** : § 8 se nomme elle-même « cinquième surface » pour
+le registre de modèles Ollama, alors que ce même registre était déjà
+nommé « troisième » en § 6 lors de sa première mention (non utilisée à
+l'époque) — le compte glisse entre « ordre chronologique des
+livrables qui ont touché une surface » et « nombre de surfaces
+réellement distinctes », et les deux ne coïncident plus.
+**Cette entrée n'ajoute aucun numéro ordinal** — ni « septième
+surface » ni aucune correction du compte existant : les deux
+prolongeraient une numérotation déjà fausse. Un numéro ordinal correct
+supposerait de retraiter les entrées existantes, décision du pilote,
+pas un ajustement d'agent au passage.
+
+| Ce qui est récupéré | Provenance | Ancrage de confiance réel | Écart résiduel assumé |
+|---|---|---|---|
+| Archive `commandlinetools-linux-15859902_latest.zip` (command-line tools du SDK Android — `sdkmanager`, `avdmanager` ; ~174 Mio une fois extraite sous `~/Android/Sdk`, `docs/machine-facts.md` § Décisions, D27) | `dl.google.com/android/repository/...` (Google, hôte de téléchargement direct — jamais `edgedl.me.gvt1.com`, un hôte différent renvoyé à tort par un résumé automatique de la page produit, deux fois au livrable 9, écarté par lecture du HTML brut, `roles/android_sdk/README.md`) | TLS vers un hôte Google + **empreinte sha256 publiée par Google sur sa propre page produit** (`developer.android.com/studio`, § « Command line tools only », lue en HTML brut) — épinglée dans le rôle (`android_sdk_cmdline_tools_sha256`, `roles/android_sdk/defaults/main.yml`) et vérifiée par `get_url` **avant** toute extraction : le fichier n'atteint jamais sa destination si l'empreinte ne correspond pas (paramètre natif `checksum` du module, pas une vérification a posteriori) | **La plus faible de ce document.** L'empreinte est publiée sur la **même page**, par la **même partie** (Google) que le fichier qu'elle authentifie — ce n'est pas une corroboration indépendante au sens où Terra (§ 1, clé GPG détachée de l'hébergement web) ou `crates.io`/npm (§ 7/§ 11, registre tiers + attestation Sigstore pour certains paquets) le sont. Cet ancrage protège d'une altération **en transit** après publication (TLS + empreinte vérifiée avant écriture) — il ne protège **pas** d'une compromission **à la source** : un attaquant capable de modifier le fichier servi par `dl.google.com` et la page HTML de `developer.android.com` en même temps (ou un incident interne chez Google) altérerait les deux ensemble, sans qu'aucune clé de signature séparée ne permette de le détecter |
+
+**Ce qu'elle fournit, et qui la consomme** : le socle `cmdline-tools`
+uniquement (`sdkmanager`, `avdmanager`) — aucun `platform-tools`,
+aucune `platform`, aucun `build-tools`, aucun Gradle (ceux-là,
+installés ultérieurement par `sdkmanager` lui-même, échapperaient à
+cet ancrage précis et resteraient à documenter séparément le jour où
+ce dépôt les installerait). Consommée exclusivement par
+`roles/android_sdk/` ; `roles/android_env/` consomme le résultat déjà
+extrait et vérifié (le chemin `cmdline-tools/latest/bin`), jamais
+`dl.google.com` directement.
+
+**Fragilité propre, renvoyée à sa procédure, pas dupliquée ici** :
+URL et empreinte épinglées en dur (numéro de build `15859902` inclus
+dans le nom de fichier) — se périmeront à la prochaine publication
+d'un nouveau build par Google, échec bruyant attendu plutôt qu'un
+défaut. Procédure de mise à jour complète, y compris le même piège de
+résumé automatique à éviter une troisième fois :
+`roles/android_sdk/README.md` § Mise à jour de l'archive command-line
+tools.
+
 ## Voir aussi
 
 - [`docs/machine-facts.md`](machine-facts.md) — D10, D7 (COPR), D5
