@@ -114,6 +114,17 @@ sans comprendre pourquoi elle a été posée.
   ```
   Celui-ci échoue **bruyamment**, contrairement aux quatre précédents —
   préférable, et c'est pourquoi il n'a coûté qu'une tentative.
+  **Sixième cas (2026-09-25)** : `--showduplicates` n'existe pas pour
+  `repoquery` sous dnf5. `dnf repoquery --showduplicates <paquet>`
+  répond `Unknown argument "--showduplicates" for command "repoquery"`
+  et `The argument is available for commands: info, list, search`,
+  puis sort en **rc=2** (reproduit le 2026-09-25, dnf5 `5.4.5.0`).
+  Forme correcte :
+  ```
+  dnf list --showduplicates <paquet>
+  ```
+  Bruyant lui aussi ; employée sous cette forme dans
+  `docs/machine-facts.md` § Points ouverts, échéance du 2026-10-02.
 - **Une transaction longue se détache ; elle ne se lance pas au premier
   plan.** L'outil de commande de l'agent interrompt à deux minutes **par
   défaut** (`Exit code 143`, soit `SIGTERM` — mesuré en U2a-bis), mais ce
@@ -148,6 +159,16 @@ sans comprendre pourquoi elle a été posée.
   la commande qui l'a produit. Motif : un chiffre approximatif recopié de
   mémoire devient indiscernable d'un chiffre vérifié, et personne ne
   revérifie ce qui a l'air déjà écrit noir sur blanc.
+- **[AJOUTÉE le 2026-09-25] Toute taille écrite nomme son unité, et son
+  unité dit sa base.** Les octets exacts d'abord (`du -sb`), puis, si
+  une forme arrondie aide, **Mio/Gio** (base 1024) ou **Mo/Go** (base
+  1000) nommément — jamais « Mo » pour une valeur calculée en base 1024.
+  `du -h` compte en puissances de 1024, `du --si` en puissances de 1000
+  (source : `man du`, GNU coreutils 9.10 — « --si  like -h, but use
+  powers of 1000 not 1024 »). Motif : le `959M` de `du -sh` sur
+  1 005 293 624 octets a été écrit « 959 Mo » dans `docs/status.md`
+  (commit `2e21553`), corrigé en « 959 Mio » par `d7ff364` — la même
+  valeur vaut 1 005 Mo, l'écart ne se voit pas à la relecture.
 - **Une commande sans sortie n'établit rien.** Si une commande renvoie du
   vide, ce n'est pas un résultat « négatif » à consigner tel quel — c'est une
   absence d'information. Vérifier le code de retour, pas seulement stdout : un
@@ -190,6 +211,23 @@ sans comprendre pourquoi elle a été posée.
   cette série — voir § Modes d'échec qui imitent le sourcing, plus bas,
   pour la liste complète, chaque exemple réel et sa parade (déplacé
   hors de ce paragraphe, qui portait jusqu'ici les quatre à la fois).
+- **[AJOUTÉE le 2026-09-25] Aucune comparaison d'horodatages sans avoir
+  établi le référentiel de chaque source ; toute heure écrite dans le
+  dépôt porte son décalage (`+02:00`) ou la mention UTC.** Deux sources
+  qui affichent la même forme `HH:MM:SS` peuvent parler de deux
+  fuseaux, et un écart de deux heures a l'air d'un fait. La conversion
+  se fait par commande (`TZ=Europe/Brussels date -d '<heure> UTC'
+  -Iseconds`), jamais de tête : le décalage change avec l'heure d'été.
+  **Fait observé sur ce poste** (2026-09-25, livrable S1) : `dnf history
+  info` affiche des heures **UTC**, alors que `btrfs subvolume show` et
+  le journal `systemd` donnent l'heure locale avec son décalage —
+  établi par le journal de l'unité `u2b-dnf-apply` et le journal
+  d'audit du noyau, recoupé sur une transaction d'août par l'audit rpm
+  (`docs/packages.md` § 1) ; ni `man dnf5` ni `man dnf5-history` ne le
+  documentent, rien n'est donc affirmé de `dnf5` en général. Motif :
+  une heure UTC comparée sans conversion à une heure locale a inversé
+  une chronologie, et l'erreur est passée dans un commit —
+  `docs/machine-facts.md`, § Série U1-U2c, « Un piège d'horodatage ».
 - **Une règle vit à un seul endroit ; les documents y renvoient, ils ne la
   recopient pas.** `CLAUDE.md` porte les règles persistantes ; tout autre
   document qui a besoin d'une de ces règles la cite par renvoi
@@ -618,6 +656,36 @@ montré plusieurs fois de suite avant que chacune ne soit corrigée.
   l'impossible dans une fraction des cas s'érode dans tous — mieux vaut
   une règle plus étroite et respectée qu'une règle large et contournée
   quatre fois.
+- **[AJOUTÉE le 2026-09-25] Garde de structure sur l'élévation : le
+  compte rendu présente d'abord le lot sans privilège, puis seulement
+  le lot élevé.** Le lot sans privilège vient en premier, chaque
+  commande avec son code de retour. Chaque commande du lot élevé porte
+  l'un de deux rattachements : *(1)* l'échec sans privilège
+  correspondant, cité par sa commande exacte et son code de retour ;
+  *(2)* une catégorie déclarée **privilégiée par nature** — montage,
+  écriture sous `/etc/`, transaction `dnf` — ce que la règle ci-dessus
+  appelle « Non applicable — <motif précis> ». Un essai sans privilège
+  **réussi** interdit l'élévation de la même commande : le résultat est
+  déjà acquis, l'élever ne l'établit pas mieux. Une élévation sans l'un
+  des deux rattachements rend le livrable **non conforme**, et c'est le
+  livrable lui-même qui le déclare dans son compte rendu, pas la
+  relecture qui le découvre. Motif : la colonne « tentative sans
+  privilège : résultat » rend le lapsus visible après coup sans
+  l'empêcher ; imposer l'ordre oblige à tenir l'échec **avant**
+  d'écrire la ligne élevée qui doit s'y rattacher. Occurrences
+  recensées : `docs/machine-facts.md`, journaux datés IA-0, CMP-0,
+  CMP-1, KAT-1 et temporisation `kitty` du 2026-08-09.
+- **[AJOUTÉE le 2026-09-25] Toute sortie demandée pour relecture est
+  recopiée dans le texte de la réponse.** Diff, `git show`, sorties de
+  garde, calculs : en bloc de code, intégralement, jamais remplacés par
+  un résumé. Écrire « affiché ci-dessus » à propos d'une sortie d'outil
+  est interdit — l'opérateur ne voit que la réponse, pas les appels
+  d'outil. Une sortie trop longue pour une réponse se découpe, en le
+  disant d'abord ; elle ne se résume pas. Motif : observation rapportée
+  par l'opérateur le 2026-09-25 — deux fois, un diff annoncé « affiché
+  ci-dessus » était resté dans les appels d'outil ; non consignée dans
+  `docs/`, recevable ici au titre de la classe « observation rapportée
+  par l'opérateur » (§ Sourcing des faits).
 
 ## Dépôt public (D4)
 

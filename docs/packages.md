@@ -26,7 +26,8 @@ plus une troisième que j'ajoute et signale comme telle — elle n'est ni
 l'une ni l'autre des deux nommées par la demande, mais ne porte pas non
 plus de décision propre :
 
-**Transactions 1 et 2 (2026-04-22 13:58/14:00, utilisateur `root`,
+**Transactions 1 et 2 (2026-04-22 13:58/14:00 UTC, soit 15:58:57/16:00:28
++02:00 — conversion : note sous la table ci-dessous —, utilisateur `root`,
 `kiwi_dnf5.config`/`image-root`)** — construction de l'image live/
 anaconda, antérieures de plus de trois mois à la première transaction de
 l'opérateur (transaction 3, 2026-08-04). Fait déjà établi en substance
@@ -58,37 +59,52 @@ retrait distinctes** (certaines transactions couvrent le même paquet,
 ex. la paire installation/retrait de `wtype`/`ydotool`, ou une variante
 multilib `.i686` de la même intention) :
 
-| # | Date | Ligne de commande | Paquet(s) visé(s) directement |
-|---|---|---|---|
-| 4 | 2026-08-04 11:40 | `dnf install NetworkManager-tui` | `NetworkManager-tui` |
-| 5 | 2026-08-04 12:45 | `dnf install --nogpgcheck --repofrompath terra,… terra-release` | `terra-release` (+ dépendance `terra-gpg-keys`) |
-| 6 | 2026-08-04 12:45 | `dnf install asusctl` | `asusctl` |
-| 7 | 2026-08-04 12:46 | `dnf swap tuned-ppd power-profiles-daemon --allowerasing` | `power-profiles-daemon` installé, `tuned-ppd` retiré |
-| 8 | 2026-08-04 12:47 | `dnf install asusctl-rog-gui` | `asusctl-rog-gui` |
-| 9 | 2026-08-04 12:47 | `dnf install <url rpmfusion-free-release> <url rpmfusion-nonfree-release>` | `rpmfusion-free-release`, `rpmfusion-nonfree-release` |
-| 10 | 2026-08-04 12:48 | `dnf install akmod-nvidia xorg-x11-drv-nvidia-cuda` | `akmod-nvidia`, `xorg-x11-drv-nvidia-cuda` |
-| 12 | 2026-08-04 12:58 | `dnf swap ffmpeg-free ffmpeg --allowerasing` | `ffmpeg` |
-| 13 | 2026-08-04 12:58 | `dnf install @multimedia --setopt=install_weak_deps=False --exclude=PackageKit-gstreamer-plugin` | groupe `@multimedia` (`gstreamer1-plugins-bad-freeworld`, `-ugly`, `libheif-freeworld`, `vlc-plugins-freeworld`, entre autres) |
-| 14-15 | 2026-08-04 12:59-13:00 | `dnf install mesa-va-drivers-freeworld[.i686]` | `mesa-va-drivers-freeworld` |
-| 16-17 | 2026-08-04 13:00-13:01 | `dnf install libva-nvidia-driver[.i686]` | `libva-nvidia-driver` |
-| 18 | 2026-08-04 13:01 | `dnf install rpmfusion-free-release-tainted` | `rpmfusion-free-release-tainted` |
-| 19 | 2026-08-04 13:01 | `dnf install libdvdcss` | `libdvdcss` |
-| 20/41 | 2026-08-04/2026-08-09 | `dnf install cardwire` puis `dnf remove -y cardwire` | `cardwire` — **épisode clos, PKG-1**, exclu du rapprochement § 2 |
-| 21 | 2026-08-04 13:53 | (racine, description non capturée par `dnf5` — transaction root sans ligne de commande enregistrée, `Reason: User` sur le paquet de tête) | `ansible-core` |
-| 22 | 2026-08-04 13:53 | idem, racine, description non capturée | `supergfxctl` — **épisode distinct, voir § 2.3, retiré depuis par Terra lui-même, pas par l'opérateur** |
-| 23 | 2026-08-04 18:14 | `dnf install git` | `git` |
-| 24 | 2026-08-04 18:15 | `dnf install claude-code` | `claude-code` |
-| 25 | 2026-08-04 19:08 | `dnf install htop` | `htop` |
-| 26 | 2026-08-05 14:15 | module Ansible `dnf5` (rôle `gpu_cdi`) | `nvidia-container-toolkit`, `nvidia-container-toolkit-selinux` |
-| 27 | 2026-08-06 08:38 | `dnf install -y python3-pip` | `python3-pip` |
-| 28 | 2026-08-06 13:31 | `dnf --disablerepo=terra install -y kitty` | `kitty` |
-| 29 | 2026-08-06 20:52 | module Ansible `dnf5` (rôle `editor`) | `helix`, `kate` |
-| 32 | 2026-08-07 19:27 | module Ansible `dnf5` (rôle `completion`) | `rust`, `cargo` |
-| 33 | 2026-08-07 19:34 | module Ansible `dnf5` (rôle `completion`) | `perl-FindBin` |
-| 34 | 2026-08-07 19:39 | `dnf install -y --disablerepo=terra perl-IPC-Cmd` | `perl-IPC-Cmd` |
-| 35 | 2026-08-07 19:40 | `dnf install -y --disablerepo=terra perl-File-Compare perl-IO-Socket-INET6 perl-Text-Template` | `perl-File-Compare`, `perl-IO-Socket-INET6`, `perl-Text-Template` |
-| 36/38 | 2026-08-08 19:54/21:13 | `dnf install -y wtype` puis `dnf remove -y wtype ydotool` | `wtype` — **épisode clos, auto-corrigé par l'opérateur, exclu** |
-| 37/38 | 2026-08-08 20:06/21:13 | `dnf install -y ydotool` puis retrait ci-dessus | `ydotool` — **épisode clos, idem** |
+| # | Date (`dnf history`, UTC, relevé brut) | Heure locale, début → fin (`dnf history info N` converti) | Ligne de commande | Paquet(s) visé(s) directement |
+|---|---|---|---|---|
+| 4 | 2026-08-04 11:40 | 2026-08-04 13:40:52 → 13:40:53 +02:00 | `dnf install NetworkManager-tui` | `NetworkManager-tui` |
+| 5 | 2026-08-04 12:45 | 2026-08-04 14:45:06 → 14:45:07 +02:00 | `dnf install --nogpgcheck --repofrompath terra,… terra-release` | `terra-release` (+ dépendance `terra-gpg-keys`) |
+| 6 | 2026-08-04 12:45 | 2026-08-04 14:45:49 → 14:45:50 +02:00 | `dnf install asusctl` | `asusctl` |
+| 7 | 2026-08-04 12:46 | 2026-08-04 14:46:49 → 14:46:50 +02:00 | `dnf swap tuned-ppd power-profiles-daemon --allowerasing` | `power-profiles-daemon` installé, `tuned-ppd` retiré |
+| 8 | 2026-08-04 12:47 | 2026-08-04 14:47:18 → 14:47:18 +02:00 | `dnf install asusctl-rog-gui` | `asusctl-rog-gui` |
+| 9 | 2026-08-04 12:47 | 2026-08-04 14:47:43 → 14:47:43 +02:00 | `dnf install <url rpmfusion-free-release> <url rpmfusion-nonfree-release>` | `rpmfusion-free-release`, `rpmfusion-nonfree-release` |
+| 10 | 2026-08-04 12:48 | 2026-08-04 14:48:38 → 14:48:48 +02:00 | `dnf install akmod-nvidia xorg-x11-drv-nvidia-cuda` | `akmod-nvidia`, `xorg-x11-drv-nvidia-cuda` |
+| 12 | 2026-08-04 12:58 | 2026-08-04 14:58:06 → 14:58:07 +02:00 | `dnf swap ffmpeg-free ffmpeg --allowerasing` | `ffmpeg` |
+| 13 | 2026-08-04 12:58 | 2026-08-04 14:58:51 → 14:58:51 +02:00 | `dnf install @multimedia --setopt=install_weak_deps=False --exclude=PackageKit-gstreamer-plugin` | groupe `@multimedia` (`gstreamer1-plugins-bad-freeworld`, `-ugly`, `libheif-freeworld`, `vlc-plugins-freeworld`, entre autres) |
+| 14-15 | 2026-08-04 12:59-13:00 | 2026-08-04 14:59:34 → 14:59:35 / 15:00:07 → 15:00:09 +02:00 | `dnf install mesa-va-drivers-freeworld[.i686]` | `mesa-va-drivers-freeworld` |
+| 16-17 | 2026-08-04 13:00-13:01 | 2026-08-04 15:00:32 → 15:00:33 / 15:01:06 → 15:01:16 +02:00 | `dnf install libva-nvidia-driver[.i686]` | `libva-nvidia-driver` |
+| 18 | 2026-08-04 13:01 | 2026-08-04 15:01:41 → 15:01:42 +02:00 | `dnf install rpmfusion-free-release-tainted` | `rpmfusion-free-release-tainted` |
+| 19 | 2026-08-04 13:01 | 2026-08-04 15:01:56 → 15:01:56 +02:00 | `dnf install libdvdcss` | `libdvdcss` |
+| 20/41 | 2026-08-04/2026-08-09 | 2026-08-04 15:15:09 → 15:15:10 / 2026-08-09 21:50:09 → 21:50:09 +02:00 | `dnf install cardwire` puis `dnf remove -y cardwire` | `cardwire` — **épisode clos, PKG-1**, exclu du rapprochement § 2 |
+| 21 | 2026-08-04 13:53 | 2026-08-04 15:53:14 → 15:53:15 +02:00 | (racine, description non capturée par `dnf5` — transaction root sans ligne de commande enregistrée, `Reason: User` sur le paquet de tête) | `ansible-core` |
+| 22 | 2026-08-04 13:53 | 2026-08-04 15:53:24 → 15:53:25 +02:00 | idem, racine, description non capturée | `supergfxctl` — **épisode distinct, voir § 2.3, retiré depuis par Terra lui-même, pas par l'opérateur** |
+| 23 | 2026-08-04 18:14 | 2026-08-04 20:14:49 → 20:14:50 +02:00 | `dnf install git` | `git` |
+| 24 | 2026-08-04 18:15 | 2026-08-04 20:15:29 → 20:15:30 +02:00 | `dnf install claude-code` | `claude-code` |
+| 25 | 2026-08-04 19:08 | 2026-08-04 21:08:38 → 21:08:39 +02:00 | `dnf install htop` | `htop` |
+| 26 | 2026-08-05 14:15 | 2026-08-05 16:15:04 → 16:15:13 +02:00 | module Ansible `dnf5` (rôle `gpu_cdi`) | `nvidia-container-toolkit`, `nvidia-container-toolkit-selinux` |
+| 27 | 2026-08-06 08:38 | 2026-08-06 10:38:17 → 10:38:18 +02:00 | `dnf install -y python3-pip` | `python3-pip` |
+| 28 | 2026-08-06 13:31 | 2026-08-06 15:31:33 → 15:31:34 +02:00 | `dnf --disablerepo=terra install -y kitty` | `kitty` |
+| 29 | 2026-08-06 20:52 | 2026-08-06 22:52:54 → 22:52:56 +02:00 | module Ansible `dnf5` (rôle `editor`) | `helix`, `kate` |
+| 32 | 2026-08-07 19:27 | 2026-08-07 21:27:56 → 21:27:57 +02:00 | module Ansible `dnf5` (rôle `completion`) | `rust`, `cargo` |
+| 33 | 2026-08-07 19:34 | 2026-08-07 21:34:56 → 21:34:57 +02:00 | module Ansible `dnf5` (rôle `completion`) | `perl-FindBin` |
+| 34 | 2026-08-07 19:39 | 2026-08-07 21:39:00 → 21:39:01 +02:00 | `dnf install -y --disablerepo=terra perl-IPC-Cmd` | `perl-IPC-Cmd` |
+| 35 | 2026-08-07 19:40 | 2026-08-07 21:40:42 → 21:40:43 +02:00 | `dnf install -y --disablerepo=terra perl-File-Compare perl-IO-Socket-INET6 perl-Text-Template` | `perl-File-Compare`, `perl-IO-Socket-INET6`, `perl-Text-Template` |
+| 36/38 | 2026-08-08 19:54/21:13 | 2026-08-08 21:54:27 → 21:54:28 / 23:13:21 → 23:13:22 +02:00 | `dnf install -y wtype` puis `dnf remove -y wtype ydotool` | `wtype` — **épisode clos, auto-corrigé par l'opérateur, exclu** |
+| 37/38 | 2026-08-08 20:06/21:13 | 2026-08-08 22:06:54 → 22:06:55 / 23:13:21 → 23:13:22 +02:00 | `dnf install -y ydotool` puis retrait ci-dessus | `ydotool` — **épisode clos, idem** |
+
+**[AJOUTÉ le 2026-09-25] Deux colonnes d'heure, une seule définition.**
+La colonne « Date » d'origine est conservée telle quelle et rebaptisée :
+c'est le relevé brut de `dnf history`, qui affiche des heures **UTC** sur
+ce poste (`CLAUDE.md` § Sourcing des faits, règle sur les horodatages).
+La colonne locale donne, pour chaque transaction, début → fin selon
+`dnf history info N` relu le 2026-09-25, converti par
+`TZ=Europe/Brussels date -d '<heure> UTC' -Iseconds` — le décalage est
+calculé, pas supposé ; il vaut `+02:00` sur toutes ces dates. Recoupé
+sur une transaction d'août par une source qui porte son fuseau : la
+transaction 23 (`dnf history info 23` : `18:14:49` → `18:14:50`) a pour
+écritures rpm, dans le journal d'audit du noyau, `op=install
+sw="git-2.55.0-1.fc44.x86_64"` à `2026-08-04T20:14:50+02:00`
+(`journalctl -o short-iso --since '2026-08-04 20:14:00' --until
+'2026-08-04 20:16:00'`, relu le 2026-09-25).
 
 Trois épisodes déjà clos par l'opérateur lui-même (`cardwire`,
 `wtype`, `ydotool`) ne demandent aucun rapprochement — ils ne sont
@@ -423,11 +439,17 @@ Première depuis la transaction 49 (2026-08-15), en trois livrables — U2a
 (vérification après redémarrage, CDI). Valeurs issues de
 `~/u2-baseline-2026-09-24/` ou mesurées le 2026-09-25.
 
-| Transaction | Heure | Ligne de commande | Altérations |
-|---|---|---|---|
-| 51 | 2026-09-24 23:57 → 00:00 | `/usr/bin/dnf -C -y upgrade` | **1505** |
-| 52 / 53 | 2026-09-25 00:00 / 00:01 | `dnf -y install --nogpgcheck --disablerepo=* …/kmod-nvidia-*.rpm` | 1 / 2 |
-| 54 | **2026-09-25 16:41:42 → 16:41:50 +02:00** | `dnf upgrade -y claude-code` | 2 |
+| Transaction | Heure (`dnf history`, UTC, relevé brut) | Heure locale, début → fin (`dnf history info N` converti) | Ligne de commande | Altérations |
+|---|---|---|---|---|
+| 51 | 2026-09-24 23:57 → 00:00 | 2026-09-25 01:57:26 → 02:00:40 +02:00 | `/usr/bin/dnf -C -y upgrade` | **1505** |
+| 52 / 53 | 2026-09-25 00:00 / 00:01 | 2026-09-25 02:00:54 → 02:00:59 / 02:01:26 → 02:01:37 +02:00 | `dnf -y install --nogpgcheck --disablerepo=* …/kmod-nvidia-*.rpm` | 1 / 2 |
+| 54 | 2026-09-25 14:41:48 → 14:41:49 | 2026-09-25 16:41:48 → 16:41:49 +02:00 | `dnf upgrade -y claude-code` | 2 |
+
+**[AJOUTÉ le 2026-09-25] Mêmes deux colonnes qu'au § 1, même
+définition** : relevé brut de `dnf history` en UTC d'un côté, début →
+fin de `dnf history info N` converti par `TZ=Europe/Brussels date -d
+'<heure> UTC' -Iseconds` de l'autre. La transaction 51 a commencé le
+**2026-09-25** en heure locale, pas le 24 comme l'affiche `dnf history`.
 
 **Décompte de la 51** (`dnf history info 51`) : **734** `Upgrade`, 734
 `Replaced`, **30** `Install`, **7** `Remove` — **764 paquets** touchés
@@ -437,28 +459,6 @@ qui a été appliqué est bien ce qui avait été relu. *Le plan annonçait
 740 paquets ; l'écart de 24 n'est pas expliqué.*
 @VERIF : comparer le comptage de `dnf check-update` à celui du résumé
 de transaction, sur une file non vide.
-
-**La transaction 54 est la seule ligne de ce tableau dont l'heure soit en
-heure locale**, avec son décalage explicite. Source : `date -Is` exécuté
-juste avant et juste après `sudo dnf upgrade`, dans le livrable qui l'a
-menée. Les autres lignes reprennent l'heure affichée par `dnf history`,
-qui est **UTC** sur ce poste (`docs/machine-facts.md` § Points ouverts) —
-leur conversion relève d'un livrable distinct, elles ne sont pas touchées
-ici. La 54 le corrobore directement : `dnf history` la date de
-`14:41:48`, soit 16:41:48 +02:00 une fois ajoutées deux heures, à l'intérieur de l'intervalle mesuré par date -Is.
-
-**Transaction 54 — bascule du canal `claude-code` sur `latest`**
-(2026-09-25). `claude-code` **2.1.267-1 → 2.1.282-1**, seul paquet
-touché (`Upgrade` + `Replaced`, rien d'autre). Motif : Opus 5.5 exige
-Claude Code ≥ 2.1.280 *(source externe : documentation Claude Code, lue
-par le pilote le 2026-09-25)*, et le canal `stable` plafonnait ce
-jour-là à 2.1.274-1. Le `baseurl` du dépôt a été basculé de
-`.../rpm/stable` à `.../rpm/latest` — une seule ligne du fichier,
-`diff` à l'appui — ce qui ferme du même coup l'écart de canal resté
-ouvert depuis le 2026-08-04 (`docs/machine-facts.md` § Points ouverts).
-Méthode d'installation inchangée (dnf), aucun réglage de modèle touché.
-Retour arrière préparé avant la première écriture et toujours possible :
-le canal `latest` sert encore `2.1.267-1`.
 
 **Les 7 retraits** : les six paquets du noyau `7.1.6-201`
 (`installonly_limit = 3`) **et** `kmod-nvidia-7.1.6-201…610.43.03`, le
@@ -476,6 +476,49 @@ deviennent `profile list/get`) ; `systemd` 259.8 → 259.9 ; `dnf5`
 5.4.2.1 → 5.4.5.0 ; `selinux-policy` 44.5 → 44.10 ; `kate` 26.04.3 →
 26.08.1. **`git`, `glibc`, `helix`, `ansible-core` et le pare-feu n'ont
 pas bougé** — vérifié, pas supposé.
+
+**[ÉTAIT jusqu'au 2026-09-25 — remplacé par le paragraphe suivant]**
+**La transaction 54 est la seule ligne de ce tableau dont l'heure soit en
+heure locale**, avec son décalage explicite. Source : `date -Is` exécuté
+juste avant et juste après `sudo dnf upgrade`, dans le livrable qui l'a
+menée. Les autres lignes reprennent l'heure affichée par `dnf history`,
+qui est **UTC** sur ce poste (`docs/machine-facts.md` § Points ouverts) —
+leur conversion relève d'un livrable distinct, elles ne sont pas touchées
+ici. La 54 le corrobore directement : `dnf history` la date de
+`14:41:48`, soit 16:41:48 +02:00 une fois ajoutées deux heures, à
+l'intérieur de l'intervalle mesuré par `date -Is`.
+
+**[AJOUTÉ le 2026-09-25] Heure de la 54 : même définition que les
+autres lignes, corroboration conservée.** Les deux colonnes suivent
+désormais la définition commune (début → fin selon `dnf history info
+54`, converti) : `14:41:48` → `14:41:49` UTC, soit `16:41:48` →
+`16:41:49 +02:00`. La valeur que portait la cellule,
+**2026-09-25 16:41:42 → 16:41:50 +02:00**, n'est pas perdue : c'est
+l'encadrement par `date -Is`, exécuté juste avant et juste après
+`sudo dnf upgrade`. Il contient la transaction convertie, et corrobore
+ainsi la lecture UTC de `dnf history` par une source qui porte son
+fuseau. Le fait UTC lui-même est consigné dans `docs/machine-facts.md`
+§ Série U1-U2c (« Un piège d'horodatage ») et dans `docs/status.md` —
+pas en § Points ouverts, comme l'indiquait le paragraphe précédent.
+
+**Transaction 54 — bascule du canal `claude-code` sur `latest`**
+(2026-09-25). `claude-code` **2.1.267-1 → 2.1.282-1**, seul paquet
+touché (`Upgrade` + `Replaced`, rien d'autre). Motif : Opus 5.5 exige
+Claude Code ≥ 2.1.280 *(source externe : documentation Claude Code, lue
+par le pilote le 2026-09-25)*, et le canal `stable` plafonnait ce
+jour-là à 2.1.274-1. Le `baseurl` du dépôt a été basculé de
+`.../rpm/stable` à `.../rpm/latest` — une seule ligne du fichier,
+`diff` à l'appui — ce qui ferme du même coup l'écart de canal resté
+ouvert depuis le 2026-08-04 (`docs/machine-facts.md` § Points ouverts).
+Méthode d'installation inchangée (dnf), aucun réglage de modèle touché.
+Retour arrière préparé avant la première écriture et toujours possible :
+le canal `latest` sert encore `2.1.267-1`. **[AJOUTÉ le 2026-09-25]** La
+copie du fichier repo d'avant la bascule est conservée hors du dépôt,
+`~/claude-code.repo.avant-2026-09-25` (167 octets, `ls -l`) ; elle ne
+diffère du fichier en place que par la ligne `baseurl` (`diff` :
+`rpm/stable` contre `rpm/latest`, relu le 2026-09-25). Son sort se
+tranche à l'échéance du 2026-10-02 (`docs/machine-facts.md` § Points
+ouverts).
 
 ### 5.1 — La méthode, parce qu'elle resservira
 

@@ -813,7 +813,8 @@ commit `d7f93be` (hostname `Zephyrus-MM`, chemin `graphRoot` contenant le
 nom d'utilisateur, tous deux en section « Conteneurs »/« Système ») sans que
 la revue le détecte à l'époque.
 
-**D5 — Claude Code installé via le dépôt dnf officiel signé.** Canal latest depuis le 2026-09-25 (ÉTAIT stable),
+**D5 — Claude Code installé via le dépôt dnf officiel signé.** Canal
+latest depuis le 2026-09-25 (ÉTAIT stable),
 mises à jour par `dnf upgrade`. Confirmé par le contenu du fichier repo
 (`gpgcheck=1`, `baseurl=.../latest` depuis le 2026-09-25 ; **ÉTAIT**
 `.../stable`). Sans rapport avec la chaîne Ansible. L'écart entre ce dépôt
@@ -2050,6 +2051,13 @@ répertoires restent voulus sur ce poste après ce livrable).
   de l'état de départ ; *(c)* **D29**, dont le déclencheur disparaît si
   tout est supprimé (§ Décisions). **(a) et (b) sont liées, et pas
   seulement par commodité** — voir ci-dessous.
+  **[AJOUTÉ le 2026-09-25, après la bascule `claude-code`]** *(d)* que
+  faire de `~/claude-code.repo.avant-2026-09-25`, copie du fichier repo
+  d'avant la bascule sur `latest` (167 octets ; ne diffère du fichier en
+  place que par la ligne `baseurl`, `rpm/stable` contre `rpm/latest`) —
+  la garder tant qu'un retour sur `stable` reste envisagé, ou la
+  supprimer. Détail : [`docs/packages.md`](packages.md) § 5,
+  transaction 54.
 
   **Ce qu'aucun instantané ne couvre, ce sont `/boot` et `/boot/efi`**
   (§ Stockage : ils sont hors btrfs), et leurs **seules copies** sont les
