@@ -103,6 +103,32 @@ sans comprendre pourquoi elle a été posée.
   antérieure sans être revérifié depuis ; il est resté faux dans ce
   fichier sans que personne ne le remarque jusqu'à ce que la revue
   globale du 2026-08-08 le reproduise (`docs/review-2026-08.md` § 2.3).
+  **Cinquième cas (2026-09-25, U2b)** : dnf5 distingue strictement les
+  options **globales** (avant la sous-commande) des options **de
+  sous-commande** (après). `-y` et `-C` sont globales ; `--downloadonly`
+  ne l'est pas. Placée avant `upgrade`, elle fait répondre
+  `Unknown argument "--downloadonly" for command "dnf5"` et sortir en
+  **rc=2 sans rien télécharger**. Forme correcte :
+  ```
+  dnf -y upgrade --downloadonly
+  ```
+  Celui-ci échoue **bruyamment**, contrairement aux quatre précédents —
+  préférable, et c'est pourquoi il n'a coûté qu'une tentative.
+- **Une transaction longue se détache ; elle ne se lance pas au premier
+  plan.** L'outil de commande de l'agent interrompt à deux minutes **par
+  défaut** (`Exit code 143`, soit `SIGTERM` — mesuré en U2a-bis), mais ce
+  délai **n'est pas fixe** : il s'allonge à la demande jusqu'à un
+  **maximum de 600 000 ms, dix minutes** (paramètre `timeout`, décrit
+  comme « default 120000, max 600000 ») — U1 s'en était servi ainsi. Ce
+  n'est donc pas le défaut qui impose le détachement, c'est que **le
+  plafond de dix minutes ne suffit pas non plus** pour 764 paquets et
+  2,75 Gio. Ce qui dure se détache dans une unité système transitoire
+  (`systemd-run`, enfant de PID 1, qui survit au terminal et à la
+  session graphique) et se suit par **appels courts et répétés**. Le
+  plan de U2b prescrivait une boucle `for i in $(seq 1 600); do … sleep
+  15 … done` : deux heures et demie dans un seul appel, quinze fois le
+  plafond. Elle *paraît* correcte — c'est son enveloppe d'exécution qui
+  ne l'est pas. Patron complet : `docs/packages.md` § 5.1.
 - **Arbitrage entre reproduction fidèle et vérification de passivité,
   quand une commande a un effet de bord déjà documenté.** La
   reproduction fidèle prime pour le diagnostic — mais une commande dont

@@ -95,9 +95,9 @@ risquées. Détail complet dans `docs/gpu-containers.md` § 7.5.
   ci-dessous pour l'état courant.** Pilote alors : `NVIDIA-SMI
   610.43.03`, `KMD Version 610.43.03`, `CUDA UMD Version 13.3`, VBIOS
   `95.03.2D.00.06`. (`nvidia-smi -q`)
-  **État courant (2026-08-09, GPU-4)** : `NVIDIA-SMI 610.57.04`, `KMD
-  Version 610.57.04`, `CUDA Version 13.3`, VBIOS inchangé (mise à jour
-  logicielle, pas de flash). (`nvidia-smi -q`) Mise à jour intermédiaire
+  **État au 2026-08-09 (GPU-4), périmé — § Série U1-U2c, en fin** :
+  `NVIDIA-SMI 610.57.04`, `KMD Version 610.57.04`, `CUDA Version 13.3`,
+  VBIOS inchangé (logiciel, pas de flash). Mise à jour intermédiaire
   à `610.43.03 → 610.57.04` non documentée ici par un relevé distinct —
   seule la valeur au moment de l'installation initiale et la valeur
   courante sont consignées ; tout ce qui suppose `610.43.03` comme
@@ -352,22 +352,38 @@ plus.
 
 ## Stockage
 
-- Deux périphériques NVMe, modèle `HFS002TEJ9X101N`, ~1,9 To chacun :
-  `nvme0n1` (partitionné : `nvme0n1p1` `/boot/efi` vfat 600M, `nvme0n1p2`
-  `/boot` ext4 2G, `nvme0n1p3` `/home` btrfs 1,9T) et `nvme1n1`
-  (`nvme1n1p1`, btrfs, 1,9T, point de montage non affiché par `lsblk` dans
-  cette invocation — probablement `/`). (`lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL`)
-- `btrfs filesystem show /` : label `fedora`, uuid
-  `b37a7138-5e93-4344-a5f6-a728021c9e21`, **2 périphériques**, `FS bytes used
-  7.41GiB`. Les tailles par périphérique s'affichent à `0`/`MISSING` en mode
-  non privilégié — nécessitent root pour le détail par device.
-  (`btrfs filesystem show /`)
-- `btrfs filesystem usage /` (profils, sans le détail par périphérique, qui
-  requiert root — avertissement explicite affiché par la commande elle-même) :
-  - `Data,single` : 10,01 GiB alloués, 7,12 GiB utilisés (71,18 %)
-  - `Metadata,RAID1` : 1,00 GiB alloués, 295,27 MiB utilisés (28,83 %)
-  - `System,RAID1` : 8,00 MiB alloués, 16,00 KiB utilisés (0,20 %)
-  (`btrfs filesystem usage /`)
+**[CORRIGÉ le 2026-09-25, D1]** **ÉTAIT** : deux périphériques portant
+chacun *leur* système de fichiers, dont « `nvme1n1p1`, btrfs, point de
+montage non affiché … **probablement `/`** » — inférence fausse : ce
+membre n'est monté nulle part isolément.
+
+- Deux NVMe, modèle `HFS002TEJ9X101N`, ~1,9 To chacun. **Un seul système
+  de fichiers btrfs**, label `fedora`, sur **deux membres** (`devid 1`,
+  `devid 2`), 1,86 Tio chacun, 3,72 Tio au total, `Device missing:
+  0.00B`. `root` et `home` vivent dedans — d'où les 3,8 T que `df`
+  annonce pour `/` **et** `/home`. `/boot` (ext4) et `/boot/efi` (vfat)
+  sont hors btrfs, sur le même disque que `devid 1` — d'où leur absence
+  des instantanés. (`btrfs filesystem show`, `… usage /`, 2026-09-25)
+- Profils : `Data,single` 38,01 Gio alloués / 32,54 utilisés (ratio
+  **1,00**) ; `Metadata,RAID1` 1,00 Gio (ratio 2,00) ; `System,RAID1`
+  8,00 Mio. Données **réparties, non dupliquées** — 18,01 Gio sur
+  `devid 1`, 20,00 Gio sur `devid 2`.
+- **Les noms de périphériques ne sont pas stables** — quatre relevés,
+  **trois bascules** : `nvme0n1` le 2026-08-04 (inventaire d'origine),
+  `nvme1n1` le 2026-08-06 ([`docs/local-ai.md`](local-ai.md)), `nvme0n1`
+  **de nouveau** le 2026-09-24 22:22 (`etat/stockage.txt` de la série U2 :
+  `/dev/nvme0n1p3[/root]`), `nvme1n1` le 2026-09-25 après le redémarrage
+  de U2c. Le nom alterne ; ce n'est pas une inversion unique et récente.
+  `/etc/fstab` et les entrées de démarrage passent par l'identifiant du
+  système de fichiers : eux ne bougent pas. **Rien ne doit désigner ces
+  disques par leur nom.** Piège : `blkid -U <uuid>` répond l'**autre**
+  membre — un identifiant ne se convertit pas en nom de périphérique.
+- Origine : les deux partitions étaient membres **dès la création** du
+  volume, par l'installateur (2026-08-04, `/var/log/anaconda/storage.log`,
+  `BTRFSVolumeDevice._add_parent: fedora ; parent: nvme0n1p3` puis
+  `parent: nvme1n1p1`) — pas de `btrfs device add` ultérieur. **Rien ici
+  ne dit que `single` ait été choisi délibérément** : D1 constate et
+  assume. Voir **D29**.
 - Swap : `zram0`, 8G. (`lsblk`, `free -h`)
 
 ## Affichage
@@ -1826,6 +1842,26 @@ d'exclusion, exactement le type de compteur/liste périmable déjà
 écarté ailleurs dans ce dépôt (`CLAUDE.md` § Modes d'échec qui imitent
 le sourcing, item 5). Rien à corriger dans le rôle — décision prise,
 pas un point ouvert.
+
+**D29 (2026-09-25, D1) — profil de données du stockage : EN ATTENTE DE
+L'OPÉRATEUR, rien n'est tranché, aucune action prise.** Ce qui a changé
+depuis D1 : le poste héberge désormais, dans ce même système de
+fichiers, les trois instantanés et l'état de départ
+`~/u2-baseline-2026-09-24/` — le filet de sécurité de la série U1-U2c.
+D1 assumait la perte d'un NVMe au motif que « le dépôt distant fait
+foi » ; ce motif ne couvre pas des instantanés qui n'existent qu'ici.
+Trois voies, aucune choisie :
+*(a)* **garder `single`** — capacité maximale, le filet reste exposé ;
+*(b)* **données en `RAID1`** (`btrfs balance start -dconvert=raid1`) —
+survit à la perte d'un disque, au prix de **la moitié de la capacité**
+(3,72 → 1,86 Tio utiles) ; *(c)* **sauvegarde hors du poste** — seule
+voie couvrant aussi suppression et corruption logique, qu'un miroir
+réplique fidèlement. *(b)* et *(c)* ne s'excluent pas. **D29 est liée à
+la durée de conservation** (`docs/status.md`) : son déclencheur — des
+instantanés qui n'existent que sur ce poste — disparaît pour l'essentiel
+le jour où ils sont supprimés, donc une exposition **temporaire, bornée
+par cette décision-là**, est une option entière. *La commande de (b)
+n'est ni sourcée ni exercée : la vérifier avant tout usage.*
 
 **D28 (2026-08-17) — ANDROID_HOME et PATH posés via ~/.bashrc.d/, jamais
 par écriture dans ~/.bashrc ; `adb` viendra du SDK seul.** Troisième
@@ -5036,3 +5072,13 @@ aucune mise à jour de paquet hormis celles que le rôle lui-même
 effectue déjà par conception (aucune ici : `terra-gpg-keys` reste en
 44-5, § D10, `state: present` ne force pas la mise à jour d'un paquet
 déjà présent). Aucun autre rôle modifié. Aucun commit, aucun push.
+
+## Série U1-U2c — mise à jour de masse (2026-09-24/25)
+
+764 paquets, transactions 51 à 53, noyau `7.1.8` → `7.2.7`, pilote
+NVIDIA `610.57.04` → `615.71.09`. Détail et méthode :
+[`docs/packages.md`](packages.md) § 5 ; CDI :
+[`docs/gpu-containers.md`](gpu-containers.md) § 9.8 ;
+[`docs/status.md`](status.md) pour l'état courant. **Validée** le 2026-09-25 ;
+instantanés et état de départ **conservés** (conservation : décision
+distincte, non prise, liée à **D29**).

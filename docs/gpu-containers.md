@@ -1627,6 +1627,42 @@ nombre de fois où la branche opposée a été testée avec succès. Réponse
 apportée à `CLAUDE.md` § Avant d'agir — voir cette entrée pour la règle
 elle-même et son motif complet.
 
+### 9.8 — Deuxième événement réel de péremption (2026-09-25, U2c)
+
+Mise à jour du pilote `610.57.04` → `615.71.09`
+([`docs/packages.md`](packages.md) § 5). Même chaîne qu'en GPU-4, et
+cette fois **sans bogue** : détection, refus d'`ollama` par son
+`ExecStartPre`, notification émise, régénération par
+`--tags regen-cdi-spec` (`ok=53 changed=1 failed=0`, la seule tâche
+`changed` étant l'installation privilégiée), vérification refermée.
+
+**Ce que la régénération a produit**, consigné comme l'exige `CLAUDE.md`
+§ Matériel spécifique : `sha256sum` `b1e555d8…375b9b` →
+**`b38784620a60b1cf7444042991e59aca0a3966d0e3398f001887cd678316fb79`** ;
+taille 19 954 → **24 015** o ; réf. `610.57.04`/`615.71.09` 93 / 0 →
+**0 / 103** ; `cdiVersion: 0.7.0`.
+
+**Avertissements de `nvidia-ctk` 1.20.1** (mode auto-détecté `nvml`,
+`Using driver version 615.71.09`) — 13, tous de la forme
+`level=warning msg="Could not locate X"` :
+
+    libnvidia-vulkan-producer.so.615.71.09 · nvidia_drv.so (×2) · nvidia-xconfig
+    libglxserver_nvidia.so.615.71.09 (×2) · X11/xorg.conf.d/10-nvidia.conf
+    X11/xorg.conf.d/nvidia-drm-outputclass.conf · /tmp/nvidia-mps
+    vulkan/icd.d/nvidia_icd.json · vulkan/icd.d/nvidia_layers.json
+    /nvidia-persistenced/socket · /nvidia-fabricmanager/socket
+    nvidia-imex · nvidia-imex-ctl
+
+Composants X11/serveur ou sockets non lancés — aucun sur le chemin CDI.
+
+**La hausse de 93 à 103 références n'est pas un écart inexpliqué** :
+l'outil est passé de 1.19.1 à 1.20.1, et le pilote 615 apporte des
+bibliothèques absentes du 610 (`libnvidia-fmdrv`, `libnvidia-imex`,
+`libnvidia-egl-xcb`, `-xlib`, `ucodes_*.bin`). **Reproductibilité
+vérifiée** : une génération témoin faite deux minutes avant le rôle a
+produit un fichier **bit pour bit identique** à celui installé (`diff`
+rc=0) — donc ces avertissements sont bien les siens.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode

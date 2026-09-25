@@ -1,4 +1,4 @@
-# État réel du dépôt — 2026-08-09
+# État réel du dépôt — 2026-09-25
 
 Une page, pour quelqu'un qui reprend ce dépôt sans avoir lu les
 quarante livrables qui l'ont produit. Elle ne recopie rien — chaque
@@ -7,6 +7,12 @@ ligne renvoie au document qui porte la preuve ou la décision complète.
 chaque série) ; ce document répond à une seule question, **où en
 est-on aujourd'hui**, et se périme dès qu'un futur livrable change
 l'un des faits qu'il résume — à tenir à jour à ce moment-là, pas avant.
+
+**Rafraîchi le 2026-09-25 (livrable D1, après la série U1-U2c)** : les
+mises à jour en attente ont été appliquées — noyau `7.1.8` → `7.2.7`,
+pilote NVIDIA `610.57.04` → `615.71.09`. La ligne « paquets en
+attente » plus bas est corrigée avec son historique ; trois points
+ouverts ajoutés.
 
 **Rafraîchi le 2026-08-09 (livrable de clôture) — écrit plus tôt le
 même jour, déjà périmé sur plusieurs points avant la fin de la
@@ -210,17 +216,29 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   à ce que la documentation du dépôt affirme actuellement — trouvé au
   livrable 12, non corrigé (hors périmètre de ce livrable de clôture
   également).
-- Plusieurs dizaines de paquets en attente de mise à jour sur ce poste
-  (`dnf check-update`, relevé le 2026-08-18, chiffre volontairement
-  non figé ici), dont deux gérés par le dépôt COPR que
-  `roles/gpu_cdi/` déploie (`nvidia-container-toolkit`,
-  `nvidia-container-toolkit-selinux`) et `selinux-policy`/
-  `selinux-policy-targeted`, pertinents pour le mode `Enforcing` que
-  ce même rôle suppose déjà actif. Le pilote NVIDIA propriétaire
-  lui-même n'est PAS dans cette liste à ce jour (vérifié, pas supposé).
-  Appliquer ces mises à jour est un livrable à part entière, avec ses
-  propres mesures avant/après ; aucune mise à jour de paquet n'a eu
-  lieu pendant la série Android ni pendant sa clôture.
+- **[APPLIQUÉ le 2026-09-25, série U1-U2c]** Les mises à jour qui
+  étaient en attente ont été appliquées — transactions 51 à 53,
+  1505 paquets altérés ([`docs/packages.md`](packages.md) § 5).
+  **ÉTAIT** : « Plusieurs dizaines de paquets en attente … (relevé le
+  2026-08-18) … Le pilote NVIDIA propriétaire lui-même n'est PAS dans
+  cette liste à ce jour (vérifié, pas supposé). » — **les deux
+  affirmations étaient fausses au moment d'appliquer** : le décompte réel
+  au 2026-09-24 était de **740 paquets** (2,75 Gio), et le pilote NVIDIA
+  **y figurait**. La seconde n'était pas une erreur de mesure — un fait
+  daté du 2026-08-18, exact ce jour-là, que rien n'a revérifié pendant le
+  mois où il est resté lisible au présent.
+  `nvidia-container-toolkit` (1.19.1 → 1.20.1) et `selinux-policy`
+  (44.5 → 44.10) en faisaient bien partie ; `getenforce` vaut toujours
+  `Enforcing`.
+  De nouvelles depuis : **19 paquets** (`dnf check-update` rc=100).
+- **Connexion SSH authentifiée depuis une autre machine : jamais
+  exercée** (`sshd` `enabled`/`active` et répond en boucle locale, mais
+  `roles/recovery/` en dépend) — livrable d'accès en lecture seule.
+- **Durée de conservation des trois instantanés et de l'état de départ
+  `~/u2-baseline-2026-09-24/` (959 Mo)** : rien supprimé, décision
+  distincte non prise — liée à **D29**.
+- **Disposition du stockage** : décision **D29** en attente —
+  [`docs/machine-facts.md`](machine-facts.md) § Décisions.
 
 **Priorités, reprises de `docs/review-2026-08.md` § « Ce qu'il
 faudrait traiter en premier »** (statut détaillé de chacun des

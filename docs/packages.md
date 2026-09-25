@@ -416,6 +416,80 @@ toute exécution d'Ansible par construction (§ 0.3), les trois
 la trace locale d'une reconstruction automatique déjà couverte par la
 nécessité d'`akmod-nvidia`.
 
+## 5. Mise à jour de masse du 2026-09-25 — transactions 51 à 53
+
+Première depuis la transaction 49 (2026-08-15), en trois livrables — U2a
+(état de départ, instantanés), U2b (application sans redémarrage), U2c
+(vérification après redémarrage, CDI). Valeurs issues de
+`~/u2-baseline-2026-09-24/` ou mesurées le 2026-09-25.
+
+| Transaction | Heure | Ligne de commande | Altérations |
+|---|---|---|---|
+| 51 | 2026-09-24 23:57 → 00:00 | `/usr/bin/dnf -C -y upgrade` | **1505** |
+| 52 / 53 | 2026-09-25 00:00 / 00:01 | `dnf -y install --nogpgcheck --disablerepo=* …/kmod-nvidia-*.rpm` | 1 / 2 |
+
+**Décompte de la 51** (`dnf history info 51`) : **734** `Upgrade`, 734
+`Replaced`, **30** `Install`, **7** `Remove` — **764 paquets** touchés
+pour 1505 actions. La transaction annoncée avant tout téléchargement
+(`dnf --assumeno upgrade`) portait **les mêmes quatre chiffres** : ce
+qui a été appliqué est bien ce qui avait été relu. *Le plan annonçait
+740 paquets ; l'écart de 24 n'est pas expliqué.*
+@VERIF : comparer le comptage de `dnf check-update` à celui du résumé
+de transaction, sur une file non vide.
+
+**Les 7 retraits** : les six paquets du noyau `7.1.6-201`
+(`installonly_limit = 3`) **et** `kmod-nvidia-7.1.6-201…610.43.03`, le
+module local qui suit son noyau. Ce septième n'était pas dans la liste
+attendue par le plan, qui prévoyait `kernel-headers-7.1.3-200` — traité
+en fait en `Upgrade`. La garde « tout autre retrait : arrêt et rapport »
+n'a donc pas porté sur la bonne liste ; rien n'est passé, par chance.
+
+**Sauts notables** (`rpm -q`, 2026-09-25) : `kernel` 7.1.8-200 →
+**7.2.7-200** ; `akmod-nvidia`/`xorg-x11-drv-nvidia` 610.57.04 →
+**615.71.09** (série majeure) ; `nvidia-container-toolkit` 1.19.1 →
+**1.20.1** (outil de génération CDI) ; `asusctl` 6.3.11-2 → **6.5.0-1**
+(Terra ; syntaxe CLI modifiée — `-v` devient `info`, `profile -l/-p`
+deviennent `profile list/get`) ; `systemd` 259.8 → 259.9 ; `dnf5`
+5.4.2.1 → 5.4.5.0 ; `selinux-policy` 44.5 → 44.10 ; `kate` 26.04.3 →
+26.08.1. **`git`, `glibc`, `helix`, `ansible-core` et le pare-feu n'ont
+pas bougé** — vérifié, pas supposé.
+
+### 5.1 — La méthode, parce qu'elle resservira
+
+1. **Télécharger seul d'abord** (`dnf -y upgrade --downloadonly`).
+2. **Vérifier les signatures soi-même** contre le trousseau courant, avec
+   un **témoin** (trousseau vide) prouvant que la vérification sait
+   échouer — sinon le contrôle réussit toujours et ne prouve rien.
+3. **Appliquer depuis le seul cache** (`dnf -C -y upgrade`) : c'est `-C`
+   qui rend `-y` sans risque, rien de nouveau ne pouvant entrer.
+4. **Unité transitoire** (`sudo systemd-run --unit=… --service-type=oneshot
+   --remain-after-exit --no-block --property=TimeoutStartSec=infinity`) :
+   enfant de PID 1, elle survit au terminal et à la session graphique ;
+   `--remain-after-exit` rend `ExecMainStatus` relevable après coup.
+5. **Inhiber la veille explicitement** (`systemd-inhibit --mode=block
+   --what=shutdown:sleep:idle:handle-lid-switch`) : `systemd-run`
+   n'inhibe rien de lui-même.
+6. **Suivre par appels courts et répétés** (`CLAUDE.md` § Sourcing).
+7. **Frontière au redémarrage** : ce qui est vérifiable à froid l'est
+   avant, le poste restant récupérable jusque-là. La spécification CDI ne
+   peut **pas** être régénérée entre transaction et redémarrage (615 sur
+   disque, module en 610) : la garde refuse d'écrire — voulu, pas une panne.
+
+### 5.2 — `akmods` construit pour deux noyaux, mesuré
+
+`akmods` construit pour le noyau **par défaut** et pour le noyau **en
+cours** dès qu'ils diffèrent (`/usr/sbin/akmods`, branche
+`_kernels="${default_kernel} $(uname -r)"`) — mesuré, pas supposé :
+
+    52  Install  kmod-nvidia-7.2.7-200.fc44.x86_64-3:615.71.09-3   ← par défaut
+    53  Upgrade  kmod-nvidia-7.1.8-200.fc44.x86_64-3:615.71.09-3   ← en cours
+
+**Conséquence** : `7.1.7` garde son module `610.57.04` face à des
+bibliothèques `615.71.09`. Son entrée de démarrage existe toujours, et y
+démarrer donnerait un GPU inopérant (`Failed to initialize NVML: Driver/
+library version mismatch`) jusqu'à ce qu'`installonly_limit` le retire :
+le repli par noyau antérieur ne vaut que pour **7.1.8**.
+
 ## Voir aussi
 
 - [`docs/repositories.md`](repositories.md) § 4, § 9 — PKG-1, catégorie
