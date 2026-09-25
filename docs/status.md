@@ -234,9 +234,32 @@ relecture ; non refaite dans ce livrable, hors de son objet.
 - **Connexion SSH authentifiée depuis une autre machine : jamais
   exercée** (`sshd` `enabled`/`active` et répond en boucle locale, mais
   `roles/recovery/` en dépend) — livrable d'accès en lecture seule.
-- **Durée de conservation des trois instantanés et de l'état de départ
-  `~/u2-baseline-2026-09-24/` (959 Mo)** : rien supprimé, décision
-  distincte non prise — liée à **D29**.
+- **[TRANCHÉ EN PARTIE le 2026-09-25, livrable S1]** Conservation des
+  instantanés et de l'état de départ. `snap-home-2026-09-24-u2` a été
+  **supprimé** : aucune ligne des deux documents qu'il portait ne lui
+  était exclusive, et sur tout `/home` 179 entrées ne se trouvaient que
+  chez lui — 156 de cache et 22 d'artefacts de rotation, toutes
+  remplacées par des équivalents plus récents. Restent
+  `snap-root-2026-09-24-u2`, `snap-home-2026-09-25-u2b` et
+  `~/u2-baseline-2026-09-24/` (**1 005 293 624 octets**, soit 959 Mio,
+  dont 99 % d'archives de `/boot`), **conservés jusqu'au
+  2026-10-02** — une semaine d'usage normal après la mise à jour
+  validée. Ce qu'il restera à trancher ce jour-là :
+  [`docs/machine-facts.md`](machine-facts.md) § Points ouverts.
+  **ÉTAIT** : « Durée de conservation des trois instantanés … rien
+  supprimé, décision distincte non prise ».
+- **[Observé le 2026-09-25, S1] `dnf history info` affiche *ici* des
+  heures UTC**, là où `btrfs subvolume show` et le journal `systemd`
+  donnent l'heure locale avec son fuseau (`+0200`). Établi sur cette
+  machine par deux sources portant leur fuseau — le journal de l'unité
+  `u2b-dnf-apply` et le journal d'audit du noyau ; **ni `man dnf5` ni
+  `man dnf5-history` ne documentent ce point**, donc rien n'est affirmé
+  ici du comportement de `dnf5` en général. S1 a d'abord comparé les deux
+  référentiels sans convertir et en a tiré une chronologie fausse, qui a
+  déclaré `snap-home-2026-09-25-u2b` postérieur à la transaction alors
+  qu'il **la précède de 21 minutes**. **À porter dans
+  [`CLAUDE.md`](../CLAUDE.md) § Sourcing des faits**, avec les autres
+  pièges d'invocation de `dnf5` — hors du périmètre de ce livrable.
 - **Disposition du stockage** : décision **D29** en attente —
   [`docs/machine-facts.md`](machine-facts.md) § Décisions.
 

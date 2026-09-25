@@ -1846,8 +1846,10 @@ pas un point ouvert.
 **D29 (2026-09-25, D1) — profil de données du stockage : EN ATTENTE DE
 L'OPÉRATEUR, rien n'est tranché, aucune action prise.** Ce qui a changé
 depuis D1 : le poste héberge désormais, dans ce même système de
-fichiers, les trois instantanés et l'état de départ
+fichiers, les instantanés et l'état de départ
 `~/u2-baseline-2026-09-24/` — le filet de sécurité de la série U1-U2c.
+**[MIS À JOUR le 2026-09-25, S1]** ÉTAIT « les **trois** instantanés » :
+il n'en reste **deux** depuis la suppression de `snap-home-2026-09-24-u2`.
 D1 assumait la perte d'un NVMe au motif que « le dépôt distant fait
 foi » ; ce motif ne couvre pas des instantanés qui n'existent qu'ici.
 Trois voies, aucune choisie :
@@ -1860,7 +1862,15 @@ réplique fidèlement. *(b)* et *(c)* ne s'excluent pas. **D29 est liée à
 la durée de conservation** (`docs/status.md`) : son déclencheur — des
 instantanés qui n'existent que sur ce poste — disparaît pour l'essentiel
 le jour où ils sont supprimés, donc une exposition **temporaire, bornée
-par cette décision-là**, est une option entière. *La commande de (b)
+par cette décision-là**, est une option entière. **[PRÉCISÉ le
+2026-09-25, S1] Cette échéance a maintenant une date : le 2026-10-02.**
+Si les instantanés et l'état de départ sont supprimés ce jour-là, le
+déclencheur de D29 disparaît et la question se réduit à sa forme
+d'origine — celle que D1 avait déjà tranchée par « risque assumé ».
+S'ils sont prolongés, D29 reste entière. *Considération, non mesurée* :
+trancher D29 avant cette date éviterait d'avoir à la rouvrir, la trancher
+après reviendrait à décider sur un poste dont le filet a changé de
+taille. *La commande de (b)
 n'est ni sourcée ni exercée : la vérifier avant tout usage.*
 
 **D28 (2026-08-17) — ANDROID_HOME et PATH posés via ~/.bashrc.d/, jamais
@@ -2024,6 +2034,58 @@ corrigé pour D27 : `rm -rf ~/Android ~/.android` — non rejoué (ces
 répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
+
+- **[OUVERT le 2026-09-25, livrable S1] Échéance du 2026-10-02 — sort
+  des deux instantanés restants et de l'état de départ.** Décision de
+  l'opérateur du 2026-09-25 : `snap-root-2026-09-24-u2`,
+  `snap-home-2026-09-25-u2b` et `~/u2-baseline-2026-09-24/`
+  (**1 005 293 624 octets**, soit 959 Mio — `du -sb` et `du -sh`,
+  2026-09-25) sont conservés **jusqu'au 2026-10-02**, le temps d'une
+  semaine d'usage normal après la mise à jour validée. **Ce qu'il restera
+  à trancher ce jour-là**, dans un livrable distinct : *(a)* supprimer les
+  deux instantanés, ou les prolonger, et jusqu'à quand ; *(b)* que faire
+  de l'état de départ ; *(c)* **D29**, dont le déclencheur disparaît si
+  tout est supprimé (§ Décisions). **(a) et (b) sont liées, et pas
+  seulement par commodité** — voir ci-dessous.
+
+  **Ce qu'aucun instantané ne couvre, ce sont `/boot` et `/boot/efi`**
+  (§ Stockage : ils sont hors btrfs), et leurs **seules copies** sont les
+  deux archives de `boot-archive/` — **997 284 004 octets** (952 Mio),
+  dont `boot-ext4.tar` 976 312 320 o et `boot-efi-vfat.tar` 20 971 520 o,
+  soit 99 % du volume de l'état de départ. Mais ces archives **existent
+  en deux endroits** : dans l'état de départ vivant *et* dans
+  `snap-home-2026-09-25-u2b`, qui a été pris après leur création.
+  Vérifié le 2026-09-25 : `sha256sum -c SHA256SUMS` passe des deux côtés
+  (deux `OK` chacun), et le fichier `SHA256SUMS` lui-même est identique
+  bit pour bit. **Trois conséquences** : supprimer l'un des deux
+  emplacements seulement ne perd pas les archives ; cela ne libère
+  pratiquement **rien**, ce qui est mesuré et non supposé — `btrfs
+  filesystem du -s` donne `Exclusive = 0` pour les deux fichiers, tout
+  leur volume étant partagé ; et on ne perd réellement les archives
+  qu'en supprimant **les deux**. C'est pourquoi (a) et (b) ne se
+  tranchent pas séparément.
+
+  Deux faits à garder en vue ce jour-là : le repli par noyau antérieur
+  ne vaut que pour `7.1.8` ([`docs/packages.md`](packages.md) § 5.2) ; et
+  `snap-home-2026-09-25-u2b` a été pris à `01:36:28 +02:00`, **21 minutes
+  avant** le début de la transaction 51 (`01:57:26 +02:00`), donc il
+  ramène bien `/home` à son état d'avant la mise à jour.
+
+  **`dnf history undo` ne peut pas reconstituer l'état d'avant la
+  transaction 51 — et c'est indépendant de l'état de départ.** Mesuré sur
+  **deux** des 734 paquets mis à jour (`dnf list --showduplicates`,
+  2026-09-25) : `systemd`, installé 259.9-1, disponibles 259.5-1 en
+  `fedora` et 259.9-1 en `updates` — la **259.8 nulle part** ;
+  `selinux-policy`, installé 44.10-1, disponibles 43.3-1 et 44.10-1 — la
+  **44.5 nulle part**. Aucune des deux n'est non plus dans le cache
+  (`keepcache = 0` ; il n'y reste que deux RPM `@commandline` de
+  rpmfusion datant d'août). Deux paquets introuvables suffisent à établir
+  que l'état d'avant la 51 n'est pas reconstituable tel quel. *Ce que
+  `dnf5` ferait exactement d'un `undo` dans ce cas — refus global ou
+  annulation partielle — n'a été ni lu dans une source ni essayé.*
+  **L'état de départ ne contient aucun RPM** — `find -name '*.rpm'` : 0,
+  et les deux archives ne portent que `/boot` et `/boot/efi`. Le
+  supprimer ne change donc rien pour `undo`, ni en mieux ni en pire.
 
 - **[FERMÉ le 2026-08-05] Rôle exact d'`asus-shutdown.service`** (« ASUS
   Deferred Shutdown Handler », capacités `CapabilityBoundingSet=CAP_SYS_MODULE
@@ -5079,6 +5141,38 @@ déjà présent). Aucun autre rôle modifié. Aucun commit, aucun push.
 NVIDIA `610.57.04` → `615.71.09`. Détail et méthode :
 [`docs/packages.md`](packages.md) § 5 ; CDI :
 [`docs/gpu-containers.md`](gpu-containers.md) § 9.8 ;
-[`docs/status.md`](status.md) pour l'état courant. **Validée** le 2026-09-25 ;
-instantanés et état de départ **conservés** (conservation : décision
-distincte, non prise, liée à **D29**).
+[`docs/status.md`](status.md) pour l'état courant. **Validée** le 2026-09-25.
+
+**[MIS À JOUR le 2026-09-25, livrable S1]** ÉTAIT : « instantanés et état
+de départ **conservés** (conservation : décision distincte, non prise) ».
+La décision a été prise le jour même : `snap-home-2026-09-24-u2`
+**supprimé** — aucune ligne des deux documents qu'il portait ne lui était
+exclusive, et sur tout `/home` 179 entrées ne se trouvaient que chez lui,
+dont 156 de cache et 22 d'artefacts de rotation, toutes remplacées par des
+équivalents plus récents ; les deux autres et l'état de départ
+**conservés jusqu'au 2026-10-02** (§ Points ouverts).
+
+**Un piège d'horodatage, rencontré et refermé dans S1.** Le livrable a
+d'abord conclu que `snap-home-2026-09-25-u2b` avait été créé **après** la
+transaction, et a « corrigé » en ce sens une procédure qui disait vrai.
+Cause : **`dnf history info` affiche *sur cette machine* des heures UTC**,
+tandis que `btrfs subvolume show` et le journal `systemd` donnent l'heure
+locale avec son fuseau. Observé le 2026-09-25, établi par le journal de
+l'unité `u2b-dnf-apply` et par le journal d'audit du noyau, qui portent
+tous deux leur fuseau ; **ni `man dnf5` ni `man dnf5-history` ne
+documentent ce point** — rien n'est donc affirmé du comportement de
+`dnf5` en général. **Ce ne sont pas deux lectures du même instant** :
+`dnf history` date le début de la transaction 51 de `2026-09-24
+23:57:26`, le journal date le démarrage de l'unité qui la portait de
+`2026-09-25T01:57:05+02:00` — deux événements distincts, séparés de
+**21 s** une fois les deux heures appliquées, et dans cet ordre. Sans ce
+décalage, l'ordre s'inverse et l'écart devient deux heures. Corroboré sur
+la transaction 52, datée `00:00:54` par `dnf history`, contre une
+écriture rpm de `kmod-nvidia-7.2.7` enregistrée à `02:00:59+02:00` par
+l'audit du noyau — là encore deux événements distincts, **5 s** d'écart
+résiduel. Chronologie rétablie : l'instantané a été pris à
+`01:36:28 +02:00`, **21 minutes avant** le début de la transaction 51
+(`01:57:26 +02:00`), et aucun fichier qu'il contient n'est postérieur à
+sa propre création — le plus récent sous `.config` y date de `01:36:27`. **À porter dans `CLAUDE.md`
+§ Sourcing des faits**, auprès des autres pièges d'invocation `dnf5` —
+pas fait ici, hors périmètre.
