@@ -427,6 +427,7 @@ Première depuis la transaction 49 (2026-08-15), en trois livrables — U2a
 |---|---|---|---|
 | 51 | 2026-09-24 23:57 → 00:00 | `/usr/bin/dnf -C -y upgrade` | **1505** |
 | 52 / 53 | 2026-09-25 00:00 / 00:01 | `dnf -y install --nogpgcheck --disablerepo=* …/kmod-nvidia-*.rpm` | 1 / 2 |
+| 54 | **2026-09-25 16:41:42 → 16:41:50 +02:00** | `dnf upgrade -y claude-code` | 2 |
 
 **Décompte de la 51** (`dnf history info 51`) : **734** `Upgrade`, 734
 `Replaced`, **30** `Install`, **7** `Remove` — **764 paquets** touchés
@@ -436,6 +437,28 @@ qui a été appliqué est bien ce qui avait été relu. *Le plan annonçait
 740 paquets ; l'écart de 24 n'est pas expliqué.*
 @VERIF : comparer le comptage de `dnf check-update` à celui du résumé
 de transaction, sur une file non vide.
+
+**La transaction 54 est la seule ligne de ce tableau dont l'heure soit en
+heure locale**, avec son décalage explicite. Source : `date -Is` exécuté
+juste avant et juste après `sudo dnf upgrade`, dans le livrable qui l'a
+menée. Les autres lignes reprennent l'heure affichée par `dnf history`,
+qui est **UTC** sur ce poste (`docs/machine-facts.md` § Points ouverts) —
+leur conversion relève d'un livrable distinct, elles ne sont pas touchées
+ici. La 54 le corrobore directement : `dnf history` la date de
+`14:41:48`, soit 16:41:48 +02:00 une fois ajoutées deux heures, à l'intérieur de l'intervalle mesuré par date -Is.
+
+**Transaction 54 — bascule du canal `claude-code` sur `latest`**
+(2026-09-25). `claude-code` **2.1.267-1 → 2.1.282-1**, seul paquet
+touché (`Upgrade` + `Replaced`, rien d'autre). Motif : Opus 5.5 exige
+Claude Code ≥ 2.1.280 *(source externe : documentation Claude Code, lue
+par le pilote le 2026-09-25)*, et le canal `stable` plafonnait ce
+jour-là à 2.1.274-1. Le `baseurl` du dépôt a été basculé de
+`.../rpm/stable` à `.../rpm/latest` — une seule ligne du fichier,
+`diff` à l'appui — ce qui ferme du même coup l'écart de canal resté
+ouvert depuis le 2026-08-04 (`docs/machine-facts.md` § Points ouverts).
+Méthode d'installation inchangée (dnf), aucun réglage de modèle touché.
+Retour arrière préparé avant la première écriture et toujours possible :
+le canal `latest` sert encore `2.1.267-1`.
 
 **Les 7 retraits** : les six paquets du noyau `7.1.6-201`
 (`installonly_limit = 3`) **et** `kmod-nvidia-7.1.6-201…610.43.03`, le

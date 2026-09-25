@@ -58,8 +58,10 @@ noms, pour référence rapide seulement : `claude-code`,
 - `rpmfusion-free-tainted` : activé délibérément par la transaction 18
   (`dnf install rpmfusion-free-release-tainted`), liée à la chaîne
   multimédia. (`dnf history info 18`, `cat /etc/yum.repos.d/rpmfusion-free-tainted.repo`)
-- `claude-code` : `baseurl=https://downloads.claude.ai/claude-code/rpm/stable`,
+- `claude-code` : `baseurl=https://downloads.claude.ai/claude-code/rpm/latest`,
   gpgcheck actif, clé `https://downloads.claude.ai/keys/claude-code.asc`.
+  **[BASCULÉ le 2026-09-25]** ÉTAIT `.../rpm/stable` — voir § Points
+  ouverts, entrée sur le canal, fermée le même jour.
   (`cat /etc/yum.repos.d/claude-code.repo`)
 
 **Note de méthode — incident `dnf repoinfo terra`.** Cette commande a
@@ -811,11 +813,12 @@ commit `d7f93be` (hostname `Zephyrus-MM`, chemin `graphRoot` contenant le
 nom d'utilisateur, tous deux en section « Conteneurs »/« Système ») sans que
 la revue le détecte à l'époque.
 
-**D5 — Claude Code installé via le dépôt dnf officiel signé.** Canal stable,
+**D5 — Claude Code installé via le dépôt dnf officiel signé.** Canal latest depuis le 2026-09-25 (ÉTAIT stable),
 mises à jour par `dnf upgrade`. Confirmé par le contenu du fichier repo
-(`gpgcheck=1`, `baseurl=.../stable`). Sans rapport avec la chaîne Ansible :
-un écart entre ce dépôt et le canal `latest` annoncé par `claude doctor` est
-observé et documenté en « Points ouverts ».
+(`gpgcheck=1`, `baseurl=.../latest` depuis le 2026-09-25 ; **ÉTAIT**
+`.../stable`). Sans rapport avec la chaîne Ansible. L'écart entre ce dépôt
+et le canal annoncé par `claude doctor`, longtemps ouvert, est **fermé
+depuis la bascule** — § Points ouverts.
 
 **D6 — `tuned-ppd` remplacé par `power-profiles-daemon`.** Transaction 7
 (`dnf swap tuned-ppd power-profiles-daemon --allowerasing`), confirmée :
@@ -2247,11 +2250,23 @@ répertoires restent voulus sur ce poste après ce livrable).
   `docs/dgpu-power.md` § Recommandation pour l'argumentaire complet et le
   point non résolu résiduel sur son risque (fonctionnalités Plasma
   dépendant de l'énumération KWin).
-- **`claude doctor` annonce le canal `latest`** alors que le dépôt dnf pointe
-  `stable` : écart confirmé par lecture croisée (`claude doctor` +
-  `/etc/yum.repos.d/claude-code.repo`), sans effet apparent observé.
-  `@VERIF : cause de l'écart entre canal annoncé et dépôt configuré —
-  documentation officielle Claude Code, hors de portée de ce poste.`
+- **[FERMÉ le 2026-09-25] `claude doctor` annonçait le canal `latest`
+  alors que le dépôt dnf pointait `stable`.** ÉTAIT : « écart confirmé par
+  lecture croisée …, sans effet apparent observé », avec un marqueur de
+  vérification renvoyant à la documentation officielle. **Ce qui est
+  établi désormais, et par mesure** : c'est le `baseurl` du fichier repo
+  qui détermine ce que `dnf` sert, pas la ligne « Auto-update channel »
+  de `claude doctor`. Preuve directe, le 2026-09-25 : tant que le
+  `baseurl` pointait `stable`, `dnf` ne proposait que `2.1.274-1`, alors
+  même que `claude doctor` annonçait `latest` ; le `baseurl` basculé sur
+  `latest`, `dnf` a immédiatement proposé et installé `2.1.282-1`
+  (transaction 54, `docs/packages.md` § 5). L'écart n'existe plus, les
+  deux valeurs disant maintenant `latest`. *Reste une hypothèse, non
+  sourcée* : que la ligne « Auto-update channel » soit **sans effet**
+  parce que `claude doctor` déclare par ailleurs « Auto-updates: Managed
+  by package manager ». C'est cohérent avec ce qui a été mesuré, mais la
+  mesure n'établit que le rôle du `baseurl`, pas l'inertie de l'autre
+  réglage.
 - **Commandes rapportées en échec lors de l'inventaire manuel initial de
   l'utilisateur, reproduites ici à l'identique** :
   - `journalctl -b0 -g 'drm\|amdgpu\|nvidia'` : renvoie `-- No entries --`,
