@@ -1890,6 +1890,12 @@ détail : `roles/ssh_access/README.md` ; commandes de retour arrière : même
 fichier. **Connexion par clé seule depuis le PC Windows réussie le
 2026-09-28 à 10:20:46 +02:00 (journal sshd, empreinte de la clé
 Windows)**.
+**[PRÉCISÉ le 2026-09-28, R1b-bis]** La clé existante du poste, conservée
+par D30, est à traiter comme **potentiellement partagée** : elle a servi
+le 2026-08-04 à des connexions entrantes depuis une autre machine, et
+l'écriture de la paire sur ce poste coïncide, à la seconde, avec une
+session venue de cette même source (concordance, pas preuve). Point ouvert
+correspondant, § Points ouverts ; faits datés, `docs/status.md`.
 
 **D29 (2026-09-25, D1) — profil de données du stockage : EN ATTENTE DE
 L'OPÉRATEUR, rien n'est tranché, aucune action prise.** Ce qui a changé
@@ -2083,6 +2089,45 @@ répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
 
+- **[OUVERT le 2026-09-28, R1b-bis] Clé de `~/.ssh/id_ed25519.pub` à traiter
+  comme potentiellement partagée.** Faits, lus en lecture seule le
+  2026-09-28. *(1)* Le 2026-08-04, deux connexions entrantes ont été
+  acceptées par cette clé (21:43:17 et 23:00:46 +02:00), depuis une
+  adresse du réseau local distincte de toutes celles du poste ce jour-là
+  (journaux `sshd` et NetworkManager ; détail `docs/status.md`). Une
+  authentification par clé prouve que la machine distante disposait de la
+  clé privée, ou d'un agent qui la détenait : le journal ne distingue pas
+  les deux, et aucun message d'agent n'y figure. *(2)* Dates (`stat`,
+  btrfs) : `~/.ssh` est né le 2026-08-04 à 21:33:11 +02:00 ; `id_ed25519`
+  et `id_ed25519.pub` sont nés le 2026-08-04 à 21:38:02 +02:00, mais
+  portent une date de modification du **2026-06-16 18:38:48 +02:00**,
+  antérieure à la création de la racine du système (`/` né le 2026-08-04 à
+  13:03:16 +02:00 ; première transaction de l'opérateur, `dnf history info
+  3` : 11:33:32 UTC, soit 13:33:32 +02:00). Le contenu préexistait donc au
+  système ; une date de modification peut être conservée par l'outil de
+  copie ou posée à la main, et rien ici ne dit d'où il vient. *(3)*
+  Concordances de seconde, pas preuves : la naissance de la paire tombe
+  dans la seconde d'une session sans terminal (`terminal=ssh`, audit)
+  ouverte par mot de passe depuis la même source (21:38:02) ; la date de
+  modification de l'ancien `authorized_keys`, conservée par la sauvegarde
+  `authorized_keys.avant-R1b`, tombe dans celle de la session suivante
+  (21:42:37). *(4)* L'opérateur ne sait plus si la paire a été recopiée
+  depuis une autre machine [PILOTE-DÉCLARÉ, 2026-09-28]. **Trois options,
+  aucune choisie.** *(a)* **La conserver dans `authorized_keys`** — gardes
+  « au moins une clé » de `roles/recovery/` et garde 0b de
+  `roles/gpu_mux/` inchangées (deux clés) ; toute machine qui détient la
+  clé privée garde l'accès. *(b)* **L'en retirer** — il reste la clé
+  Windows : les deux gardes passent toujours (une clé), mais le poste ne
+  peut plus s'authentifier chez lui-même par cette clé. *(c)* **Remplacer
+  la paire du poste** (nouvelle paire générée ici, ancienne retirée
+  d'`authorized_keys`) — mêmes effets sur les gardes que *(b)* ; touche
+  aussi tout service distant où l'ancienne clé publique est enregistrée,
+  non inventorié ici. **Effet sur le point ouvert suivant** : sa garde
+  prévue, « au moins une clé autre que celle du poste », suppose que la
+  clé de `~/.ssh/id_ed25519.pub` est **propre au poste**. Sous *(a)*,
+  cette prémisse ne tient pas : la clé du poste serait elle-même une clé
+  utilisable depuis ailleurs, et la garde compterait mal. Sous *(c)*, elle
+  redevient vraie pour la nouvelle paire.
 - **[OUVERT le 2026-09-28, R1b] Désactiver l'authentification SSH par
   mot de passe.** Aujourd'hui `passwordauthentication yes` (D30, état
   relevé en R1a), conservé par décision de l'opérateur. La désactiver
