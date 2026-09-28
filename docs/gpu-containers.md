@@ -1411,6 +1411,32 @@ dispositif a intercepté exactement ce pour quoi il a été conçu** — sans
 lui, le conteneur aurait démarré, le GPU aurait été invisible,
 l'inférence serait tombée sur le CPU sans aucun message.
 
+**[CORRIGÉ le 2026-09-25] Heure de la transaction 39 : une heure UTC
+comparée à des heures locales.** ÉTAIT, dans le paragraphe ci-dessus :
+« (2026-08-09 08:48:18) », « les paquets installés à 08:48 », « pas à
+08:48 » — heures de `dnf history`, qui sont **UTC** sur ce poste,
+posées sans conversion face à des heures `+02:00`. Corrigé, en heure
+locale :
+
+| Événement | Heure locale | Source |
+|---|---|---|
+| Transaction 39 (`dnf update`, pilote → `610.57.04`) | `10:48:18` → `10:49:29 +02:00` | `dnf history info 39` : `08:48:18` → `08:49:29` UTC, converti par `TZ=Europe/Brussels date -d '… UTC' -Iseconds` ; audit rpm `op=update sw="akmod-nvidia-3:610.57.04-1.fc44.x86_64"` à `2026-08-09T10:49:29+02:00` |
+| Transaction 40 (`kmod-nvidia` construit par `akmods`) | `10:49:49` → `10:49:55 +02:00` | `dnf history info 40` : `08:49:49` → `08:49:55` UTC ; audit rpm `op=install sw="kmod-nvidia-7.1.7-200…610.57.04…"` à `2026-08-09T10:49:55+02:00` |
+| Démarrage suivant | `10:50:36 +02:00` | `journalctl --list-boots` (démarrage précédent : `10:46:14` → `10:50:10 +02:00`) |
+| Module chargé | `10:50:42 +02:00`, `610.57.04` | `journalctl -b 32c1b1de0f9a462d8508f94168f29f75 -k -o short-iso` (index `-26` le 2026-09-25) : `NVRM: loading NVIDIA UNIX Open Kernel Module … 610.57.04` (démarrage précédent, `10:46:20 +02:00` : `610.43.03`) |
+
+**Conséquence** : l'installation n'a pas eu lieu deux heures avant la
+fenêtre, mais **à l'intérieur** de la fenêtre `10:00:54` →
+`11:00:18 +02:00`. La bascule effective se date désormais au
+**redémarrage de `10:50:36 +02:00`**, environ une minute après la fin
+de la transaction 40. Ce n'est plus « l'un des redémarrages
+rapprochés » de la fenêtre. Ce qui reste vrai : la fenêtre elle-même,
+et le principe selon lequel l'installation ne vaut pas péremption
+(elle ne prend effet qu'au rechargement du module). La cause retenue
+(transaction 39, puis redémarrage) ne change pas, et aucune décision
+ni aucun rôle n'en dépend. Règle : `CLAUDE.md` § Sourcing des faits,
+comparaison d'horodatages.
+
 **Bug trouvé en régénérant, corrigé avant de pouvoir régénérer pour de
 vrai** : `--tags regen-cdi-spec`, rejoué trois fois sur cette
 péremption réelle, laissait `/etc/cdi/nvidia.yaml` totalement
@@ -1545,6 +1571,10 @@ horaire ci-dessous est une ligne de journal relue dans cette session.
 
 **Bascule du pilote, entre 10:00 et 11:00** (§ 9.6 ci-dessus pour le
 détail de la datation par encadrement).
+**[PRÉCISÉ le 2026-09-25]** Les heures de ce § 9.7 sont des heures
+locales, `+02:00` (`journalctl -o short-iso`). La bascule se date
+désormais au redémarrage de `10:50:36 +02:00` : voir § 9.6, correction
+de l'heure de la transaction 39.
 
 **Douze échecs horaires consécutifs**, un par exécution de
 `local-ai-cdi-verify.timer` (`OnCalendar=hourly`), tous avec le même

@@ -248,6 +248,18 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   [`docs/machine-facts.md`](machine-facts.md) § Points ouverts.
   **ÉTAIT** : « Durée de conservation des trois instantanés … rien
   supprimé, décision distincte non prise ».
+  **[MIS À JOUR le 2026-09-25, 21:12 +02:00]** Taille de l'état de
+  départ : **1 005 294 083 octets** (`du -sb`), soit 958,72 Mio.
+  ÉTAIT : **1 005 293 624 octets**. L'écart de +459 octets tient à deux
+  fichiers réécrits à `16:18:48 +02:00` (`procedure/RESTAURATION.md`,
+  `MANIFEST.sha256` — `sha256sum -c` : 36/36 `OK`). **[PILOTE-DÉCLARÉ,
+  d'après les comptes rendus du 2026-09-25]** Ces écritures sont celles
+  du troisième amend de S1 (`5ef3595`, validé à `16:19:23 +02:00`), qui
+  a mesuré avant d'écrire. Le reflog corrobore la fenêtre. Ne pas
+  confondre avec la date d'auteur de `d7ff364` (`15:56:59 +02:00`,
+  conservée par `--amend`) : sa date de validation est
+  `16:25:30 +02:00`. Détail : [`docs/machine-facts.md`](machine-facts.md)
+  § Points ouverts.
 - **[Observé le 2026-09-25, S1] `dnf history info` affiche *ici* des
   heures UTC**, là où `btrfs subvolume show` et le journal `systemd`
   donnent l'heure locale avec son fuseau (`+0200`). Établi sur cette
@@ -260,6 +272,8 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   qu'il **la précède de 21 minutes**. **À porter dans
   [`CLAUDE.md`](../CLAUDE.md) § Sourcing des faits**, avec les autres
   pièges d'invocation de `dnf5` — hors du périmètre de ce livrable.
+  **[FAIT le 2026-09-25, commit `b2679ef`]** Porté dans `CLAUDE.md`
+  § Sourcing des faits, règle sur la comparaison d'horodatages.
 - **Disposition du stockage** : décision **D29** en attente —
   [`docs/machine-facts.md`](machine-facts.md) § Décisions.
 

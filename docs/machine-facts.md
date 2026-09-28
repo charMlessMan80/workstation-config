@@ -2058,6 +2058,40 @@ répertoires restent voulus sur ce poste après ce livrable).
   la garder tant qu'un retour sur `stable` reste envisagé, ou la
   supprimer. Détail : [`docs/packages.md`](packages.md) § 5,
   transaction 54.
+  **[MIS À JOUR le 2026-09-25, 21:12 +02:00] Taille de l'état de
+  départ** : **1 005 294 083 octets** (`du -sb`), soit 958,72 Mio (959M
+  affiché par `du -sh`). ÉTAIT : **1 005 293 624 octets**. L'écart est
+  de **+459 octets**. Seuls deux fichiers ont été modifiés depuis la
+  première version du commit S1 (`find -newermt '2026-09-25
+  15:56:59'`) : `procedure/RESTAURATION.md` et `MANIFEST.sha256`, tous
+  deux à `16:18:48 +02:00`. `sha256sum -c MANIFEST.sha256` donne 36
+  `OK` sur 36, rc=0 ; le manifeste couvre `RESTAURATION.md` et a été
+  réécrit en même temps que lui. Aucun répertoire ne figure dans ce
+  `find` : aucun fichier créé ni supprimé.
+  **Deux horodatages git à ne pas confondre** — même piège que la règle
+  de `CLAUDE.md` § Sourcing des faits sur les horodatages. `d7ff364`
+  porte la date d'**auteur** `2026-09-25T15:56:59+02:00`, que
+  `git commit --amend` conserve, et la date de **validation**
+  `2026-09-25T16:25:30+02:00`. Le reflog (`git reflog
+  --date=iso-strict`) donne les validations successives du commit S1 :
+  `4303922` à `15:56:59`, `e45f88e` à `16:11:10`, **`5ef3595` à
+  `16:19:23`**, `88ed37f` à `16:24:58`, `d7ff364` à `16:25:30`, toutes
+  en `+02:00`. L'écriture de `16:18:48` tombe entre `e45f88e` et
+  `5ef3595`, 35 s avant ce dernier. C'est aussi `5ef3595` qui
+  introduit « 1 005 293 624 octets » dans ce fichier et remplace
+  « 959 Mo » et « 976 Mo » (`git diff e45f88e 5ef3595`).
+  **Attribution [PILOTE-DÉCLARÉ, d'après les comptes rendus du
+  2026-09-25]** : l'écriture de `16:18:48` est celle du troisième amend
+  de S1 (`5ef3595`). Ce tour a mesuré `du -sb` (1 005 293 624 octets)
+  **avant** de corriger les unités dans `procedure/RESTAURATION.md`,
+  puis a reconstruit `MANIFEST.sha256`. Son rapport a été reçu vers
+  16:21 +02:00. L'écart de +459 octets est donc l'effet de ses propres
+  écritures, postérieures à sa mesure. Le reflog et les dates de
+  validation corroborent cette fenêtre, ils ne l'établissent pas seuls.
+  La part des 459 octets propre à chacun des deux fichiers n'est pas
+  établie, faute de tailles antérieures consignées. Les archives de
+  `boot-archive/` n'ont pas bougé : `du -sb` donne toujours
+  **997 284 004 octets**.
 
   **Ce qu'aucun instantané ne couvre, ce sont `/boot` et `/boot/efi`**
   (§ Stockage : ils sont hors btrfs), et leurs **seules copies** sont les
@@ -4710,6 +4744,12 @@ répertoires restent voulus sur ce poste après ce livrable).
   avec preuve datée ; temporisation `kitty` ajoutée comme
   partiellement prouvée (plancher structurel 268 ms, jamais eu à
   attendre réellement) ; pilote, `supergfxctl`, `cardwire` rafraîchis.
+  **[PRÉCISÉ le 2026-09-25]** Les heures de cette entrée (`10:00:54`,
+  `11:00:18`, `10:51`, `22:46`) sont locales, `+02:00`. La transaction
+  39 a eu lieu de `10:48:18` à `10:49:29 +02:00` (`dnf history` affiche
+  `08:48:18` UTC), **dans** la fenêtre, et la bascule se date au
+  redémarrage de `10:50:36 +02:00`. Correction et sources :
+  `docs/gpu-containers.md` § 9.6.
   Aucune action privilégiée cette série — confirmé, pas supposé.
 - **2026-08-10 — GitHub Copilot CLI, second agent de code, npm
   rouvert (D24/D25).** Besoin de l'opérateur : répartir la
@@ -5198,4 +5238,6 @@ résiduel. Chronologie rétablie : l'instantané a été pris à
 (`01:57:26 +02:00`), et aucun fichier qu'il contient n'est postérieur à
 sa propre création — le plus récent sous `.config` y date de `01:36:27`. **À porter dans `CLAUDE.md`
 § Sourcing des faits**, auprès des autres pièges d'invocation `dnf5` —
-pas fait ici, hors périmètre.
+pas fait ici, hors périmètre. **[FAIT le 2026-09-25, commit `b2679ef`]**
+Porté dans `CLAUDE.md` § Sourcing des faits, règle sur la comparaison
+d'horodatages.
