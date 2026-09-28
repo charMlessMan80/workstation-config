@@ -53,6 +53,7 @@ seul rôle du dépôt tenu à l'écart de cet enchaînement :
 |---|---|
 | [`roles/bootstrap/`](roles/bootstrap/) | `power-profiles-daemon`, dépôt `terra` (clé vérifiée hors ligne avant tout usage), règle `sudo` sans mot de passe — les trois préalables jusqu'ici manuels, désormais reconstructibles |
 | [`roles/recovery/`](roles/recovery/) | Chemin de retour SSH, préalable à toute bascule GPU risquée |
+| [`roles/ssh_access/`](roles/ssh_access/) | Autorise la clé SSH du PC Windows de l'opérateur dans `authorized_keys` (D30) — clé et empreinte hors dépôt, ne touche ni `sshd` ni le pare-feu |
 | [`roles/gpu_cdi/`](roles/gpu_cdi/) | Rend la RTX 4090 utilisable depuis Podman rootless par CDI natif, SELinux `Enforcing` |
 | [`roles/gpu_mux/`](roles/gpu_mux/) | Bascule le MUX GPU (panneau câblé dGPU/iGPU) |
 | [`roles/local_ai/`](roles/local_ai/) | Infrastructure d'inférence locale : Ollama conteneurisé, réseau confiné |

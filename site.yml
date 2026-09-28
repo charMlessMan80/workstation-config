@@ -8,8 +8,8 @@
 # Amorçage (D9 pas encore en place sur une machine neuve) :
 #   ansible-playbook --ask-become-pass site.yml
 #
-# Étiquettes pour rejouer un rôle seul : bootstrap, recovery, gpu_cdi,
-# gpu_mux, local_ai, editor, completion, copilot_cli, android_jdk,
+# Étiquettes pour rejouer un rôle seul : bootstrap, recovery, ssh_access,
+# gpu_cdi, gpu_mux, local_ai, editor, completion, copilot_cli, android_jdk,
 # android_sdk, android_env — voir docs/orchestration.md pour l'usage
 # complet, y compris la reprise après le point d'arrêt.
 #
@@ -45,6 +45,12 @@
     # avant est ce qui rend cette garde utile plutôt que vide.
     - role: recovery
       tags: ['recovery']
+
+    # Accès SSH depuis Windows (D30) — après recovery, qui garantit sshd
+    # (ssh_access le lit, ne le modifie jamais) ; clé et empreinte hors
+    # dépôt, host_vars/localhost/*.local.yml. N'écrit que authorized_keys.
+    - role: ssh_access
+      tags: ['ssh_access']
 
     # Dépôt CDI/COPR + spécification — aucune dépendance amont au-delà
     # du pilote NVIDIA déjà chargé (pré-Ansible, docs/orchestration.md).

@@ -66,6 +66,7 @@ série, non traitée : voir § Points ouverts restants, plus bas.
 | Composant | Décision(s) | Preuve | Document |
 |---|---|---|---|
 | Bascule GPU MUX (panneau câblé dGPU/iGPU) | D2bis/D2ter | Bascule effectuée et vérifiée par mesure post-redémarrage (topologie DRM, `pending_reboot`) | `docs/gpu-mux-recovery.md`, `docs/machine-facts.md` § Décisions, journal 2026-08-05 |
+| Clé SSH du PC Windows autorisée (2026-09-28) | D30, `roles/ssh_access/` | Gardes G1 à G4 et garde de sauvegarde démontrées dans les deux sens ; G5 en échec exercée par état « avant » substitué ; G6 en échec exercée seulement hors `~/.ssh` (copie sans étiquette) ; échec du contrôle de mode `0600` non exercé — détail : `roles/ssh_access/README.md`, sur une copie ; puis écriture réelle : deux empreintes, mode `0600`, SELinux conforme, rejeu `changed=0`. **Connexion par clé seule depuis le PC Windows réussie le 2026-09-28 à 10:20:46 +02:00 (journal sshd, empreinte de la clé Windows)** | `roles/ssh_access/README.md` |
 | Chemin de retour SSH avant toute bascule risquée | `roles/recovery/` | Trois gardes (sshd actif+activé, clé publique non vide, `firewalld` autorise ssh), démontrées dans les deux sens | `roles/recovery/README.md` |
 | Toolkit conteneur NVIDIA + spécification CDI | D7 | Dépôt COPR corroboré (empreinte de clé, sans corroboration indépendante — écart assumé, § écarté ci-dessous n'applique pas ici, c'est un risque **accepté**, pas une voie écartée). **Chaîne détection → régénération prouvée de bout en bout par un événement réel non provoqué (2026-08-09, GPU-4)** : mise à jour du pilote `610.43.03` → `610.57.04`, péremption détectée, `ollama` bloqué (`ExecStartPre` refusé), notifications émises, régénération via `regen-cdi-spec` (bogue de collision de variable trouvé et corrigé au passage — cette branche n'avait jamais réellement écrit depuis sa création), test conteneur de bout en bout réussi. **Nature de la preuve, précisée** : avant cet événement, seule la branche « déjà à jour » de `verify-cdi-spec` avait été exercée (d'où la formulation précédente de cette ligne, correcte pour ce qu'elle couvrait mais silencieuse sur la branche de régénération, jamais testée en conditions réelles jusqu'ici) | `docs/gpu-containers.md` § 9.6-9.7, `docs/repositories.md` § 1-3 |
 | Temporisation du démarrage `kitty` sur la stabilité des sorties | BUR-4/BUR-5 | **Partiellement prouvée.** Opérationnelle à deux ouvertures de session réelles (`269 ms`, `268 ms`) — le bug BUR-5 qui empêchait l'autostart de se lancer est réellement corrigé. Mais ces deux temps sont le **plancher structurel** du script (deux échantillons `rc=0` identiques dès le premier relevé, jamais d'itération au-delà du minimum) : le mécanisme n'a **jamais eu à attendre** une topologie réellement instable. Rien ne permet de lui attribuer une éventuelle absence de gel de `eDP-1` — voir la nuance Kate ci-dessous pour un patron similaire (preuve réelle mais partielle, pas à lire comme équivalente à une preuve complète) | `docs/desktop.md` § 9-10, `docs/machine-facts.md` § Points ouverts (BUR-5) |
@@ -234,6 +235,17 @@ relecture ; non refaite dans ce livrable, hors de son objet.
 - **Connexion SSH authentifiée depuis une autre machine : jamais
   exercée** (`sshd` `enabled`/`active` et répond en boucle locale, mais
   `roles/recovery/` en dépend) — livrable d'accès en lecture seule.
+  **[CORRIGÉ le 2026-09-28, R1b]** ÉTAIT : « jamais exercée » — faux.
+  `journalctl -u sshd -g 'Accepted'` (relu le 2026-09-28) montre des
+  connexions acceptées le **2026-08-04** (trois par mot de passe, deux par
+  la clé du poste, celle de `~/.ssh/id_ed25519.pub`) et le **2026-08-11**
+  (une par mot de passe), toutes depuis une adresse du réseau local.
+  **[PILOTE-DÉCLARÉ, opérateur, 2026-09-28]** Celles du 2026-08-04 ont été
+  faites depuis ce poste lui-même — déclaration **non recoupée** par le
+  journal relu dans R1b. La connexion du 2026-08-11 n'est pas attribuée.
+  **Connexion par clé seule depuis le PC Windows réussie le 2026-09-28 à
+  10:20:46 +02:00 (journal sshd, empreinte de la clé Windows)** — la clé
+  que `roles/ssh_access/` autorise depuis le même jour (D30).
 - **[TRANCHÉ EN PARTIE le 2026-09-25, livrable S1]** Conservation des
   instantanés et de l'état de départ. `snap-home-2026-09-24-u2` a été
   **supprimé** : aucune ligne des deux documents qu'il portait ne lui

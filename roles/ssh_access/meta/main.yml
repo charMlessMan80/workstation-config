@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: ssh_access
+  author: Mickael Mahieu
+  description: >-
+    Autorise une clé publique SSH dans ~/.ssh/authorized_keys de ce poste
+    (D30), après sauvegarde, avec gardes d'entrée et de sortie. Ne touche
+    jamais sshd_config, le pare-feu, NetworkManager ni l'état de sshd.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+dependencies: []

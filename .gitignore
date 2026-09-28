@@ -14,6 +14,10 @@ vault-password*
 # Inventaires et variables Ansible pouvant porter des valeurs locales
 inventory/host_vars/*.local.yml
 inventory/group_vars/*.local.yml
+# host_vars/ voisin de site.yml : seul emplacement effectivement chargé pour
+# l'hôte implicite localhost (aucun inventaire configuré) — clé et empreinte
+# de roles/ssh_access/ y vivent, hors dépôt.
+/host_vars/localhost/*.local.yml
 *.retry
 
 # Artefacts locaux (Execution Environments, images, caches) — non versionnés

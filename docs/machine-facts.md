@@ -1847,6 +1847,50 @@ d'exclusion, exactement le type de compteur/liste périmable déjà
 le sourcing, item 5). Rien à corriger dans le rôle — décision prise,
 pas un point ouvert.
 
+**D30 (2026-09-28, R1a/R1b) — accès SSH depuis le PC Windows de
+l'opérateur, par un rôle : `roles/ssh_access/`.** Décisions de
+l'opérateur [PILOTE-DÉCLARÉ, 2026-09-28] : shell SSH normal avec le
+compte du poste (la lecture seule relève de l'usage, rien ne l'impose
+techniquement) ; client OpenSSH_for_Windows_9.5p2, clé ed25519 dédiée ;
+mise en place par un rôle du dépôt, jamais à la main. Le rôle écrit
+**uniquement** `~/.ssh/authorized_keys` et sa sauvegarde
+`authorized_keys.avant-R1b` ; il lit `sshd` sans le modifier, ne touche
+ni `sshd_config`, ni le pare-feu, ni NetworkManager, n'a aucune tâche
+`become`. Module `ansible.builtin.lineinfile` : `ansible.posix` n'est pas
+installé (`rpm -q ansible-collection-ansible-posix` rc=1), et aucune
+dépendance n'est ajoutée. Options de la clé :
+`no-agent-forwarding,no-X11-forwarding,no-port-forwarding` ;
+`restrict` écarté, incompatible avec un shell interactif. Clé et
+empreinte **hors du dépôt** (D4), dans `host_vars/localhost/*.local.yml`
+à côté de `site.yml` — seul emplacement chargé pour le `localhost`
+implicite, `/etc/ansible/hosts` étant entièrement commenté (vérifié par
+un playbook témoin). Motif `/host_vars/localhost/*.local.yml` ajouté à
+`.gitignore` : le motif existant `inventory/host_vars/*.local.yml`
+couvre un répertoire qu'Ansible ne charge pas ici. Place dans `site.yml` :
+après `recovery`, avant `gpu_mux`, tag `ssh_access`.
+**État relevé en lecture seule le 2026-09-28 (R1a), laissé tel quel par
+D30** : `sshd` `enabled`/`active`, configuration conforme au paquet
+(`sudo rpm -V openssh-server` rc=0) ; valeurs effectives (`sudo sshd
+-T`) `passwordauthentication yes`, `kbdinteractiveauthentication no`,
+`pubkeyauthentication yes`, `permitrootlogin prohibit-password`, aucune
+directive `AllowUsers`/`AllowGroups` ; pare-feu : zone
+`FedoraWorkstation` (zone par défaut, seule active), service `ssh`
+accepté **depuis toute source** — aucune source déclarée, aucune règle
+riche —, plus `1025-65535/tcp` et `/udp`. Deux points ouverts en
+découlent (§ Points ouverts).
+**Écrit le 2026-09-28 (R1b)** : deux empreintes après écriture — la clé
+existante du poste (égale à `~/.ssh/id_ed25519.pub`, conservée) et la clé
+Windows (égale à l'empreinte déclarée hors dépôt) ; mode `0600`,
+`ssh_home_t`, `restorecon -n -v` sans proposition ; sauvegarde sha256
+`54d21d67…`, égale au trousseau d'avant l'écriture. Gardes G1 à G4 et
+garde de sauvegarde démontrées dans les deux sens ; G5 en échec exercée
+par état « avant » substitué ; G6 en échec exercée seulement hors `~/.ssh`
+(copie sans étiquette) ; échec du contrôle de mode `0600` non exercé —
+détail : `roles/ssh_access/README.md` ; commandes de retour arrière : même
+fichier. **Connexion par clé seule depuis le PC Windows réussie le
+2026-09-28 à 10:20:46 +02:00 (journal sshd, empreinte de la clé
+Windows)**.
+
 **D29 (2026-09-25, D1) — profil de données du stockage : EN ATTENTE DE
 L'OPÉRATEUR, rien n'est tranché, aucune action prise.** Ce qui a changé
 depuis D1 : le poste héberge désormais, dans ce même système de
@@ -2039,6 +2083,27 @@ répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
 
+- **[OUVERT le 2026-09-28, R1b] Désactiver l'authentification SSH par
+  mot de passe.** Aujourd'hui `passwordauthentication yes` (D30, état
+  relevé en R1a), conservé par décision de l'opérateur. La désactiver
+  exige un fichier sous `/etc/ssh/sshd_config.d/` (écriture root), un
+  `sshd -t` avant rechargement, et une session ouverte pendant le
+  rechargement. **Préalable côté `roles/recovery/`** : sa garde actuelle
+  (« au moins une clé dans `authorized_keys` ») est satisfaite par la
+  seule clé du poste lui-même, inutile à une machine qui ne la détient
+  pas. Sans mot de passe, il faudrait une garde nouvelle : **au moins une
+  clé autre que celle du poste** (empreinte ≠ celle de
+  `~/.ssh/id_ed25519.pub`), faute de quoi le chemin de retour SSH n'existe
+  que sur le papier. La même remarque vaut pour la garde 0b de
+  `roles/gpu_mux/`.
+- **[OUVERT le 2026-09-28, R1b] Restreindre par source l'accès SSH dans
+  le pare-feu.** Aujourd'hui, le service `ssh` est accepté depuis toute
+  source dans la zone `FedoraWorkstation` (D30, état relevé en R1a),
+  conservé par décision de l'opérateur. Une restriction toucherait une
+  valeur réseau à tenir hors du dépôt (`CLAUDE.md` § Dépôt public), et la
+  requête des gardes `firewall-cmd --query-service=ssh` de
+  `roles/recovery/` et `roles/gpu_mux/` : un service retiré au profit
+  d'une règle par source les ferait conclure « non autorisé ».
 - **[OUVERT le 2026-09-25, livrable S1] Échéance du 2026-10-02 — sort
   des deux instantanés restants et de l'état de départ.** Décision de
   l'opérateur du 2026-09-25 : `snap-root-2026-09-24-u2`,

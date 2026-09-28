@@ -1,0 +1,242 @@
+---
+# Autorise (ou retire) UNE clé publique dans ~/.ssh/authorized_keys de ce
+# poste (D30). N'écrit rien d'autre que ce fichier et sa sauvegarde : ne
+# touche jamais sshd_config, le pare-feu, NetworkManager ni l'état du
+# service sshd (G4 le LIT seulement). Aucune tâche become : le fichier
+# appartient à l'utilisateur. Toutes les gardes d'entrée (G1-G4, garde de
+# sauvegarde) échouent AVANT l'écriture ; G5 et G6 portent sur l'après.
+
+# --- G4 : sshd lu, jamais modifié ------------------------------------------
+- name: "G4 — relever l'état réel de sshd (lecture seule)"
+  ansible.builtin.service_facts:
+
+- name: >-
+    G4 — déterminer l'état effectif de sshd (réel, ou forcé pour la
+    démonstration d'échec — jamais modifié, seulement lu/simulé)
+  ansible.builtin.set_fact:
+    ssh_access_sshd_active: >-
+      {{ ssh_access_force_sshd_active
+         if ssh_access_force_sshd_active is defined
+         else (ansible_facts.services[ssh_access_ssh_service + '.service'].state | default('absent') == 'running') }}
+    ssh_access_sshd_enabled: >-
+      {{ ssh_access_force_sshd_enabled
+         if ssh_access_force_sshd_enabled is defined
+         else (ansible_facts.services[ssh_access_ssh_service + '.service'].status | default('absent') == 'enabled') }}
+
+- name: "G4 — échouer bruyamment si sshd n'est pas actif ET activé au démarrage"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_sshd_active | bool
+      - ssh_access_sshd_enabled | bool
+    fail_msg: >-
+      {{ ssh_access_ssh_service }} n'est pas prêt — actif :
+      {{ ssh_access_sshd_active }}, activé au démarrage :
+      {{ ssh_access_sshd_enabled }}. Ce rôle ne démarre ni n'active jamais
+      sshd (mandat de roles/recovery/) : jouer --tags recovery, puis relancer.
+    success_msg: "{{ ssh_access_ssh_service }} actif et activé au démarrage (lu, non modifié)."
+
+# --- G1 : valeurs-sentinelles ------------------------------------------------
+- name: "G1 — refuser les valeurs-sentinelles (clé et empreinte à surcharger hors dépôt)"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_sentinel not in ssh_access_pubkey
+      - ssh_access_sentinel not in ssh_access_pubkey_sha256
+    fail_msg: >-
+      ssh_access_pubkey et/ou ssh_access_pubkey_sha256 valent encore la
+      sentinelle des defaults. Les déclarer dans
+      host_vars/localhost/<nom>.local.yml à côté de site.yml (hors dépôt,
+      ignoré par .gitignore) — voir roles/ssh_access/README.md.
+    success_msg: "Clé et empreinte fournies hors des defaults."
+
+# --- G2 : forme de la clé ----------------------------------------------------
+- name: "G2/G3 — calculer l'empreinte de la clé fournie (ssh-keygen, lecture seule)"
+  ansible.builtin.command:
+    cmd: ssh-keygen -lf -
+    stdin: "{{ ssh_access_pubkey }}"
+  register: ssh_access_pubkey_fp
+  changed_when: false
+  failed_when: false
+  check_mode: false  # lecture seule : sinon ignorée sous --check, et G2/G3 jugeraient du vide.
+
+- name: "G2 — exiger une seule ligne ed25519 bien formée, lisible par ssh-keygen"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_pubkey is match('^' ~ ssh_access_key_type ~ ' [A-Za-z0-9+/]+={0,2}( [^\n]*)?$')
+      - '"\n" not in ssh_access_pubkey'
+      - ssh_access_pubkey_fp.rc == 0
+      - ssh_access_pubkey_fp.stdout_lines | length == 1
+    fail_msg: >-
+      Clé refusée : type attendu {{ ssh_access_key_type }}, une seule ligne,
+      corps base64 complet (ssh-keygen -lf - : rc={{ ssh_access_pubkey_fp.rc }},
+      « {{ ssh_access_pubkey_fp.stderr | default('') | trim }} »). Recoller la
+      ligne depuis le fichier .pub d'origine.
+    success_msg: "Clé {{ ssh_access_key_type }} bien formée."
+
+# --- G3 : empreinte déclarée == empreinte calculée ---------------------------
+- name: "G3 — exiger que l'empreinte calculée égale l'empreinte déclarée"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_pubkey_fp.stdout.split()[1] == ssh_access_pubkey_sha256
+    fail_msg: >-
+      Empreinte calculée {{ ssh_access_pubkey_fp.stdout.split()[1] }} ≠
+      empreinte déclarée {{ ssh_access_pubkey_sha256 }}. Ne rien corriger à
+      la main : recoller la clé ET l'empreinte depuis la machine d'origine.
+    success_msg: "Empreinte {{ ssh_access_pubkey_sha256 }} confirmée."
+
+- name: Retenir le corps de la clé, l'empreinte et la ligne à écrire
+  ansible.builtin.set_fact:
+    ssh_access_key_blob: "{{ ssh_access_pubkey.split()[1] }}"
+    ssh_access_key_fp: "{{ ssh_access_pubkey_sha256 }}"
+    ssh_access_key_line: >-
+      {{ (ssh_access_key_options ~ ' ') if ssh_access_key_options | length > 0 else '' }}{{ ssh_access_pubkey }}
+
+# --- Sauvegarde, prête avant la première écriture ------------------------------
+- name: "Sauvegarde — le trousseau doit exister (le rôle ne le crée jamais)"
+  ansible.builtin.stat:
+    path: "{{ ssh_access_authorized_keys_path }}"
+    checksum_algorithm: sha256
+  register: ssh_access_ak_stat
+
+- name: "Sauvegarde — échouer si le trousseau est absent"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_ak_stat.stat.exists
+    fail_msg: "{{ ssh_access_authorized_keys_path }} introuvable : ce rôle ne le crée pas."
+    success_msg: "{{ ssh_access_authorized_keys_path }} présent."
+
+- name: "Sauvegarde — copier le trousseau, jamais écrasée, vers {{ ssh_access_backup_path }}"
+  ansible.builtin.copy:
+    src: "{{ ssh_access_authorized_keys_path }}"
+    dest: "{{ ssh_access_backup_path }}"
+    remote_src: true
+    force: false
+    mode: "0600"
+
+- name: "Sauvegarde — relever son empreinte sha256"
+  ansible.builtin.stat:
+    path: "{{ ssh_access_backup_path }}"
+    checksum_algorithm: sha256
+  register: ssh_access_backup_stat
+
+- name: "Sauvegarde — lire le trousseau actuel (pour le comparer à la sauvegarde)"
+  ansible.builtin.slurp:
+    src: "{{ ssh_access_authorized_keys_path }}"
+  register: ssh_access_ak_content
+
+- name: >-
+    Sauvegarde — refuser d'écrire si le trousseau, hors la ligne de CETTE clé,
+    diffère de la sauvegarde
+  ansible.builtin.assert:
+    that:
+      - ssh_access_backup_stat.stat.exists
+      - >-
+        (ssh_access_ak_content.content | b64decode).splitlines(true)
+        | reject('search', ssh_access_key_blob | regex_escape)
+        | join('') | hash('sha256') == ssh_access_backup_stat.stat.checksum
+    fail_msg: >-
+      Sauvegarde {{ ssh_access_backup_path }} absente, ou le trousseau a
+      changé depuis (hors la ligne de cette clé) : sha256 sauvegarde =
+      {{ ssh_access_backup_stat.stat.checksum | default('absente') }}. Refus
+      d'écrire. Examiner l'écart, puis renommer l'ancienne sauvegarde pour
+      qu'une nouvelle soit prise.
+    success_msg: >-
+      Sauvegarde {{ ssh_access_backup_path }} présente, sha256
+      {{ ssh_access_backup_stat.stat.checksum }} — concorde avec le trousseau
+      hors la ligne de cette clé.
+  # Sous --check, la copie n'est pas réellement créée : la garde ne peut
+  # juger qu'une sauvegarde déjà existante.
+  when: not (ansible_check_mode and not ssh_access_backup_stat.stat.exists)
+
+# --- État « avant » (G5) -----------------------------------------------------
+- name: "G5 — relever les empreintes présentes AVANT écriture (jamais les clés)"
+  ansible.builtin.command:
+    cmd: "ssh-keygen -lf {{ ssh_access_authorized_keys_path | ansible.builtin.quote }}"
+  register: ssh_access_fp_before_raw
+  changed_when: false
+  check_mode: false
+
+- name: "G5 — retenir l'état avant (réel, ou substitué pour la démonstration d'échec)"
+  ansible.builtin.set_fact:
+    ssh_access_fp_before: >-
+      {{ ssh_access_force_fingerprints_before
+         if ssh_access_force_fingerprints_before is defined
+         else (ssh_access_fp_before_raw.stdout_lines | map('split') | map(attribute=1) | list) }}
+
+# --- Écriture ------------------------------------------------------------------
+- name: "Écrire — état voulu de la clé : {{ ssh_access_state ~ ' ' ~ ssh_access_key_fp }}"
+  ansible.builtin.lineinfile:
+    path: "{{ ssh_access_authorized_keys_path }}"
+    regexp: "(^|\\s){{ ssh_access_key_blob | regex_escape }}(\\s|$)"
+    line: "{{ ssh_access_key_line }}"
+    state: "{{ ssh_access_state }}"
+    create: false
+    mode: "0600"
+    validate: ssh-keygen -lf %s
+
+# --- G5 : après ----------------------------------------------------------------
+- name: "G5 — relever les empreintes présentes APRÈS écriture"
+  ansible.builtin.command:
+    cmd: "ssh-keygen -lf {{ ssh_access_authorized_keys_path | ansible.builtin.quote }}"
+  register: ssh_access_fp_after_raw
+  changed_when: false
+  check_mode: false
+
+- name: "G5 — calculer l'état attendu"
+  ansible.builtin.set_fact:
+    ssh_access_fp_after: "{{ ssh_access_fp_after_raw.stdout_lines | map('split') | map(attribute=1) | list }}"
+    ssh_access_fp_expected: >-
+      {{ (ssh_access_fp_before | union([ssh_access_key_fp]))
+         if ssh_access_state == 'present'
+         else (ssh_access_fp_before | difference([ssh_access_key_fp])) }}
+
+- name: "G5 — exiger avant ± cette clé, rien d'autre (aucune clé perdue, aucune en trop)"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_fp_after | sort == ssh_access_fp_expected | sort
+      - ssh_access_fp_after | length == ssh_access_fp_expected | length
+    fail_msg: >-
+      Trousseau inattendu après écriture. Avant : {{ ssh_access_fp_before }} ;
+      attendu : {{ ssh_access_fp_expected }} ; trouvé : {{ ssh_access_fp_after }}.
+      Retour arrière complet : README.md.
+    success_msg: "Empreintes après écriture : {{ ssh_access_fp_after }}."
+  # Sous --check rien n'est écrit : l'après égale l'avant par construction.
+  when: not ansible_check_mode
+
+- name: "G5 — relever le mode du trousseau après écriture"
+  ansible.builtin.stat:
+    path: "{{ ssh_access_authorized_keys_path }}"
+  register: ssh_access_ak_after
+
+- name: "G5 — exiger le mode 0600"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_ak_after.stat.mode == '0600'
+    fail_msg: "Mode {{ ssh_access_ak_after.stat.mode }} sur {{ ssh_access_authorized_keys_path }} (attendu 0600)."
+    success_msg: "Mode 0600."
+
+# --- G6 : SELinux ----------------------------------------------------------------
+- name: "G6 — relever ce que restorecon changerait (simulation, -n)"
+  ansible.builtin.command:
+    cmd: "restorecon -n -v {{ ssh_access_authorized_keys_path | ansible.builtin.quote }}"
+  register: ssh_access_restorecon
+  changed_when: false
+  check_mode: false
+
+- name: "G6 — exiger aucun réétiquetage proposé"
+  ansible.builtin.assert:
+    that:
+      - ssh_access_restorecon.rc == 0
+      - ssh_access_restorecon.stdout | trim | length == 0
+    fail_msg: "restorecon -n propose : {{ ssh_access_restorecon.stdout }} (rc={{ ssh_access_restorecon.rc }})."
+    success_msg: "Contexte SELinux conforme, aucun réétiquetage proposé."
+
+- name: Rapporter l'état du trousseau
+  ansible.builtin.debug:
+    msg:
+      - "clé {{ ssh_access_key_fp }} : {{ ssh_access_state }}"
+      - "empreintes présentes : {{ ssh_access_fp_after }}"
+      - "sauvegarde : {{ ssh_access_backup_path }} (sha256 {{ ssh_access_backup_stat.stat.checksum | default('non créée sous --check') }})"
+      - >-
+        RAPPEL — ce rôle ne prouve pas qu'une connexion depuis la machine
+        détentrice de la clé fonctionne : seule une connexion réelle depuis
+        elle le prouve.

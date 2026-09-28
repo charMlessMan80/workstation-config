@@ -1,0 +1,43 @@
+---
+# Aucune valeur ci-dessous n'est spécifique à une machine ou à une clé
+# réelle (décision D4 — dépôt public). La clé publique autorisée et son
+# empreinte vivent HORS du dépôt, dans host_vars/localhost/*.local.yml à
+# côté de site.yml (ignoré par .gitignore) : voir README.md.
+
+# Trousseau de clés autorisées sur CE poste — le seul fichier que ce rôle
+# écrit (plus sa sauvegarde, ci-dessous).
+ssh_access_authorized_keys_path: "{{ ansible_facts.env.HOME }}/.ssh/authorized_keys"
+
+# Copie de sauvegarde prise avant la première écriture (jamais écrasée :
+# force: false). Sert de retour arrière complet et de référence à la garde
+# de sauvegarde (tasks/main.yml).
+ssh_access_backup_path: "{{ ssh_access_authorized_keys_path }}.avant-R1b"
+
+# present : autoriser la clé ; absent : la retirer (retour arrière ciblé).
+ssh_access_state: present
+
+# Seul type de clé accepté par la garde G2.
+ssh_access_key_type: ssh-ed25519
+
+# Options placées devant la clé dans authorized_keys (D30). Compatibles
+# avec un shell interactif normal — `restrict` ne l'est pas (pas de pty).
+ssh_access_key_options: "no-agent-forwarding,no-X11-forwarding,no-port-forwarding"
+
+# Service lu (jamais modifié) par la garde G4.
+ssh_access_ssh_service: sshd
+
+# Valeurs-sentinelles (garde G1) : le rôle refuse d'écrire tant qu'elles
+# n'ont pas été surchargées hors du dépôt. La clé et son empreinte sont
+# déclarées séparément : G3 exige qu'elles concordent.
+ssh_access_sentinel: SENTINELLE-a-surcharger-hors-depot
+ssh_access_pubkey: "{{ ssh_access_key_type }} {{ ssh_access_sentinel }}"
+ssh_access_pubkey_sha256: "SHA256:{{ ssh_access_sentinel }}"
+
+# Substituables pour la démonstration d'échec forcé, jamais en usage réel
+# — même patron que roles/gpu_mux/defaults/main.yml : la valeur réelle
+# n'est jamais modifiée, seule la valeur LUE par la garde est remplacée.
+# -e ssh_access_force_sshd_active=false          (G4)
+# -e ssh_access_force_sshd_enabled=false         (G4)
+# -e '{"ssh_access_force_fingerprints_before": []}'   (G5 : état « avant »
+#    substitué, simule un fichier altéré entre la lecture et l'écriture)
+# (indéfinies par défaut)
