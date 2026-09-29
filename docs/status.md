@@ -270,6 +270,12 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   vérifier le /23 à la prochaine réactivation du profil ; connexion SSH du
   PC Windows faite par mot de passe et non par clé le 2026-09-29 ;
   bascules répétées du lien filaire le 2026-09-28.
+  **[FAIT le 2026-09-29]** Connexion SSH du PC Windows par mot de passe :
+  cause côté client (clé à nom non standard, non déclarée pour ce poste,
+  agent arrêté ; aucune clé proposée), corrigée hors dépôt
+  [PILOTE-DÉCLARÉ] ; connexions acceptées par clé à 10:23:03, 10:23:31 et
+  10:25:15 +02:00 (journal `sshd`, empreinte de la clé Windows). Détail :
+  `docs/machine-facts.md` § Points ouverts.
 - **[TRANCHÉ EN PARTIE le 2026-09-25, livrable S1]** Conservation des
   instantanés et de l'état de départ. `snap-home-2026-09-24-u2` a été
   **supprimé** : aucune ligne des deux documents qu'il portait ne lui

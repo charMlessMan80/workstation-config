@@ -2113,6 +2113,19 @@ répertoires restent voulus sur ce poste après ce livrable).
   changé depuis la connexion par clé réussie du 2026-09-28
   (`authorized_keys` : même sha256, deux empreintes, mode `0600`,
   étiquette conforme). À éclaircir côté client Windows.
+  **[FAIT le 2026-09-29]** Cause établie côté client [PILOTE-DÉCLARÉ,
+  sorties `ssh -v` relues par le pilote le 2026-09-29] : la clé Windows
+  porte un nom de fichier non standard ; le fichier de configuration du
+  client OpenSSH Windows ne la déclarait que pour une autre machine, et
+  l'agent SSH Windows était arrêté ; `ssh -v` n'a essayé que les noms par
+  défaut, tous absents — aucune clé proposée, d'où le mot de passe.
+  Correction côté client, hors dépôt : bloc `Host` pour ce poste dans la
+  configuration Windows (`IdentityFile` vers cette clé, `IdentitiesOnly
+  yes`), ancienne configuration sauvegardée. Preuve côté poste : journal
+  `sshd`, connexions acceptées **par clé** le 2026-09-29 à 10:23:03,
+  10:23:31 et 10:25:15 +02:00, empreinte de la clé Windows, même source
+  que la connexion par mot de passe de 10:13:52. Rien n'a été modifié côté
+  poste.
 - **[OUVERT le 2026-09-28, R1b-bis] Clé de `~/.ssh/id_ed25519.pub` à traiter
   comme potentiellement partagée.** Faits, lus en lecture seule le
   2026-09-28. *(1)* Le 2026-08-04, deux connexions entrantes ont été
