@@ -264,6 +264,12 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   **Connexion par clé seule depuis le PC Windows réussie le 2026-09-28 à
   10:20:46 +02:00 (journal sshd, empreinte de la clé Windows)** — la clé
   que `roles/ssh_access/` autorise depuis le même jour (D30).
+- **[R1c, 2026-09-29] Préfixe du profil filaire aligné sur le réseau (/24
+  → /23)**, à la main, avec retour automatique armé puis arrêté après
+  confirmation — détail `docs/machine-facts.md` § R1c. Restent ouverts :
+  vérifier le /23 à la prochaine réactivation du profil ; connexion SSH du
+  PC Windows faite par mot de passe et non par clé le 2026-09-29 ;
+  bascules répétées du lien filaire le 2026-09-28.
 - **[TRANCHÉ EN PARTIE le 2026-09-25, livrable S1]** Conservation des
   instantanés et de l'état de départ. `snap-home-2026-09-24-u2` a été
   **supprimé** : aucune ligne des deux documents qu'il portait ne lui

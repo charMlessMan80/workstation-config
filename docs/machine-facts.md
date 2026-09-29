@@ -2089,6 +2089,30 @@ répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
 
+- **[OUVERT le 2026-09-29, R1c] Vérifier le préfixe /23 du profil filaire
+  à sa prochaine réactivation.** Le profil enregistré porte /23 depuis le
+  2026-09-29 à 10:15:46 +02:00, et l'état actif aussi (profil appliqué
+  égal au profil enregistré, lu par D-Bus). Mais le profil n'a pas été
+  **réactivé** depuis : la voie « réactivation du profil /23 » (prochain
+  démarrage, ou prochaine perte de lien assez longue pour désactiver le
+  périphérique) n'est pas exercée. À relever alors : `ip -4 addr show dev
+  enp3s0` (une seule adresse, préfixe /23) et `ip -4 route` (route du
+  réseau en /23, passerelle inchangée). Détail : § R1c, en fin de
+  document.
+- **[OUVERT le 2026-09-29, R1c] Bascules répétées du lien filaire le
+  2026-09-28, cause non établie.** Le noyau (`r8169`) journalise au moins
+  onze pertes de lien entre 10:44 et 12:03 +02:00 ; deux ont duré assez (7
+  à 8 s) pour désactiver puis réactiver le profil. Câble, commutateur ou
+  intervention de l'opérateur : rien ici ne permet de trancher.
+- **[OUVERT le 2026-09-29, R1c] Connexion SSH du PC Windows par mot de
+  passe, pas par clé, le 2026-09-29.** La connexion de contrôle de R1c
+  (10:13:52 +02:00) a été acceptée **par mot de passe** ; aucun
+  enregistrement d'audit `op=pubkey` pour cette session, alors que les
+  sessions par mot de passe du 2026-08-04 en portaient un. Concordance,
+  pas preuve : le client n'aurait proposé aucune clé. Côté poste, rien n'a
+  changé depuis la connexion par clé réussie du 2026-09-28
+  (`authorized_keys` : même sha256, deux empreintes, mode `0600`,
+  étiquette conforme). À éclaircir côté client Windows.
 - **[OUVERT le 2026-09-28, R1b-bis] Clé de `~/.ssh/id_ed25519.pub` à traiter
   comme potentiellement partagée.** Faits, lus en lecture seule le
   2026-09-28. *(1)* Le 2026-08-04, deux connexions entrantes ont été
@@ -5351,3 +5375,58 @@ sa propre création — le plus récent sous `.config` y date de `01:36:27`. **�
 pas fait ici, hors périmètre. **[FAIT le 2026-09-25, commit `b2679ef`]**
 Porté dans `CLAUDE.md` § Sourcing des faits, règle sur la comparaison
 d'horodatages.
+
+## R1c — préfixe du profil filaire aligné sur le réseau (2026-09-29)
+
+**Pose manuelle** (`nmcli`), sans rôle Ansible, par décision de
+l'opérateur [PILOTE-DÉCLARÉ, 2026-09-28]. Adresse et nom de domaine du
+profil hors du dépôt (`CLAUDE.md` § Dépôt public).
+
+**Dérive corrigée.** Le profil filaire a été modifié le 2026-09-28 à
+09:40:16 +02:00 par Paramètres système KDE (`kcm_networkmanagement`, audit
+NetworkManager `connection-update`) : méthode manuelle, adresse fixe avec
+un préfixe **/24**, alors que le DHCP distribuait un préfixe **/23**
+(relevé R1a). Non réappliqué sur le moment, il est entré en vigueur le
+2026-09-28 à 10:58:07 +02:00 : une perte de lien de 8 s a désactivé puis
+réactivé le profil enregistré, et le bail DHCP a disparu (relevé R1c-a,
+2026-09-29).
+
+**Source du /23** : le relevé R1a du 2026-09-28 (`nmcli -f DHCP4 device
+show`, `subnet_mask` équivalent à /23), qui n'est plus relisible — plus de
+bail, et les fichiers de bail de NetworkManager ne conservent que
+l'adresse — et la déclaration de l'opérateur [PILOTE-DÉCLARÉ]. Adresse
+fixe hors de la plage DHCP : vérifié par l'opérateur, non vérifiable d'ici
+[PILOTE-DÉCLARÉ].
+
+**Méthode** (conçue en R1c-a, appliquée en R1c-b), sans aucune élévation :
+*(1)* garde d'autorisation — depuis une unité utilisateur, `nmcli general
+permissions` donne `network-control` et `settings.modify.system` à `yes` ;
+*(2)* retour automatique armé **avant** toute modification : minuteur
+utilisateur `r1c-rollback` (`systemd-run --user --on-active=300`) qui
+réactive le profil enregistré, resté en /24 ; *(3)* modification de
+l'**état actif seulement** (`nmcli device modify … ipv4.addresses`), le
+profil enregistré servant de retour arrière ; *(4)* confirmation, puis
+modification du profil enregistré (`nmcli connection modify`). Les points
+de restauration de NetworkManager ont été écartés : ils exigent une
+authentification pour ce compte, et ce qu'ils restaurent exactement n'a
+pas été établi (R1c-a).
+
+Chronologie (heure locale, +02:00, 2026-09-29) :
+
+| Heure | Action | Résultat |
+|---|---|---|
+| 10:10:39 | relevé avant | une seule adresse, préfixe /24 ; passerelle inchangée |
+| 10:10:45 | garde d'autorisation (unité utilisateur) | `network-control` = `yes`, `settings.modify.system` = `yes` |
+| 10:10:51 | minuteur `r1c-rollback` armé | échéance 10:15:51, vérifiée par `list-timers` |
+| 10:11:00 | `nmcli device modify` (état actif) | appliqué à chaud (« Connection successfully reapplied »), sans coupure de session |
+| 10:11:03 | gardes | une seule adresse en /23 ; route par défaut inchangée ; route du réseau en /23, plus de /24 ; DNS résolu ; HTTPS sortant (`curl` rc=0) ; profil enregistré encore en /24 ; session agent reprise |
+| 10:13:52 | SSH depuis le PC Windows (opérateur) | accepté — **par mot de passe**, pas par clé (point ouvert) |
+| 10:15:18 | minuteur arrêté (33 s avant l'échéance) | jamais exécuté (`journalctl --user -u r1c-rollback.service` : aucune entrée) |
+| 10:15:46 | `nmcli connection modify` (profil enregistré) | seule `ipv4.addresses` diffère du relevé avant (préfixe /24 → /23) ; méthode, passerelle, DNS, IPv6 inchangés ; profil appliqué égal au profil enregistré |
+
+**Branches non exercées** : le retour automatique lui-même (armé, jamais
+déclenché) ; la réactivation du profil en /23 (point ouvert). Relevés
+bruts hors dépôt : `~/r1c/profil-avant.txt`, `~/r1c/profil-apres.txt`.
+Retour arrière manuel, à la console : `nmcli connection modify uuid <uuid
+du profil filaire> ipv4.addresses <adresse>/24`, puis `nmcli connection up
+uuid <uuid>`.
