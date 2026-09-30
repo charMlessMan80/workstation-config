@@ -1897,8 +1897,10 @@ l'écriture de la paire sur ce poste coïncide, à la seconde, avec une
 session venue de cette même source (concordance, pas preuve). Point ouvert
 correspondant, § Points ouverts ; faits datés, `docs/status.md`.
 
-**D29 (2026-09-25, D1) — profil de données du stockage : EN ATTENTE DE
-L'OPÉRATEUR, rien n'est tranché, aucune action prise.** Ce qui a changé
+**D29 (2026-09-25, D1) — profil de données du stockage : DÉCIDÉE le
+2026-09-30 : garder `single`, effective à la suppression des instantanés
+(J1-c). ÉTAIT : « EN ATTENTE DE L'OPÉRATEUR, rien n'est tranché, aucune
+action prise ».** Ce qui a changé
 depuis D1 : le poste héberge désormais, dans ce même système de
 fichiers, les instantanés et l'état de départ
 `~/u2-baseline-2026-09-24/` — le filet de sécurité de la série U1-U2c.
@@ -1926,6 +1928,13 @@ trancher D29 avant cette date éviterait d'avoir à la rouvrir, la trancher
 après reviendrait à décider sur un poste dont le filet a changé de
 taille. *La commande de (b)
 n'est ni sourcée ni exercée : la vérifier avant tout usage.*
+**[RÉVISÉ le 2026-09-30, J1-b] DÉCIDÉE : garder `single`, effective à la
+suppression des instantanés (J1-c).** Décision de l'opérateur du
+2026-09-30 [PILOTE-DÉCLARÉ] : voie *(a)*. Elle prend effet quand les deux
+instantanés restants seront supprimés, le 2026-10-02 (§ Points ouverts,
+échéance du 2026-10-02) : le déclencheur de D29 disparaît alors, et la
+question revient au « risque assumé » de D1. Voies *(b)* et *(c)* non
+retenues.
 
 **D28 (2026-08-17) — ANDROID_HOME et PATH posés via ~/.bashrc.d/, jamais
 par écriture dans ~/.bashrc ; `adb` viendra du SDK seul.** Troisième
@@ -2089,6 +2098,13 @@ répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
 
+- **[OUVERT le 2026-09-30, J1-b] Durée de conservation de
+  `~/u2-baseline-2026-09-24/boot-archive/`.** L'opérateur a décidé le
+  2026-09-30 de garder ce répertoire, avec son `SHA256SUMS`, quand le
+  reste de l'état de départ sera supprimé (J1-c) ; il n'a **pas fixé**
+  combien de temps. Après J1-c, ses deux archives seront la **seule
+  copie** de `/boot` et `/boot/efi` d'avant la mise à jour du 2026-09-25
+  (997 284 004 octets).
 - **[OUVERT le 2026-09-29, R1c] Vérifier le préfixe /23 du profil filaire
   à sa prochaine réactivation.** Le profil enregistré porte /23 depuis le
   2026-09-29 à 10:15:46 +02:00, et l'état actif aussi (profil appliqué
@@ -2198,6 +2214,25 @@ répertoires restent voulus sur ce poste après ce livrable).
   de l'état de départ ; *(c)* **D29**, dont le déclencheur disparaît si
   tout est supprimé (§ Décisions). **(a) et (b) sont liées, et pas
   seulement par commodité** — voir ci-dessous.
+  **[RÉVISÉ le 2026-09-30, J1-b] Décisions de l'opérateur du 2026-09-30
+  [PILOTE-DÉCLARÉ] — exécution le 2026-10-02, livrable J1-c ; le point
+  reste OUVERT jusqu'à l'exécution.** *(a)* `snap-root-2026-09-24-u2` et
+  `snap-home-2026-09-25-u2b` : **supprimés**. *(b)* État de départ : seul
+  `boot-archive/` est gardé, avec son `SHA256SUMS`, sur place et sans
+  renommage ; **tout le reste est supprimé**. Durée de conservation de
+  `boot-archive/` non fixée : point ouvert distinct. *(c)* D29 : **close
+  sur « garder `single` »**, effective à l'exécution de *(a)* (§ Décisions).
+  *(d)* `~/claude-code.repo.avant-2026-09-25` : **supprimée**. Information
+  relevée le 2026-09-30 pour *(d)*, sans effet sur la décision : le canal
+  `stable` sert `2.1.280-1`, le canal `latest` `2.1.285-1`, la version
+  installée est `2.1.282-1` (`dnf --repofrompath … --repo … repoquery
+  --latest-limit=1 claude-code`, dépôt temporaire en utilisateur, sans
+  écriture système).
+  **[PRÉCISÉ le 2026-09-30, J1-b]** La taille donnée plus haut,
+  **1 005 293 624 octets**, est ÉTAIT : mesurée avant les deux écritures
+  de `16:18:48 +02:00`. La taille depuis est **1 005 294 083 octets**
+  (mise à jour du 2026-09-25 à 21:12, ci-dessous ; `du -sb` identique le
+  2026-09-29 et le 2026-09-30).
   **[AJOUTÉ le 2026-09-25, après la bascule `claude-code`]** *(d)* que
   faire de `~/claude-code.repo.avant-2026-09-25`, copie du fichier repo
   d'avant la bascule sur `latest` (167 octets ; ne diffère du fichier en

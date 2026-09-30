@@ -290,6 +290,18 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   [`docs/machine-facts.md`](machine-facts.md) § Points ouverts.
   **ÉTAIT** : « Durée de conservation des trois instantanés … rien
   supprimé, décision distincte non prise ».
+  **[RÉVISÉ le 2026-09-30, J1-b] Décisions de l'opérateur du 2026-09-30
+  [PILOTE-DÉCLARÉ] — exécution le 2026-10-02, livrable J1-c.** Les deux
+  instantanés restants seront **supprimés** ; de l'état de départ, seul
+  `boot-archive/` (avec son `SHA256SUMS`) est gardé, sur place, **le reste
+  supprimé** ; durée de conservation de `boot-archive/` non fixée (point
+  ouvert) ; D29 close sur « garder `single` » ;
+  `~/claude-code.repo.avant-2026-09-25` **supprimée**. Détail :
+  [`docs/machine-facts.md`](machine-facts.md) § Points ouverts.
+  **[PRÉCISÉ le 2026-09-30, J1-b]** La taille donnée plus haut,
+  **1 005 293 624 octets**, est ÉTAIT : mesurée avant les deux écritures
+  de `16:18:48 +02:00` ; **1 005 294 083 octets** depuis (mise à jour
+  ci-dessous ; `du -sb` identique le 2026-09-29 et le 2026-09-30).
   **[MIS À JOUR le 2026-09-25, 21:12 +02:00]** Taille de l'état de
   départ : **1 005 294 083 octets** (`du -sb`), soit 958,72 Mio.
   ÉTAIT : **1 005 293 624 octets**. L'écart de +459 octets tient à deux
@@ -318,6 +330,8 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   § Sourcing des faits, règle sur la comparaison d'horodatages.
 - **Disposition du stockage** : décision **D29** en attente —
   [`docs/machine-facts.md`](machine-facts.md) § Décisions.
+  **[RÉVISÉ le 2026-09-30, J1-b] DÉCIDÉE : garder `single`, effective à
+  la suppression des instantanés (J1-c).** ÉTAIT : « en attente ».
 
 **Priorités, reprises de `docs/review-2026-08.md` § « Ce qu'il
 faudrait traiter en premier »** (statut détaillé de chacun des
