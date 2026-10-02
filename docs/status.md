@@ -276,7 +276,8 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   [PILOTE-DÉCLARÉ] ; connexions acceptées par clé à 10:23:03, 10:23:31 et
   10:25:15 +02:00 (journal `sshd`, empreinte de la clé Windows). Détail :
   `docs/machine-facts.md` § Points ouverts.
-- **[TRANCHÉ EN PARTIE le 2026-09-25, livrable S1]** Conservation des
+- **[FERMÉ le 2026-10-02, J1-c — ÉTAIT : TRANCHÉ EN PARTIE le
+  2026-09-25, livrable S1]** Conservation des
   instantanés et de l'état de départ. `snap-home-2026-09-24-u2` a été
   **supprimé** : aucune ligne des deux documents qu'il portait ne lui
   était exclusive, et sur tout `/home` 179 entrées ne se trouvaient que
@@ -302,6 +303,15 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   **1 005 293 624 octets**, est ÉTAIT : mesurée avant les deux écritures
   de `16:18:48 +02:00` ; **1 005 294 083 octets** depuis (mise à jour
   ci-dessous ; `du -sb` identique le 2026-09-29 et le 2026-09-30).
+  **[RÉVISÉ le 2026-10-01] Décision *(b)* amendée** [PILOTE-DÉCLARÉ] : on
+  garde `boot-archive/` **et** `procedure/RESTAURATION.md`, sur place.
+  ÉTAIT (2026-09-30) : « seul `boot-archive/` ». Motif : les archives et
+  leur mode d'emploi doivent avoir le même sort.
+  **[FERMÉ le 2026-10-02, J1-c]** Instantanés supprimés à 12:29:42 et
+  12:29:43 `+02:00` ; reste de l'état de départ supprimé à 12:29:57
+  (gardés : `boot-archive/`, intègre, et `procedure/RESTAURATION.md`,
+  empreinte inchangée) ; copie du `.repo` supprimée à 12:30:09. Détail :
+  [`docs/machine-facts.md`](machine-facts.md) § Points ouverts.
   **[MIS À JOUR le 2026-09-25, 21:12 +02:00]** Taille de l'état de
   départ : **1 005 294 083 octets** (`du -sb`), soit 958,72 Mio.
   ÉTAIT : **1 005 293 624 octets**. L'écart de +459 octets tient à deux
@@ -332,6 +342,8 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   [`docs/machine-facts.md`](machine-facts.md) § Décisions.
   **[RÉVISÉ le 2026-09-30, J1-b] DÉCIDÉE : garder `single`, effective à
   la suppression des instantanés (J1-c).** ÉTAIT : « en attente ».
+  **[EFFECTIVE depuis le 2026-10-02 (J1-c)]** Instantanés supprimés à
+  12:29:43 `+02:00`.
 
 **Priorités, reprises de `docs/review-2026-08.md` § « Ce qu'il
 faudrait traiter en premier »** (statut détaillé de chacun des

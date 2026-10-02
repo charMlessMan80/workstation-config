@@ -380,6 +380,8 @@ membre n'est monté nulle part isolément.
   système de fichiers : eux ne bougent pas. **Rien ne doit désigner ces
   disques par leur nom.** Piège : `blkid -U <uuid>` répond l'**autre**
   membre — un identifiant ne se convertit pas en nom de périphérique.
+  **[SUPPRIMÉ le 2026-10-02, J1-c]** `etat/stockage.txt` (état de départ)
+  n'existe plus ; la valeur citée ci-dessus est celle qu'il portait.
 - Origine : les deux partitions étaient membres **dès la création** du
   volume, par l'installateur (2026-08-04, `/var/log/anaconda/storage.log`,
   `BTRFSVolumeDevice._add_parent: fedora ; parent: nvme0n1p3` puis
@@ -1935,6 +1937,11 @@ instantanés restants seront supprimés, le 2026-10-02 (§ Points ouverts,
 échéance du 2026-10-02) : le déclencheur de D29 disparaît alors, et la
 question revient au « risque assumé » de D1. Voies *(b)* et *(c)* non
 retenues.
+**[EFFECTIVE depuis le 2026-10-02 (J1-c)]** Les deux instantanés ont été
+supprimés le 2026-10-02 à 12:29:42 et 12:29:43 `+02:00` ; de l'état de
+départ ne restent que `boot-archive/` et `procedure/RESTAURATION.md`. Le
+filet décrit plus haut (« le poste héberge désormais … les instantanés et
+l'état de départ ») est **supprimé le 2026-10-02**, sauf ces deux objets.
 
 **D28 (2026-08-17) — ANDROID_HOME et PATH posés via ~/.bashrc.d/, jamais
 par écriture dans ~/.bashrc ; `adb` viendra du SDK seul.** Troisième
@@ -2098,13 +2105,28 @@ répertoires restent voulus sur ce poste après ce livrable).
 
 ## Points ouverts
 
-- **[OUVERT le 2026-09-30, J1-b] Durée de conservation de
-  `~/u2-baseline-2026-09-24/boot-archive/`.** L'opérateur a décidé le
+- **[OUVERT le 2026-09-30, J1-b ; ÉLARGI le 2026-10-02, J1-c] Durée de
+  conservation de `~/u2-baseline-2026-09-24/boot-archive/` et de
+  `~/u2-baseline-2026-09-24/procedure/RESTAURATION.md`.** ÉTAIT (titre du
+  2026-09-30) : « Durée de conservation de
+  `~/u2-baseline-2026-09-24/boot-archive/` ». L'opérateur a décidé le
   2026-09-30 de garder ce répertoire, avec son `SHA256SUMS`, quand le
   reste de l'état de départ sera supprimé (J1-c) ; il n'a **pas fixé**
   combien de temps. Après J1-c, ses deux archives seront la **seule
   copie** de `/boot` et `/boot/efi` d'avant la mise à jour du 2026-09-25
   (997 284 004 octets).
+  **[PRÉCISÉ le 2026-10-02, J1-c]** Gardé aussi, par la décision *(b)*
+  amendée le 2026-10-01 : `procedure/RESTAURATION.md`, sha256
+  `b72954cf676226b98636ec49ad37385951f3bbdfcdfc6addd27db83529614aa3`
+  (égale, avant suppression, à sa ligne de `MANIFEST.sha256`).
+  **Réserve [proposée par l'agent en J1-b]** : restaurer un `/boot` du
+  2026-09-24 sous une racine postérieure n'est couvert par aucune
+  procédure — celle de `RESTAURATION.md` était conçue avec la
+  restauration de la racine, dont l'instantané est supprimé ; que le
+  poste démarre ainsi n'est pas établi. Noyaux relevés le 2026-10-02 à
+  12:29 (`rpm -q kernel`, `ls /boot`, `ls /lib/modules`) : `7.1.7-200`,
+  `7.1.8-200` et `7.2.7-200`, tous trois présents dans `/boot` et sous
+  `/lib/modules`. Aucune conclusion tirée.
 - **[OUVERT le 2026-09-29, R1c] Vérifier le préfixe /23 du profil filaire
   à sa prochaine réactivation.** Le profil enregistré porte /23 depuis le
   2026-09-29 à 10:15:46 +02:00, et l'état actif aussi (profil appliqué
@@ -2202,7 +2224,8 @@ répertoires restent voulus sur ce poste après ce livrable).
   requête des gardes `firewall-cmd --query-service=ssh` de
   `roles/recovery/` et `roles/gpu_mux/` : un service retiré au profit
   d'une règle par source les ferait conclure « non autorisé ».
-- **[OUVERT le 2026-09-25, livrable S1] Échéance du 2026-10-02 — sort
+- **[FERMÉ le 2026-10-02, J1-c — ÉTAIT : OUVERT le 2026-09-25, livrable
+  S1] Échéance du 2026-10-02 — sort
   des deux instantanés restants et de l'état de départ.** Décision de
   l'opérateur du 2026-09-25 : `snap-root-2026-09-24-u2`,
   `snap-home-2026-09-25-u2b` et `~/u2-baseline-2026-09-24/`
@@ -2233,6 +2256,29 @@ répertoires restent voulus sur ce poste après ce livrable).
   de `16:18:48 +02:00`. La taille depuis est **1 005 294 083 octets**
   (mise à jour du 2026-09-25 à 21:12, ci-dessous ; `du -sb` identique le
   2026-09-29 et le 2026-09-30).
+  **[RÉVISÉ le 2026-10-01] Décision *(b)* amendée** [PILOTE-DÉCLARÉ,
+  opérateur] : de l'état de départ, on garde `boot-archive/` (avec son
+  `SHA256SUMS`) **et** `procedure/RESTAURATION.md`, sur place ; tout le
+  reste est supprimé. ÉTAIT (2026-09-30) : « seul `boot-archive/` ».
+  Motif : les archives et leur mode d'emploi doivent avoir le même sort —
+  la procédure de restauration de `/boot` n'existait que dans ce fichier
+  (relevé J1-b).
+  **[FERMÉ le 2026-10-02, J1-c] Exécution**, heures locales `+02:00`.
+  Avant toute suppression (12:29:25) : `sha256sum -c SHA256SUMS` dans
+  `boot-archive/` → deux `OK` ; `du -sb` 997 284 004 octets ; empreinte de
+  `procedure/RESTAURATION.md` égale à celle de `MANIFEST.sha256`. *(a)*
+  `snap-root-2026-09-24-u2` (ID 261) supprimé à 12:29:42,
+  `snap-home-2026-09-25-u2b` (ID 267) à 12:29:43 (`btrfs subvolume delete
+  --commit-each --subvolid`, sous-volume par défaut : 5) ; `btrfs
+  subvolume list -s /` ne renvoie plus rien. *(b)* À 12:29:57 :
+  supprimés `APRES-INSTANTANE.sha256`, `MANIFEST.sha256`, `etat/`,
+  `etat-apres-u2b/`, `etat-apres-u2c/`, `plan/` ; restent `boot-archive/`
+  et `procedure/` (`RESTAURATION.md` seul), empreintes inchangées, deux
+  `OK`, `du -sb` de `boot-archive/` 997 284 004 octets, de l'ensemble
+  997 314 210 octets. *(c)* D29 effective depuis 12:29:43 (§ Décisions).
+  *(d)* `~/claude-code.repo.avant-2026-09-25` supprimée à 12:30:09, après
+  contrôle de son empreinte ; le fichier en place sous
+  `/etc/yum.repos.d/` est inchangé.
   **[AJOUTÉ le 2026-09-25, après la bascule `claude-code`]** *(d)* que
   faire de `~/claude-code.repo.avant-2026-09-25`, copie du fichier repo
   d'avant la bascule sur `latest` (167 octets ; ne diffère du fichier en
@@ -2291,12 +2337,16 @@ répertoires restent voulus sur ce poste après ce livrable).
   leur volume étant partagé ; et on ne perd réellement les archives
   qu'en supprimant **les deux**. C'est pourquoi (a) et (b) ne se
   tranchent pas séparément.
+  **[SUPPRIMÉ le 2026-10-02, J1-c]** `snap-home-2026-09-25-u2b` n'existe
+  plus : les archives ne sont plus qu'en un seul endroit, `boot-archive/`.
 
   Deux faits à garder en vue ce jour-là : le repli par noyau antérieur
   ne vaut que pour `7.1.8` ([`docs/packages.md`](packages.md) § 5.2) ; et
   `snap-home-2026-09-25-u2b` a été pris à `01:36:28 +02:00`, **21 minutes
   avant** le début de la transaction 51 (`01:57:26 +02:00`), donc il
   ramène bien `/home` à son état d'avant la mise à jour.
+  **[SUPPRIMÉ le 2026-10-02, J1-c]** Cet instantané n'existe plus : ce
+  retour de `/home` n'est plus possible.
 
   **`dnf history undo` ne peut pas reconstituer l'état d'avant la
   transaction 51 — et c'est indépendant de l'état de départ.** Mesuré sur
@@ -5396,6 +5446,9 @@ exclusive, et sur tout `/home` 179 entrées ne se trouvaient que chez lui,
 dont 156 de cache et 22 d'artefacts de rotation, toutes remplacées par des
 équivalents plus récents ; les deux autres et l'état de départ
 **conservés jusqu'au 2026-10-02** (§ Points ouverts).
+**[SUPPRIMÉ le 2026-10-02, J1-c]** Les deux instantanés, et l'état de
+départ sauf `boot-archive/` et `procedure/RESTAURATION.md` : § Points
+ouverts, échéance du 2026-10-02.
 
 **Un piège d'horodatage, rencontré et refermé dans S1.** Le livrable a
 d'abord conclu que `snap-home-2026-09-25-u2b` avait été créé **après** la

@@ -438,6 +438,9 @@ Première depuis la transaction 49 (2026-08-15), en trois livrables — U2a
 (état de départ, instantanés), U2b (application sans redémarrage), U2c
 (vérification après redémarrage, CDI). Valeurs issues de
 `~/u2-baseline-2026-09-24/` ou mesurées le 2026-09-25.
+**[SUPPRIMÉ le 2026-10-02, J1-c]** Cet état de départ ne garde plus que
+`boot-archive/` et `procedure/RESTAURATION.md` : les fichiers d'où
+venaient ces valeurs n'existent plus.
 
 | Transaction | Heure (`dnf history`, UTC, relevé brut) | Heure locale, début → fin (`dnf history info N` converti) | Ligne de commande | Altérations |
 |---|---|---|---|---|
@@ -519,6 +522,9 @@ diffère du fichier en place que par la ligne `baseurl` (`diff` :
 `rpm/stable` contre `rpm/latest`, relu le 2026-09-25). Son sort se
 tranche à l'échéance du 2026-10-02 (`docs/machine-facts.md` § Points
 ouverts).
+**[SUPPRIMÉ le 2026-10-02, J1-c]** Cette copie a été supprimée ; son
+contenu se reconstitue à partir de la seule ligne `baseurl` citée
+ci-dessus.
 
 ### 5.1 — La méthode, parce qu'elle resservira
 
