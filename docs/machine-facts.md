@@ -2279,6 +2279,13 @@ répertoires restent voulus sur ce poste après ce livrable).
   *(d)* `~/claude-code.repo.avant-2026-09-25` supprimée à 12:30:09, après
   contrôle de son empreinte ; le fichier en place sous
   `/etc/yum.repos.d/` est inchangé.
+  **[PRÉCISÉ le 2026-10-02, RC-1]** L'élévation de `btrfs subvolume
+  get-default /` en J1-c n'était pas conforme à la règle c de `CLAUDE.md`
+  déjà à la lettre (« l'échec sans privilège correspondant, cité par sa
+  commande exacte »), et explicitement depuis sa précision de ce jour (pas
+  d'essai sans privilège propre, rattachée à l'échec d'une autre
+  sous-commande) ; déclarée par l'agent dans son rapport J1-c. Sans
+  conséquence sur le résultat.
   **[AJOUTÉ le 2026-09-25, après la bascule `claude-code`]** *(d)* que
   faire de `~/claude-code.repo.avant-2026-09-25`, copie du fichier repo
   d'avant la bascule sur `latest` (167 octets ; ne diffère du fichier en

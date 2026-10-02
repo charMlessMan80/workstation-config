@@ -675,6 +675,25 @@ montré plusieurs fois de suite avant que chacune ne soit corrigée.
   d'écrire la ligne élevée qui doit s'y rattacher. Occurrences
   recensées : `docs/machine-facts.md`, journaux datés IA-0, CMP-0,
   CMP-1, KAT-1 et temporisation `kitty` du 2026-08-09.
+  **[PRÉCISÉE le 2026-10-02, J1-b et J1-c] Deux cas, sans assouplir la
+  règle.** *(i)* **Sortie fausse avec rc=0.** Un essai sans privilège
+  dont la sortie est **démontrée fausse** par une autre mesure du même
+  livrable, ou d'un livrable cité, compte comme un échec ; le compte rendu
+  cite la mesure qui la contredit. Un simple soupçon, ou une sortie
+  seulement incomplète, ne suffit pas. *(ii)* **« Correspondant » veut
+  dire la même commande.** Ce que *(1)* exigeait déjà à la lettre —
+  « l'échec sans privilège correspondant, cité par sa commande exacte » :
+  chaque commande élevée a **son** essai sans privilège, en échec — celui
+  de la même commande avec la même sous-commande, dans ce livrable ou cité
+  d'un livrable antérieur (date et code de retour). L'échec d'une autre
+  commande ou sous-commande, même de nature voisine, n'est pas un
+  rattachement. Les commandes privilégiées par nature restent traitées
+  comme aujourd'hui, au sens de la règle `[RESTREINTE le 2026-08-09]`
+  ci-dessus. Motif : *(i)* `btrfs filesystem show /` sans privilège a
+  rendu rc=0 avec des tailles nulles et des membres « MISSING »,
+  contredits par `Device missing: 0` de `btrfs filesystem usage` (J1-b) ;
+  *(ii)* `btrfs subvolume get-default /` a été élevé sans essai propre,
+  rattaché à l'échec de `btrfs subvolume list /` (J1-c).
 - **[AJOUTÉE le 2026-09-25] Toute sortie demandée pour relecture est
   recopiée dans le texte de la réponse.** Diff, `git show`, sorties de
   garde, calculs : en bloc de code, intégralement, jamais remplacés par
