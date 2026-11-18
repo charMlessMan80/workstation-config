@@ -1,0 +1,104 @@
+
+# Généré par roles/cdi_login_notice/ (workstation-config) — jamais écrit à la
+# main, écrasé intégralement à chaque exécution du rôle. Chargé par la boucle
+# native de ~/.bashrc (gabarit Fedora, /etc/skel/), comme les autres fichiers
+# de ~/.bashrc.d/ — ~/.bashrc lui-même n'est jamais modifié.
+#
+# Rôle : dans un shell INTERACTIF seulement, écrire sur la sortie d'erreur un
+# avertissement quand le DERNIER RÉSULTAT CONNU de {{ cdi_login_notice_unit }}
+# dans le journal utilisateur est un échec, ou quand aucun résultat n'est
+# lisible. Rien quand ce dernier résultat est une réussite.
+#
+# Lecture du journal seule : ne lance jamais la garde, n'appelle ni
+# ansible-playbook, ni systemctl, ni nvidia-smi — ne réveille pas le GPU.
+#
+# Date de référence (preuve, roles/cdi_login_notice/README.md) :
+#   CDI_LOGIN_NOTICE_AS_OF='<horodatage systemd.time>'
+# donne le dernier résultat connu à cette date au lieu de « maintenant ».
+#
+# Le corps entier tourne dans un sous-shell « ( … ) » : aucune variable,
+# fonction ni option n'en sort vers le shell appelant ; ni `exit` ni `set -e`.
+# Chaque appel à journalctl est borné par `timeout`.
+
+if [[ $- == *i* ]]; then
+    (
+        _cdi_ln_unit='{{ cdi_login_notice_unit }}'
+        _cdi_ln_asof=${CDI_LOGIN_NOTICE_AS_OF:-now}
+        _cdi_ln_ok='^Finished {{ cdi_login_notice_unit | regex_escape }}( |\.|$)'
+        _cdi_ln_ko='^{{ cdi_login_notice_unit | regex_escape }}: Failed with result '
+
+        # Première entrée du journal utilisateur de l'unité qui correspond aux
+        # options données, au format « secondes.microsecondes hôte … » ; rend
+        # le code de retour de journalctl (ou de timeout, 124).
+        _cdi_ln_entry() {
+            local out rc line
+            out=$(timeout {{ cdi_login_notice_journal_timeout }} journalctl --user --quiet --no-pager \
+                --output=short-unix --unit="$_cdi_ln_unit" "$@" 2>/dev/null)
+            rc=$?
+            while IFS= read -r line; do
+                if [[ $line == [0-9]* ]]; then
+                    printf '%s\n' "$line"
+                    break
+                fi
+            done <<< "$out"
+            return "$rc"
+        }
+
+        # Secondes UNIX → date locale avec son décalage (CLAUDE.md : toute
+        # heure écrite porte son décalage).
+        _cdi_ln_date() {
+            date -d "@${1%%.*}" '+%Y-%m-%d %H:%M:%S %:z'
+        }
+
+        _cdi_ln_ref=''
+        if [[ $_cdi_ln_asof != now ]]; then
+            _cdi_ln_ref=" — référence demandée : ${_cdi_ln_asof}"
+        fi
+
+        _cdi_ln_last=$(_cdi_ln_entry --until="$_cdi_ln_asof" --lines=1 --grep="${_cdi_ln_ok}|${_cdi_ln_ko}")
+        _cdi_ln_rc=$?
+
+        if [[ -z $_cdi_ln_last ]]; then
+            # Choix : dire qu'on ne sait pas, plutôt que se taire — le silence
+            # est la forme d'une réussite ici (CLAUDE.md, « Préférer l'échec
+            # bruyant au repli silencieux » ; « Une commande sans sortie
+            # n'établit rien »).
+            {
+                printf '%s : INCONNU%s\n' '{{ cdi_login_notice_marker }}' "$_cdi_ln_ref"
+                printf '  Aucun résultat de %s lisible dans le journal utilisateur (journalctl rc=%s).\n' \
+                    "$_cdi_ln_unit" "$_cdi_ln_rc"
+                printf '  Ce n’est PAS un état « à jour » : la spécification CDI n’a pas été vérifiée, ou rien n’en reste.\n'
+                printf '  Détail    : journalctl --user -u %s\n' "$_cdi_ln_unit"
+            } >&2
+        elif [[ $_cdi_ln_last == *': Failed with result '* ]]; then
+            _cdi_ln_fail_s=${_cdi_ln_last%% *}
+            _cdi_ln_fail_s=${_cdi_ln_fail_s%%.*}
+            _cdi_ln_succ=$(_cdi_ln_entry --until="@${_cdi_ln_fail_s}" --lines=1 --grep="$_cdi_ln_ok")
+            if [[ -n $_cdi_ln_succ ]]; then
+                _cdi_ln_succ_s=${_cdi_ln_succ%% *}
+                _cdi_ln_succ_s=${_cdi_ln_succ_s%%.*}
+                _cdi_ln_first=$(_cdi_ln_entry --since="@$((_cdi_ln_succ_s + 1))" --lines=+1 --grep="$_cdi_ln_ko")
+                _cdi_ln_tail="dernière réussite : $(_cdi_ln_date "$_cdi_ln_succ_s")"
+            else
+                _cdi_ln_first=$(_cdi_ln_entry --lines=+1 --grep="$_cdi_ln_ko")
+                _cdi_ln_tail='aucune réussite dans le journal conservé : au moins depuis cette date'
+            fi
+            if [[ -n $_cdi_ln_first ]]; then
+                _cdi_ln_since="$(_cdi_ln_date "${_cdi_ln_first%% *}") (${_cdi_ln_tail})"
+            else
+                _cdi_ln_since="non établi par le journal (${_cdi_ln_tail})"
+            fi
+            {
+                printf '%s : ÉCHEC, le %s%s\n' '{{ cdi_login_notice_marker }}' \
+                    "$(_cdi_ln_date "$_cdi_ln_fail_s")" "$_cdi_ln_ref"
+                printf '  Dernier passage lu dans le journal utilisateur, PAS un état courant.\n'
+                printf '  En échec depuis : %s\n' "$_cdi_ln_since"
+                printf '  Détail    : journalctl --user -u %s\n' "$_cdi_ln_unit"
+                printf '  Régénérer : cd %s && ansible-playbook roles/gpu_cdi/gpu_cdi.yml --tags regen-cdi-spec\n' \
+                    '{{ cdi_login_notice_repo_dir }}'
+                printf '  Consigner : témoin nvidia-ctk, sha256sum, avertissements — %s § 9.9\n' \
+                    '{{ cdi_login_notice_repo_dir }}/docs/gpu-containers.md'
+            } >&2
+        fi
+    )
+fi

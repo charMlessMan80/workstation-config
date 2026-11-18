@@ -5559,3 +5559,109 @@ bruts hors dépôt : `~/r1c/profil-avant.txt`, `~/r1c/profil-apres.txt`.
 Retour arrière manuel, à la console : `nmcli connection modify uuid <uuid
 du profil filaire> ipv4.addresses <adresse>/24`, puis `nmcli connection up
 uuid <uuid>`.
+
+## L13 — avertissement à la connexion sur échec de la garde CDI (2026-11-18)
+
+**Décision du propriétaire du 2026-11-18, non numérotée** (D28 ne couvre
+`~/.bashrc.d/` que pour Android). Elle retient l'option A de la résolution
+L12 : un fichier dans `~/.bashrc.d/` qui lit le journal utilisateur, dans un
+rôle dédié. Elle porte aussi deux décisions prises le même jour : pas de
+« linger », et la notification de bureau reste inchangée. Rattachement :
+`docs/gpu-containers.md` § 9.9 (note du 2026-11-18). Rôle :
+`roles/cdi_login_notice/` ; fichier déployé : `~/.bashrc.d/95-cdi-login-notice.sh`
+(`0644`, propriété de l'utilisateur), seule écriture hors dépôt.
+
+**Constats L12 (lecture seule, 2026-11-18) qui fondent la conception :**
+- `/run/motd.d/` est vide. Le pilote lui attribuait treize entrées : c'était
+  le nombre de rôles du dépôt.
+- `pam_motd` précède `pam_systemd` dans `/etc/pam.d/sshd`.
+- La minuterie a rattrapé un passage dans la même seconde que son démarrage
+  (2026-11-17 17:05:14 +01:00, `journalctl --user -u
+  local-ai-cdi-verify.timer` et `.service`).
+- Le gestionnaire utilisateur s'est arrêté puis relancé pendant le
+  démarrage du 2026-11-02 (PID 2221 → 1703605 → 1809203).
+
+Le message porte donc sur le **dernier résultat connu**, daté, jamais sur
+un état courant.
+
+**Dates de référence relues dans le journal** (`journalctl --user -u
+local-ai-cdi-verify.service`, 2026-11-18) :
+
+| Référence | Entrée relue |
+|---|---|
+| échec | 2026-11-17T21:00:31+01:00 `Failed with result 'exit-code'` |
+| réussite | 2026-11-17T22:00:31+01:00 `Finished …` |
+| dernière réussite avant l'échec | 2026-10-09T15:00:14+02:00 |
+| premier échec après elle | 2026-10-09T16:00:56+02:00 |
+| plus ancienne entrée de l'unité | 2026-08-08T13:48:49+02:00 |
+
+**Preuves, exécutées par le rôle** (`ansible-playbook
+roles/cdi_login_notice/cdi_login_notice.yml`, puis `site.yml --tags
+cdi_login_notice`). Shells réels sous `env -i`, seul `HOME` conservé ;
+extraits de la sortie d'erreur :
+
+```
+Preuve 1 (bash -ic, CDI_LOGIN_NOTICE_AS_OF=2026-11-17T21:30:00+01:00) — stdout vide
+Garde CDI (dernier résultat connu) : ÉCHEC, le 2026-11-17 21:00:31 +01:00 — référence demandée : 2026-11-17T21:30:00+01:00
+  Dernier passage lu dans le journal utilisateur, PAS un état courant.
+  En échec depuis : 2026-10-09 16:00:56 +02:00 (dernière réussite : 2026-10-09 15:00:14 +02:00)
+Preuve 2 (bash -ic, …=2026-11-17T22:30:00+01:00) — stdout vide, aucune ligne « Garde CDI »
+Preuve 3a (bash -c, BASH_ENV=~/.bashrc, référence d'échec) — stdout et stderr vides
+Preuve 3b (même shell sous -x) — '+ . …/.bashrc.d/95-cdi-login-notice.sh', '++ [[ hxBc == *i* ]]'
+Preuve 4 (bash -ic, …=2026-08-08T12:00:00+02:00) — stdout vide
+Garde CDI (dernier résultat connu) : INCONNU — référence demandée : 2026-08-08T12:00:00+02:00
+  Aucun résultat de local-ai-cdi-verify.service lisible dans le journal utilisateur (journalctl rc=1).
+Preuve 5 (bash -ic 'compgen -v; declare -F', référence d'échec) — aucun nom _cdi_ln_ parmi 303
+```
+
+Les seules autres lignes sur la sortie d'erreur des shells interactifs
+viennent de bash lui-même, sans terminal : `cannot set terminal process
+group … Inappropriate ioctl for device` et `no job control in this shell`.
+
+Durée d'un shell interactif complet (`delta` Ansible) : 0,41 s quand la
+branche d'échec est parcourue (trois requêtes au journal), 0,04 s sur
+réussite.
+
+**Idempotence et chemins inter-rôles.** Seconde exécution :
+`changed=0`. `site.yml --tags cdi_login_notice` : `changed=0`, preuves
+vertes. `roles/android_env/android_env.yml` rejoué : `changed=0`, sa
+vérification (`env -i … bash -ic`) chargeant le nouveau fichier reste
+verte.
+
+**Actions privilégiées : aucune.** Aucun `become`, aucun `sudo`, aucun
+`systemctl` d'écriture, aucune unité `local-ai-cdi-verify*` modifiée.
+
+**[AJOUTÉ le 2026-11-18, L13b] Gardes du rôle démontrées dans le sens de
+l'échec.** Quatre exécutions de `ansible-playbook
+roles/cdi_login_notice/cdi_login_notice.yml`, chacune avec un seul `-e`.
+`stat ~/.bashrc.d/95-cdi-login-notice.sh` a été relevé avant la première
+et après chacune : 5 364 octets, inode 2424780, `Modify`
+2026-11-18 09:41:27.820698093 +01:00 et `Change` 09:41:27.998699977
++01:00, **identiques à chaque relevé**. Aucune de ces exécutions n'a
+réécrit le fichier.
+
+| `-e` | Tâche en échec | `PLAY RECAP` |
+|---|---|---|
+| `cdi_login_notice_unit_file=/nonexistent` | « Échouer bruyamment si l'unité surveillée est absente » (`tasks/main.yml:35`) : `/nonexistent est absent — ce rôle lit le journal de local-ai-cdi-verify.service, déployée par roles/local_ai/. […] Jouer local_ai avant ce rôle.` | `ok=3 changed=0 failed=1` |
+| `cdi_login_notice_bashrc_path=<copie de ~/.bashrc sans la boucle, hors dépôt>` | « Échouer bruyamment si le fichier de shell ne porte pas la boucle native » (`tasks/main.yml:60`) : `… ne contient pas la sous-chaîne "for rc in ~/.bashrc.d/*; do" (grep rc= 1) — le fichier que ce rôle déposerait ne serait jamais chargé.` | `ok=5 changed=0 failed=1` |
+| `cdi_login_notice_proof_failure_as_of=2026-08-08T12:00:00+02:00` | « Échouer bruyamment si le journal de ce poste ne contient pas les références des preuves » (`tasks/main.yml:143`) : `RÉFÉRENCE ABSENTE, PREUVES NON EXERCÉES — […] Lu — échec :  (rc=1) ; réussite : 2026-11-17T22:00:31+01:00 … Finished … (rc=0).` | `ok=11 changed=0 failed=1` |
+| `cdi_login_notice_journal_proofs=false` | aucune : le message `PREUVES 1, 2 ET 5 NON EXERCÉES — cdi_login_notice_journal_proofs=false. […]` s'affiche ; les références « échec/réussite » et les preuves 1, 2 et 5 sont sautées ; la référence « aucune entrée » et les preuves 3 et 4 sont jouées et vertes | `ok=19 changed=0 failed=0 skipped=9` |
+
+Les deux premières gardes s'arrêtent **avant** les tâches de dépôt. La
+troisième s'arrête **après** la tâche du gabarit, qui a rendu `ok` et non
+`changed` : elle garde les preuves, pas le dépôt. Son message cite les
+dates attendues (21:00:31, 22:00:31), pas la date demandée par `-e` ;
+seule la ligne « Lu — échec : (rc=1) » montre que la requête n'a rien
+trouvé. Écart de libellé consigné, non corrigé dans cette passe.
+
+Exécution nominale finale, sans `-e` : `ok=27 changed=0 failed=0
+skipped=1`, preuves 1 à 5 vertes.
+
+**Branches toujours non exercées :**
+- le `--check` du gabarit quand `~/.bashrc.d/` est absent ;
+- dans le fichier déposé : dépassement de `timeout`, valeur invalide de
+  `CDI_LOGIN_NOTICE_AS_OF`, branche « aucune réussite dans le journal
+  conservé » ;
+- une vraie connexion SSH, interactive ou avec commande. Le chargement de
+  `~/.bashrc` par `ssh hôte 'commande'` est une mesure du pilote
+  (2026-11-18), pas une preuve de ce rôle.

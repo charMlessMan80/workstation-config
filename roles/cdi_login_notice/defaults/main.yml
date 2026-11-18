@@ -1,0 +1,68 @@
+---
+# Rôle cdi_login_notice — dépose dans ~/.bashrc.d/ un fichier qui, dans les
+# shells interactifs seulement, avertit sur la sortie d'erreur quand le
+# dernier résultat connu de la garde CDI périodique (local-ai-cdi-verify.service,
+# roles/local_ai/) est un échec dans le journal utilisateur. N'écrit jamais
+# dans ~/.bashrc ni dans un autre fichier de ~/.bashrc.d/ — voir README.md.
+
+# --- Unité surveillée — même nom que local_ai_cdi_timer_base_name
+# (roles/local_ai/defaults/main.yml), jamais réimporté depuis ce rôle (aucune
+# dépendance de rôle Ansible dans ce dépôt) : répété ici, et vérifié PAR
+# L'EFFET (stat du fichier d'unité, tasks/main.yml) plutôt que supposé
+# identique — même patron qu'android_env_sdk_root.
+cdi_login_notice_unit: local-ai-cdi-verify.service
+cdi_login_notice_unit_file: "{{ ansible_facts.env.HOME }}/.config/systemd/user/{{ cdi_login_notice_unit }}"
+
+# --- Fichier déposé — entièrement propriété de ce rôle, écrasé à chaque
+# exécution. Préfixe « 95- » : chargé après les fichiers qui posent
+# l'environnement (90-android-sdk.sh, roles/android_env/), ordre
+# alphabétique de la boucle native de ~/.bashrc. Ce fichier ne pose rien et
+# ne dépend de rien qu'un autre fichier poserait : le préfixe ne fait que le
+# placer en dernier, là où un message est lu après tout le reste.
+cdi_login_notice_bashrc_d_dir: "{{ ansible_facts.env.HOME }}/.bashrc.d"
+cdi_login_notice_file: "{{ cdi_login_notice_bashrc_d_dir }}/95-cdi-login-notice.sh"
+
+# --- Garde sur la boucle native de ~/.bashrc — même garde
+# qu'android_env (roles/android_env/defaults/main.yml), répétée ici parce
+# que ce rôle ne suppose pas qu'android_env a tourné. Fichier substituable
+# pour la démonstration d'échec forcé, sans toucher au ~/.bashrc réel :
+# -e cdi_login_notice_bashrc_path=/chemin/vers/une/copie/sans/la/boucle
+cdi_login_notice_bashrc_path: "{{ ansible_facts.env.HOME }}/.bashrc"
+cdi_login_notice_bashrc_loop_marker: "for rc in ~/.bashrc.d/*; do"
+
+# --- Racine du dépôt, citée dans le message (commande de régénération,
+# renvoi à docs/gpu-containers.md § 9.9). role_path et non playbook_dir :
+# stable que le rôle soit joué seul ou depuis site.yml (CLAUDE.md, mode 4,
+# ORC-2).
+cdi_login_notice_repo_dir: "{{ role_path | dirname | dirname }}"
+
+# --- Borne de chaque appel à journalctl dans le fichier déposé, en
+# secondes (timeout(1)) : un journal lent ne doit pas retenir l'ouverture
+# d'un shell. Dépassement → rc=124, traité comme « aucun résultat lisible ».
+cdi_login_notice_journal_timeout: 2
+
+# --- Préfixe de toutes les lignes d'avertissement — cherché par les
+# assertions de preuve (tasks/main.yml).
+cdi_login_notice_marker: "Garde CDI (dernier résultat connu)"
+
+# --- Preuves sur le journal réel de CE poste (README.md § Preuves).
+# Dates relues le 2026-11-18 dans `journalctl --user -u
+# local-ai-cdi-verify.service` (livrable L13) :
+#   échec   2026-11-17T21:00:31+01:00 (« Failed with result 'exit-code' »)
+#   réussite 2026-11-17T22:00:31+01:00 (« Finished … »)
+#   dernière réussite avant l'échec : 2026-10-09T15:00:14+02:00
+#   premier échec après elle      : 2026-10-09T16:00:56+02:00
+#   plus ancienne entrée de l'unité : 2026-08-08T13:48:49+02:00
+# Sur un poste neuf ou après rotation du journal, ces entrées n'existent
+# pas : les assertions de référence échouent bruyamment (README.md). Mettre
+# cdi_login_notice_journal_proofs à false saute les preuves qui en
+# dépendent, en le signalant — jamais en silence.
+cdi_login_notice_journal_proofs: true
+cdi_login_notice_proof_failure_as_of: "2026-11-17T21:30:00+01:00"
+cdi_login_notice_proof_failure_expected: "2026-11-17 21:00:31 +01:00"
+cdi_login_notice_proof_failure_since_expected: "2026-10-09 16:00:56 +02:00"
+cdi_login_notice_proof_last_success_expected: "2026-10-09 15:00:14 +02:00"
+cdi_login_notice_proof_success_as_of: "2026-11-17T22:30:00+01:00"
+cdi_login_notice_proof_success_expected: "2026-11-17 22:00:31 +01:00"
+# Avant la plus ancienne entrée de l'unité — vraie aussi sur un poste neuf.
+cdi_login_notice_proof_empty_as_of: "2026-08-08T12:00:00+02:00"

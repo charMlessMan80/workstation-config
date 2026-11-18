@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: cdi_login_notice
+  author: Mickael Mahieu
+  description: >-
+    Dépose dans ~/.bashrc.d/ un fichier qui, dans les shells interactifs
+    seulement, avertit sur la sortie d'erreur quand le dernier résultat
+    connu de local-ai-cdi-verify.service (roles/local_ai/) est un échec
+    dans le journal utilisateur. Lecture du journal seule : ne lance
+    jamais la garde, ne réveille pas le GPU. N'écrit jamais dans
+    ~/.bashrc ni dans un autre fichier de ~/.bashrc.d/.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Fedora
+      versions:
+        - "44"
+# Dépend réellement de local_ai (unité local-ai-cdi-verify.service déployée,
+# dont le journal est lu) — exprimé par l'ORDRE dans site.yml, PAS par
+# `dependencies:` (même patron qu'android_sdk/android_env, voir
+# roles/android_sdk/meta/main.yml pour l'argument complet). Garde réelle :
+# stat du fichier d'unité, par l'effet (tasks/main.yml).
+dependencies: []

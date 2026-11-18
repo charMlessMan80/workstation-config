@@ -1962,6 +1962,22 @@ pas quand le bloc s'exécute.
 
 Ollama n'a pas été redémarré par cette régénération.
 
+**[AJOUTÉ le 2026-11-18, L13] Rattachement au point ouvert « chaîne
+d'alerte » ci-dessus.** Décision du propriétaire du 2026-11-18, non
+numérotée : un **message à la connexion**, qui fonctionne sans session
+graphique, s'ajoute à la notification de bureau, qui reste inchangée. Il est porté
+par le rôle [`roles/cdi_login_notice/`](../roles/cdi_login_notice/) :
+`~/.bashrc.d/95-cdi-login-notice.sh` écrit sur la sortie d'erreur, dans
+les shells interactifs seulement, le **dernier résultat connu** de
+`local-ai-cdi-verify.service` lu dans le journal utilisateur quand c'est
+un échec. Il y joint la date de ce résultat, le premier échec après la
+dernière réussite, la commande `--tags regen-cdi-spec` et un renvoi à ce
+§ 9.9 pour la consignation. Sans « linger », il n'y a pas d'état courant à
+afficher : le message le dit. Ce que le rôle démontre, et ce qu'il ne
+démontre pas (une vraie connexion SSH notamment), figure dans son
+`README.md`. Le point ouvert reste ouvert pour la notification de
+bureau elle-même, à laquelle ce rôle ne touche pas.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode

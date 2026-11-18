@@ -1,0 +1,424 @@
+---
+# Rôle cdi_login_notice — dépose ~/.bashrc.d/95-cdi-login-notice.sh, qui
+# avertit dans les shells interactifs quand le dernier résultat connu de
+# local-ai-cdi-verify.service est un échec (journal utilisateur). N'écrit
+# JAMAIS dans ~/.bashrc, ~/.bash_profile ni dans un autre fichier de
+# ~/.bashrc.d/. Aucune élévation (pas de become), aucun systemctl, aucune
+# exécution de la garde elle-même.
+#
+# Modèle : roles/android_env/ (assertion Fedora, garde sur la boucle native
+# de ~/.bashrc, vérification par l'effet dans un shell réel). Écart assumé :
+# la vérification d'effet est ici une série de preuves sur le journal réel
+# de ce poste, précédée d'assertions de référence qui distinguent « le
+# journal ne contient pas la référence » (poste neuf, rotation) de « le
+# fichier déposé se trompe ».
+
+- name: "Asserter que ce poste est bien Fedora 44 avant toute action"
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Fedora'
+      - ansible_facts.distribution_major_version == '44'
+    fail_msg: >-
+      Ce rôle ne vise que Fedora 44 (galaxy_info.platforms, meta/main.yml)
+      — distribution détectée : {{ ansible_facts.distribution }}
+      {{ ansible_facts.distribution_version }}.
+    success_msg: "Fedora {{ ansible_facts.distribution_major_version }} confirmé."
+
+# --- Dépendance réelle sur local_ai : l'unité dont le journal est lu ------
+
+- name: "Vérifier PAR L'EFFET que l'unité surveillée est déployée (dépendance réelle sur local_ai) : {{ cdi_login_notice_unit_file }}"
+  ansible.builtin.stat:
+    path: "{{ cdi_login_notice_unit_file }}"
+  register: cdi_login_notice_unit_stat
+  check_mode: false
+
+- name: "Échouer bruyamment si l'unité surveillée est absente — ne pas supposer la dépendance depuis l'ordre de site.yml"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_unit_stat.stat.exists
+    fail_msg: >-
+      {{ cdi_login_notice_unit_file }} est absent — ce rôle lit le journal de
+      {{ cdi_login_notice_unit }}, déployée par roles/local_ai/. Sans elle,
+      le fichier déposé annoncerait à chaque shell un résultat INCONNU.
+      Jouer local_ai avant ce rôle.
+    success_msg: "Unité surveillée en place : {{ cdi_login_notice_unit_file }}"
+
+# --- Garde : le contenu réel de ~/.bashrc, pas son existence -------------
+
+- name: "Relever le contenu réel du fichier de shell ciblé par la garde : {{ cdi_login_notice_bashrc_path }}"
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -F
+      - "{{ cdi_login_notice_bashrc_loop_marker }}"
+      - "{{ cdi_login_notice_bashrc_path }}"
+  register: cdi_login_notice_bashrc_loop_check
+  changed_when: false
+  failed_when: false  # rc 1 (motif absent) et 2 (fichier illisible) : interprétés ci-dessous
+  check_mode: false
+
+- name: "Échouer bruyamment si le fichier de shell ne porte pas la boucle native de chargement de ~/.bashrc.d/"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_bashrc_loop_check.rc == 0
+    fail_msg: >-
+      {{ cdi_login_notice_bashrc_path }} ne contient pas la sous-chaîne
+      {{ cdi_login_notice_bashrc_loop_marker | to_json }} (grep rc=
+      {{ cdi_login_notice_bashrc_loop_check.rc }}) — le fichier que ce rôle
+      déposerait ne serait jamais chargé. Ce rôle n'écrit jamais dans
+      ~/.bashrc : décision du pilote, à traiter séparément.
+    success_msg: >-
+      {{ cdi_login_notice_bashrc_path }} porte la boucle native de
+      chargement de ~/.bashrc.d/.
+
+# --- Dépôt — répertoire puis fichier, entièrement propriété de ce rôle ----
+
+- name: "Relever l'existence de ~/.bashrc.d/ (conditionne le --check du gabarit)"
+  ansible.builtin.stat:
+    path: "{{ cdi_login_notice_bashrc_d_dir }}"
+  register: cdi_login_notice_dir_stat
+  check_mode: false
+
+- name: "Créer ~/.bashrc.d/ s'il n'existe pas déjà"
+  ansible.builtin.file:
+    path: "{{ cdi_login_notice_bashrc_d_dir }}"
+    state: directory
+    mode: "0755"
+  register: cdi_login_notice_dir_result
+
+# Sous --check, le gabarit n'est simulé (avec --diff) que si le répertoire
+# existe déjà : sinon le module échouerait sur un répertoire qui n'existe
+# que dans la simulation.
+- name: "Déposer le fichier d'avertissement — contenu entièrement propriété de ce rôle : {{ cdi_login_notice_file }}"
+  ansible.builtin.template:
+    src: 95-cdi-login-notice.sh.j2
+    dest: "{{ cdi_login_notice_file }}"
+    mode: "0644"
+  register: cdi_login_notice_file_result
+  when: not ansible_check_mode or cdi_login_notice_dir_stat.stat.exists
+
+# --- Assertions de référence : le journal de CE poste contient-il les
+# résultats sur lesquels portent les preuves ? Lecture directe par
+# journalctl, indépendante du fichier déposé — distingue « référence
+# absente » (poste neuf, rotation : échec bruyant, pas un défaut du
+# fichier) de « le fichier se trompe » (preuves plus bas). Exécutées
+# aussi sous --check (lecture pure).
+
+- name: "Référence — dernier résultat du journal, attendu : échec, à la date {{ cdi_login_notice_proof_failure_as_of }}"
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - --user
+      - --quiet
+      - --no-pager
+      - --output=short-iso
+      - "--unit={{ cdi_login_notice_unit }}"
+      - "--until={{ cdi_login_notice_proof_failure_as_of }}"
+      - --lines=1
+      - "--grep=^Finished {{ cdi_login_notice_unit | regex_escape }}( |\\.|$)|^{{ cdi_login_notice_unit | regex_escape }}: Failed with result "
+  register: cdi_login_notice_ref_failure
+  changed_when: false
+  failed_when: false  # interprété par l'assertion suivante
+  check_mode: false
+  when: cdi_login_notice_journal_proofs | bool
+
+- name: "Référence — dernier résultat du journal, attendu : réussite, à la date {{ cdi_login_notice_proof_success_as_of }}"
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - --user
+      - --quiet
+      - --no-pager
+      - --output=short-iso
+      - "--unit={{ cdi_login_notice_unit }}"
+      - "--until={{ cdi_login_notice_proof_success_as_of }}"
+      - --lines=1
+      - "--grep=^Finished {{ cdi_login_notice_unit | regex_escape }}( |\\.|$)|^{{ cdi_login_notice_unit | regex_escape }}: Failed with result "
+  register: cdi_login_notice_ref_success
+  changed_when: false
+  failed_when: false  # interprété par l'assertion suivante
+  check_mode: false
+  when: cdi_login_notice_journal_proofs | bool
+
+- name: "Échouer bruyamment si le journal de ce poste ne contient pas les références des preuves"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_ref_failure.rc == 0
+      - "': Failed with result ' in cdi_login_notice_ref_failure.stdout"
+      - "(cdi_login_notice_proof_failure_expected.split(' ') | first) ~ 'T' ~ (cdi_login_notice_proof_failure_expected.split(' ')[1:] | join(''))
+        in cdi_login_notice_ref_failure.stdout"
+      - cdi_login_notice_ref_success.rc == 0
+      - "'Finished ' ~ cdi_login_notice_unit in cdi_login_notice_ref_success.stdout"
+      - "(cdi_login_notice_proof_success_expected.split(' ') | first) ~ 'T' ~ (cdi_login_notice_proof_success_expected.split(' ')[1:] | join(''))
+        in cdi_login_notice_ref_success.stdout"
+    fail_msg: >-
+      RÉFÉRENCE ABSENTE, PREUVES NON EXERCÉES — le journal utilisateur de ce
+      poste ne contient pas les résultats attendus de {{ cdi_login_notice_unit }}
+      (échec {{ cdi_login_notice_proof_failure_expected }}, réussite
+      {{ cdi_login_notice_proof_success_expected }}). Cas attendus : poste
+      neuf, rotation du journal. Ce n'est pas un défaut du fichier déposé.
+      Relire `journalctl --user -u {{ cdi_login_notice_unit }}` et ajuster
+      cdi_login_notice_proof_*, ou jouer avec
+      -e cdi_login_notice_journal_proofs=false (preuves sautées, signalé).
+      Lu — échec : {{ cdi_login_notice_ref_failure.stdout | default('') }}
+      (rc={{ cdi_login_notice_ref_failure.rc | default('?') }}) ; réussite :
+      {{ cdi_login_notice_ref_success.stdout | default('') }}
+      (rc={{ cdi_login_notice_ref_success.rc | default('?') }}).
+    success_msg: >-
+      Références présentes dans le journal : échec
+      {{ cdi_login_notice_proof_failure_expected }}, réussite
+      {{ cdi_login_notice_proof_success_expected }}.
+  when: cdi_login_notice_journal_proofs | bool
+
+- name: "SIGNALÉ — preuves dépendant du journal sautées (cdi_login_notice_journal_proofs=false) : branches échec/réussite NON démontrées"
+  ansible.builtin.debug:
+    msg: >-
+      PREUVES 1, 2 ET 5 NON EXERCÉES — cdi_login_notice_journal_proofs=false.
+      Le fichier est déposé, mais ni l'avertissement sur échec, ni le
+      silence sur réussite, ni l'absence de fuite dans le shell ne sont
+      démontrés par ce passage.
+  when: not (cdi_login_notice_journal_proofs | bool)
+
+- name: "Référence — aucune entrée de l'unité avant {{ cdi_login_notice_proof_empty_as_of }}"
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - --user
+      - --quiet
+      - --no-pager
+      - --output=short-iso
+      - "--unit={{ cdi_login_notice_unit }}"
+      - "--until={{ cdi_login_notice_proof_empty_as_of }}"
+      - --lines=1
+  register: cdi_login_notice_ref_empty
+  changed_when: false
+  failed_when: false  # interprété par l'assertion suivante
+  check_mode: false
+
+- name: "Échouer bruyamment si l'unité a des entrées avant la date de la preuve « aucun résultat »"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_ref_empty.rc == 0
+      - cdi_login_notice_ref_empty.stdout_lines | select('match', '^[0-9]') | list | length == 0
+    fail_msg: >-
+      Le journal contient des entrées de {{ cdi_login_notice_unit }} avant
+      {{ cdi_login_notice_proof_empty_as_of }} (ou journalctl a échoué,
+      rc={{ cdi_login_notice_ref_empty.rc }}) — la preuve « aucun résultat »
+      ne porterait pas sur une période vide. Sortie :
+      {{ cdi_login_notice_ref_empty.stdout }}
+    success_msg: >-
+      Aucune entrée de {{ cdi_login_notice_unit }} avant
+      {{ cdi_login_notice_proof_empty_as_of }} (rc=0).
+
+# --- Preuves par l'effet, dans des shells réels lancés par le mécanisme
+# natif de bash (jamais un `source` manuel) : env -i, seul HOME conservé,
+# comme roles/android_env/. La date de référence passe par
+# CDI_LOGIN_NOTICE_AS_OF. expand_argument_vars: false — c'est bash, pas
+# Ansible, qui doit résoudre les $… de la commande.
+
+- name: "Preuve 1 — shell interactif, référence sur un échec réel : message sur la sortie d'erreur"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - "CDI_LOGIN_NOTICE_AS_OF={{ cdi_login_notice_proof_failure_as_of }}"
+      - bash
+      - -ic
+      - ":"
+    expand_argument_vars: false
+  register: cdi_login_notice_proof_1
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode and (cdi_login_notice_journal_proofs | bool)
+
+- name: "Preuve 1 — assertions (sortie standard vide, avertissement complet sur la sortie d'erreur)"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_proof_1.stdout == ''
+      - "(cdi_login_notice_marker ~ ' : ÉCHEC, le ' ~ cdi_login_notice_proof_failure_expected) in cdi_login_notice_proof_1.stderr"
+      - "'PAS un état courant' in cdi_login_notice_proof_1.stderr"
+      - "('En échec depuis : ' ~ cdi_login_notice_proof_failure_since_expected) in cdi_login_notice_proof_1.stderr"
+      - "('dernière réussite : ' ~ cdi_login_notice_proof_last_success_expected) in cdi_login_notice_proof_1.stderr"
+      - "'--tags regen-cdi-spec' in cdi_login_notice_proof_1.stderr"
+      - "'docs/gpu-containers.md § 9.9' in cdi_login_notice_proof_1.stderr"
+    fail_msg: >-
+      Preuve 1 en échec — stdout={{ cdi_login_notice_proof_1.stdout | to_json }}
+      stderr={{ cdi_login_notice_proof_1.stderr | to_json }}
+    success_msg: >-
+      Preuve 1 — stdout vide, stderr : {{ cdi_login_notice_proof_1.stderr }}
+      (durée du shell : {{ cdi_login_notice_proof_1.delta }})
+  when: not ansible_check_mode and (cdi_login_notice_journal_proofs | bool)
+
+- name: "Preuve 2 — shell interactif, référence sur une réussite réelle : aucun message"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - "CDI_LOGIN_NOTICE_AS_OF={{ cdi_login_notice_proof_success_as_of }}"
+      - bash
+      - -ic
+      - ":"
+    expand_argument_vars: false
+  register: cdi_login_notice_proof_2
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode and (cdi_login_notice_journal_proofs | bool)
+
+- name: "Preuve 2 — assertions (sortie standard vide, aucune ligne de ce fichier sur la sortie d'erreur)"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_proof_2.stdout == ''
+      - cdi_login_notice_marker not in cdi_login_notice_proof_2.stderr
+    fail_msg: >-
+      Preuve 2 en échec — stdout={{ cdi_login_notice_proof_2.stdout | to_json }}
+      stderr={{ cdi_login_notice_proof_2.stderr | to_json }}
+    success_msg: >-
+      Preuve 2 — aucun avertissement ; stderr brut (autres sources) :
+      {{ cdi_login_notice_proof_2.stderr | to_json }}
+  when: not ansible_check_mode and (cdi_login_notice_journal_proofs | bool)
+
+# Preuve 3 : shell NON interactif qui charge ~/.bashrc (BASH_ENV — le cas
+# mesuré par le pilote pour `ssh hôte 'commande'` : drapeaux sans « i »).
+# 3a : aucune sortie du tout. 3b (témoin) : même shell sous -x, pour établir
+# que le fichier déposé a bien été chargé — sans 3b, 3a pourrait passer
+# parce que rien n'est chargé du tout.
+
+- name: "Preuve 3a — shell non interactif chargeant ~/.bashrc, référence sur un échec : aucune sortie"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - "BASH_ENV={{ cdi_login_notice_bashrc_path }}"
+      - "CDI_LOGIN_NOTICE_AS_OF={{ cdi_login_notice_proof_failure_as_of }}"
+      - bash
+      - -c
+      - ":"
+    expand_argument_vars: false
+  register: cdi_login_notice_proof_3a
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Preuve 3b — témoin : le même shell, tracé (-x), a bien chargé le fichier déposé"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - "BASH_ENV={{ cdi_login_notice_bashrc_path }}"
+      - "CDI_LOGIN_NOTICE_AS_OF={{ cdi_login_notice_proof_failure_as_of }}"
+      - bash
+      - -xc
+      - ":"
+    expand_argument_vars: false
+  register: cdi_login_notice_proof_3b
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Preuve 3 — assertions (3a muet sur les deux sorties ; 3b : fichier chargé, garde évaluée, aucun message)"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_proof_3a.stdout == ''
+      - cdi_login_notice_proof_3a.stderr == ''
+      - "('. ' ~ cdi_login_notice_file) in cdi_login_notice_proof_3b.stderr"
+      - "'== *i* ]]' in cdi_login_notice_proof_3b.stderr"
+      - cdi_login_notice_marker not in cdi_login_notice_proof_3b.stderr
+    fail_msg: >-
+      Preuve 3 en échec — 3a stdout={{ cdi_login_notice_proof_3a.stdout | to_json }}
+      stderr={{ cdi_login_notice_proof_3a.stderr | to_json }} ; 3b
+      stderr={{ cdi_login_notice_proof_3b.stderr | to_json }}
+    success_msg: >-
+      Preuve 3 — 3a muet ; 3b : lignes de trace concernant ce fichier :
+      {{ cdi_login_notice_proof_3b.stderr_lines | select('search', 'cdi-login-notice|\*i\*') | list }}
+  when: not ansible_check_mode
+
+- name: "Preuve 4 — shell interactif, référence sans aucun résultat : message « INCONNU » sur la sortie d'erreur"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - "CDI_LOGIN_NOTICE_AS_OF={{ cdi_login_notice_proof_empty_as_of }}"
+      - bash
+      - -ic
+      - ":"
+    expand_argument_vars: false
+  register: cdi_login_notice_proof_4
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Preuve 4 — assertions (sortie standard vide, « INCONNU », jamais « à jour »)"
+  ansible.builtin.assert:
+    that:
+      - cdi_login_notice_proof_4.stdout == ''
+      - "(cdi_login_notice_marker ~ ' : INCONNU') in cdi_login_notice_proof_4.stderr"
+      - "'Ce n’est PAS un état « à jour »' in cdi_login_notice_proof_4.stderr"
+      - "'ÉCHEC' not in cdi_login_notice_proof_4.stderr"
+    fail_msg: >-
+      Preuve 4 en échec — stdout={{ cdi_login_notice_proof_4.stdout | to_json }}
+      stderr={{ cdi_login_notice_proof_4.stderr | to_json }}
+    success_msg: "Preuve 4 — stdout vide, stderr : {{ cdi_login_notice_proof_4.stderr }}"
+  when: not ansible_check_mode
+
+- name: "Preuve 5 — shell interactif après la branche d'échec : aucune variable ni fonction du fichier ne reste"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - "CDI_LOGIN_NOTICE_AS_OF={{ cdi_login_notice_proof_failure_as_of }}"
+      - bash
+      - -ic
+      - "compgen -v; declare -F"
+    expand_argument_vars: false
+  register: cdi_login_notice_proof_5
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode and (cdi_login_notice_journal_proofs | bool)
+
+- name: "Preuve 5 — assertions (branche d'échec réellement parcourue, aucun nom _cdi_ln_ dans le shell)"
+  ansible.builtin.assert:
+    that:
+      - "(cdi_login_notice_marker ~ ' : ÉCHEC') in cdi_login_notice_proof_5.stderr"
+      - "'_cdi_ln_' not in cdi_login_notice_proof_5.stdout"
+      - "'BASHRCSOURCED' in cdi_login_notice_proof_5.stdout"
+    fail_msg: >-
+      Preuve 5 en échec — noms trouvés :
+      {{ cdi_login_notice_proof_5.stdout_lines | select('search', '_cdi_ln_') | list }}
+    success_msg: >-
+      Preuve 5 — aucun nom _cdi_ln_ parmi {{ cdi_login_notice_proof_5.stdout_lines | length }}
+      variables et fonctions du shell.
+  when: not ansible_check_mode and (cdi_login_notice_journal_proofs | bool)
+
+# --- État réel, sans date de référence — rapporté, pas asserté : le
+# dernier résultat réel peut légitimement être un échec un autre jour.
+
+- name: "Relever ce qu'un shell interactif affiche aujourd'hui (aucune date de référence)"
+  ansible.builtin.command:
+    argv:
+      - env
+      - -i
+      - "HOME={{ ansible_facts.env.HOME }}"
+      - bash
+      - -ic
+      - ":"
+    expand_argument_vars: false
+  register: cdi_login_notice_today
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: "Rapporter l'état du fichier d'avertissement sur ce poste"
+  ansible.builtin.debug:
+    msg:
+      - "Fichier déposé : {{ cdi_login_notice_file }}"
+      - "~/.bashrc.d/ créé par ce rôle (changed) : {{ cdi_login_notice_dir_result.changed | default('non exécuté') }}"
+      - "Fichier déposé (changed) : {{ cdi_login_notice_file_result.changed | default('non exécuté') }}"
+      - "Shell interactif aujourd'hui — stdout : {{ cdi_login_notice_today.stdout | default('non relevé sous --check') | to_json }}"
+      - "Shell interactif aujourd'hui — stderr : {{ cdi_login_notice_today.stderr | default('non relevé sous --check') | to_json }}"
+      - "Durée de ce shell : {{ cdi_login_notice_today.delta | default('non relevé sous --check') }}"

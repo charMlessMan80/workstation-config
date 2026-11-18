@@ -10,7 +10,7 @@
 #
 # Étiquettes pour rejouer un rôle seul : bootstrap, recovery, ssh_access,
 # gpu_cdi, gpu_mux, local_ai, editor, completion, copilot_cli, android_jdk,
-# android_sdk, android_env — voir docs/orchestration.md pour l'usage
+# android_sdk, android_env, cdi_login_notice — voir docs/orchestration.md pour l'usage
 # complet, y compris la reprise après le point d'arrêt.
 #
 # Ne redémarre JAMAIS lui-même — s'arrête explicitement (post_tasks,
@@ -132,6 +132,20 @@
     # ~/.bashrc lui-même — D28, docs/machine-facts.md § Décisions).
     - role: android_env
       tags: ['android_env']
+
+    # DÉPEND RÉELLEMENT de local_ai (unité local-ai-cdi-verify.service
+    # déployée, dont ce rôle lit le journal) — exprimée par l'ORDRE,
+    # jamais par `dependencies:`, ET vérifiée par ce rôle lui-même (stat
+    # du fichier d'unité). Placé en dernier, après android_env : ses
+    # preuves lancent des shells qui chargent tout ~/.bashrc.d/, donc
+    # l'état final du répertoire. Avertit à l'ouverture d'un shell
+    # interactif quand le dernier résultat connu de la garde CDI est un
+    # échec — décision du propriétaire du 2026-11-18, non numérotée
+    # (docs/gpu-containers.md § 9.9). Sur une machine neuve, ses preuves
+    # sur le journal n'ont pas de référence : voir
+    # roles/cdi_login_notice/README.md (cdi_login_notice_journal_proofs).
+    - role: cdi_login_notice
+      tags: ['cdi_login_notice']
 
   post_tasks:
     # --- Point d'arrêt — jamais un redémarrage déclenché ici -----------

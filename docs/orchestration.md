@@ -152,6 +152,19 @@ D9 en place, les invocations suivantes n'ont plus besoin de
     jamais `dependencies:` de rôle Ansible). Ne pose jamais
     `ANDROID_SDK_ROOT` (dépréciée) ni `ANDROID_USER_HOME` (laissée à son
     défaut). N'installe aucun paquet, aucun composant SDK.
+12. **`cdi_login_notice`** — dépose `~/.bashrc.d/95-cdi-login-notice.sh`,
+    qui avertit sur la sortie d'erreur, dans les shells **interactifs**
+    seulement, quand le dernier résultat connu de
+    `local-ai-cdi-verify.service` dans le journal utilisateur est un échec
+    (décision du propriétaire du 2026-11-18, non numérotée —
+    `docs/gpu-containers.md` § 9.9). **Dépend réellement de `local_ai`**
+    (unité déployée, vérifiée par `stat` en tâche dédiée, jamais
+    `dependencies:`). Placé en dernier : ses preuves lancent des shells
+    qui chargent tout `~/.bashrc.d/`. N'écrit jamais dans `~/.bashrc`,
+    aucune élévation. **Sur une machine neuve**, ses preuves sur le
+    journal n'ont pas de référence et le rôle s'arrête bruyamment —
+    `-e cdi_login_notice_journal_proofs=false` les saute en le signalant
+    (`roles/cdi_login_notice/README.md`).
 
 **Puis, `post_tasks`** : relève `pending_reboot`
 (`gpu_mux_mode`) et la valeur active de
@@ -284,7 +297,13 @@ non un défaut de ce rôle) ; exécution réelle isolée par tag et depuis
 `site.yml`, deux fois, la seconde prouvant l'idempotence, plus une
 preuve d'effet réel dans un shell interactif non-login et une preuve
 de non-duplication du `PATH` par double chargement dans le même
-shell). Le point
+shell). **`cdi_login_notice` ajouté et vérifié le 2026-11-18, livrable
+L13** (`ansible-lint --profile production` sur le rôle, `--check
+--diff` et exécution réelle isolée puis depuis `site.yml --tags
+cdi_login_notice`, deux fois la seconde à `changed=0`, cinq preuves
+par l'effet dans des shells réels ; `roles/android_env/android_env.yml`
+rejoué ensuite, `changed=0`, sa vérification chargeant le nouveau
+fichier). Pas de `--check` complet de `site.yml` dans ce livrable. Le point
 d'arrêt post-redémarrage a été exercé dans son
 état **nominal réel** de cette machine (`pending_reboot=0`,
 `PreserveVideoMemoryAllocations: 1` — les deux déjà satisfaits ici,
