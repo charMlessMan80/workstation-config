@@ -1,4 +1,4 @@
-# État réel du dépôt — 2026-09-25
+# État réel du dépôt — 2026-11-18
 
 Une page, pour quelqu'un qui reprend ce dépôt sans avoir lu les
 quarante livrables qui l'ont produit. Elle ne recopie rien — chaque
@@ -7,6 +7,26 @@ ligne renvoie au document qui porte la preuve ou la décision complète.
 chaque série) ; ce document répond à une seule question, **où en
 est-on aujourd'hui**, et se périme dès qu'un futur livrable change
 l'un des faits qu'il résume — à tenir à jour à ce moment-là, pas avant.
+
+**Rafraîchi le 2026-11-18 (livrable 19, après la série L08-L17) —
+rafraîchissement ciblé.** Seuls les faits changés par cette série sont
+repris : spécification CDI régénérée le 2026-11-17 pour le pilote
+`620.70.06` (L08) ; régénération CDI manuelle maintenue, unités
+`nvidia-cdi-refresh` du paquet non activées (L10) ; rôle
+`cdi_login_notice` ajouté, dernier rôle de `site.yml` (L13) ; démarrage
+automatique d'Ollama refusé par sa garde le 2026-11-17, démarrage manuel
+réussi le 2026-11-18 (L16/L17). Les décisions du propriétaire prises
+dans cette série, toutes du 2026-11-18, ne portent **aucun numéro**.
+Lignes complétées, historique conservé : toolkit conteneur NVIDIA +
+CDI, service d'inférence local, séquence de reconstruction. Ajoutés :
+une ligne `cdi_login_notice`, une option écartée, des points ouverts.
+**Ce que ce rafraîchissement ne couvre pas** : aucune autre ligne n'a
+été revérifiée — chacune vaut à la date de sa propre preuve, rien n'est
+réaffirmé ici. Le pilote cité au paragraphe du 2026-09-25
+(`615.71.09`) n'est plus celui chargé : `615.78.08` à partir du
+2026-11-02, puis `620.70.06` (`docs/gpu-containers.md` § 9.9) ; la
+version du noyau et le décompte des paquets en attente (19 au
+2026-09-25) n'ont pas été relus.
 
 **Rafraîchi le 2026-09-25 (livrable D1, après la série U1-U2c)** : les
 mises à jour en attente ont été appliquées — noyau `7.1.8` → `7.2.7`,
@@ -68,9 +88,10 @@ série, non traitée : voir § Points ouverts restants, plus bas.
 | Bascule GPU MUX (panneau câblé dGPU/iGPU) | D2bis/D2ter | Bascule effectuée et vérifiée par mesure post-redémarrage (topologie DRM, `pending_reboot`) | `docs/gpu-mux-recovery.md`, `docs/machine-facts.md` § Décisions, journal 2026-08-05 |
 | Clé SSH du PC Windows autorisée (2026-09-28) | D30, `roles/ssh_access/` | Gardes G1 à G4 et garde de sauvegarde démontrées dans les deux sens ; G5 en échec exercée par état « avant » substitué ; G6 en échec exercée seulement hors `~/.ssh` (copie sans étiquette) ; échec du contrôle de mode `0600` non exercé — le tout sur une copie, détail : `roles/ssh_access/README.md` ; puis écriture réelle : deux empreintes, mode `0600`, SELinux conforme, rejeu `changed=0`. **Connexion par clé seule depuis le PC Windows réussie le 2026-09-28 à 10:20:46 +02:00 (journal sshd, empreinte de la clé Windows)** | `roles/ssh_access/README.md` |
 | Chemin de retour SSH avant toute bascule risquée | `roles/recovery/` | Trois gardes (sshd actif+activé, clé publique non vide, `firewalld` autorise ssh), démontrées dans les deux sens | `roles/recovery/README.md` |
-| Toolkit conteneur NVIDIA + spécification CDI | D7 | Dépôt COPR corroboré (empreinte de clé, sans corroboration indépendante — écart assumé, § écarté ci-dessous n'applique pas ici, c'est un risque **accepté**, pas une voie écartée). **Chaîne détection → régénération prouvée de bout en bout par un événement réel non provoqué (2026-08-09, GPU-4)** : mise à jour du pilote `610.43.03` → `610.57.04`, péremption détectée, `ollama` bloqué (`ExecStartPre` refusé), notifications émises, régénération via `regen-cdi-spec` (bogue de collision de variable trouvé et corrigé au passage — cette branche n'avait jamais réellement écrit depuis sa création), test conteneur de bout en bout réussi. **Nature de la preuve, précisée** : avant cet événement, seule la branche « déjà à jour » de `verify-cdi-spec` avait été exercée (d'où la formulation précédente de cette ligne, correcte pour ce qu'elle couvrait mais silencieuse sur la branche de régénération, jamais testée en conditions réelles jusqu'ici) | `docs/gpu-containers.md` § 9.6-9.7, `docs/repositories.md` § 1-3 |
+| Toolkit conteneur NVIDIA + spécification CDI | D7 | Dépôt COPR corroboré (empreinte de clé, sans corroboration indépendante — écart assumé, § écarté ci-dessous n'applique pas ici, c'est un risque **accepté**, pas une voie écartée). **Chaîne détection → régénération prouvée de bout en bout par un événement réel non provoqué (2026-08-09, GPU-4)** : mise à jour du pilote `610.43.03` → `610.57.04`, péremption détectée, `ollama` bloqué (`ExecStartPre` refusé), notifications émises, régénération via `regen-cdi-spec` (bogue de collision de variable trouvé et corrigé au passage — cette branche n'avait jamais réellement écrit depuis sa création), test conteneur de bout en bout réussi. **Nature de la preuve, précisée** : avant cet événement, seule la branche « déjà à jour » de `verify-cdi-spec` avait été exercée (d'où la formulation précédente de cette ligne, correcte pour ce qu'elle couvrait mais silencieuse sur la branche de régénération, jamais testée en conditions réelles jusqu'ici). **[COMPLÉTÉ le 2026-11-18] Régénération du 2026-11-17 pour le pilote `620.70.06` (L08)**, après celles de GPU-4 et d'U2c (§ 9.8) : la garde périodique avait échoué à chaque passage depuis le 2026-10-09, 617 fois, sans régénération (détection continue, alerte sans suite — § Points ouverts). `regen-cdi-spec` `changed=1` (seule l'installation), puis `verify-cdi-spec` et rejeu d'idempotence à `changed=0` ; somme, taille, références et avertissements consignés, génération témoin identique bit à bit au fichier installé. **Non exercées** : les branches d'échec de `regen_spec.yml` (vérification du fichier de travail, installation, purge après échec, Gardes 0 à 3). **Décision du propriétaire du 2026-11-18, non numérotée (L10)** : régénération manuelle maintenue ; les unités `nvidia-cdi-refresh` livrées par le paquet depuis la version 1.20.1 restent désactivées (§ écarté ci-dessous) | `docs/gpu-containers.md` § 9.6-9.7, `docs/repositories.md` § 1-3 ; [2026-11-18] `docs/gpu-containers.md` § 9.3 (fin), § 9.8-9.9, `docs/machine-facts.md` § Conteneurs |
 | Temporisation du démarrage `kitty` sur la stabilité des sorties | BUR-4/BUR-5 | **Partiellement prouvée.** Opérationnelle à deux ouvertures de session réelles (`269 ms`, `268 ms`) — le bug BUR-5 qui empêchait l'autostart de se lancer est réellement corrigé. Mais ces deux temps sont le **plancher structurel** du script (deux échantillons `rc=0` identiques dès le premier relevé, jamais d'itération au-delà du minimum) : le mécanisme n'a **jamais eu à attendre** une topologie réellement instable. Rien ne permet de lui attribuer une éventuelle absence de gel de `eDP-1` — voir la nuance Kate ci-dessous pour un patron similaire (preuve réelle mais partielle, pas à lire comme équivalente à une preuve complète) | `docs/desktop.md` § 9-10, `docs/machine-facts.md` § Points ouverts (BUR-5) |
-| Service d'inférence local (Ollama conteneurisé, réseau confiné) | D14/D18 | Confinement réseau prouvé par inspection à quatre reprises (deux fois deux) ; service joignable, `verify-cdi-spec` réutilisé sans réimplémentation | `docs/local-ai.md` |
+| Service d'inférence local (Ollama conteneurisé, réseau confiné) | D14/D18 | Confinement réseau prouvé par inspection à quatre reprises (deux fois deux) ; service joignable, `verify-cdi-spec` réutilisé sans réimplémentation. **[COMPLÉTÉ le 2026-11-18, L16/L17]** Garde de démarrage (`ExecStartPre`) traversée dans les deux sens en conditions réelles : **refus** au démarrage automatique du gestionnaire utilisateur, le 2026-11-17 à 17:17:22 +01:00 (spécification `615.71.09` face au pilote `620.70.06`) ; **passage** au démarrage manuel (`systemctl --user start`, décision du propriétaire du 2026-11-18, non numérotée), le 2026-11-18 à 13:13:00 +01:00. Après : GPU visible depuis le conteneur, API sur `127.0.0.1:11434`, **aucun modèle chargé** (`/api/ps` vide à 13:13:05 et 13:20:08 +01:00). `Restart=no`, `WantedBy=default.target`, `Linger=no` : le service suit la vie du gestionnaire utilisateur, chaque démarrage rejoue la garde. **Non exercés** : arrêt à la fermeture de la dernière session (prévu par la documentation, jamais observé), sortie du conteneur avec `Restart=no`, refus lors d'un démarrage manuel, passage lors d'un démarrage automatique | `docs/local-ai.md` ; [2026-11-18] `docs/local-ai.md` § 12, `docs/gpu-containers.md` § 9.10 |
+| Avertissement à l'ouverture d'un shell interactif si la garde CDI a échoué (2026-11-18) | Décision du propriétaire du 2026-11-18, non numérotée ; `roles/cdi_login_notice/` | **Partiellement prouvé.** Dépose un fichier dans `~/.bashrc.d/` qui, dans les shells interactifs seulement, écrit sur la sortie d'erreur le **dernier résultat connu** de `local-ai-cdi-verify.service` lu dans le journal utilisateur, quand c'est un échec — pas un état courant : sans linger (décision du même jour), il n'y en a pas. Ni privilège, ni écriture dans `~/.bashrc` ; la notification de bureau n'est pas modifiée. Cinq preuves par l'effet dans des shells réels (`bash -i`, `BASH_ENV`) : échec → message, réussite → silence, non interactif → aucune sortie, aucune entrée → « INCONNU », aucune variable résiduelle ; rejeu à `changed=0`. Gardes de l'unité, de la boucle `~/.bashrc.d/` et des références au journal démontrées dans les deux sens (L13b) ; celle « aucune entrée avant la date de la preuve 4 » en nominal seulement. **Deux écarts connus** de la garde des références, non corrigés : elle s'arrête après la tâche du gabarit (rendue `ok`, fichier non réécrit) ; son message cite les dates attendues, pas la date demandée. **Non exercés** : vraie connexion SSH (interactive ou avec commande), dépassement du délai de lecture, date de référence invalide, branche « aucune réussite dans le journal conservé », `--check` sans `~/.bashrc.d/` | `roles/cdi_login_notice/README.md`, `docs/machine-facts.md` § L13, `docs/gpu-containers.md` § 9.9 (note L13), message du commit `e7dd9a0` |
 | Paramètre pilote `NVreg_PreserveVideoMemoryAllocations=1` | D16 | Écrit, redémarrage effectué, valeur active confirmée `1` après (journal daté 2026-08-08, IA-4) | `docs/machine-facts.md` § Décisions, D16 |
 | Modèles retenus, chargement séquentiel | D21/D22 | Récupération isolée par conteneur éphémère (jamais le réseau du service), intégrité vérifiée, coexistence en VRAM mesurée **ne pas** tenir (§ écarté ci-dessous) | `docs/machine-facts.md` § Décisions, D21/D22 |
 | Résidence permanente du modèle de complétion | D15 (réalignée le 2026-08-12, BSH-2) | Coût réel mesuré, pas seulement annoncé : RTD3 bloqué à 100 % une fois le modèle chargé (deux fenêtres isolées de 300 s, méthode d'isolement de `docs/dgpu-power.md`) — écart corrigé sur un chiffre antérieur de ~25 % qui mêlait à tort la phase sans modèle et la résidence effective. Valeur effective jamais changée par la requalification du 7 août — `changed=0` dès la première exécution du rôle après réalignement | `docs/local-ai.md` § 11, `docs/machine-facts.md` § Décisions, D15 |
@@ -80,7 +101,7 @@ série, non traitée : voir § Points ouverts restants, plus bas.
 | GitHub Copilot CLI, second agent de code | D24/D25 | `@github/copilot@1.0.78` installé (version épinglée, domaine utilisateur `~/.local`), runtime Node.js 22 depuis `fedora`/`updates`. Authentification établie par l'opérateur (`copilot login`, jamais scriptée) ; modèle actif confirmé `claude-sonnet-5` (medium) — **parité de génération de modèle** avec Claude Code, pas d'effort ; consommation lisible (3 700/20 000 AIC, 18 %, période de renouvellement inconnue) — **preuve par sortie de commande copiable**, datée 2026-08-10 | `docs/editor.md` § Copilot CLI |
 | Amorçage (D6/D9/D10 scriptés) | `roles/bootstrap/` | `power-profiles-daemon`, dépôt `terra` (clé vérifiée par inspection hors ligne avant tout usage privilégié), règle `NOPASSWD` — les trois reconstructibles par ce rôle | `roles/bootstrap/README.md`, `docs/orchestration.md` § 7.1 |
 | Règle `sudo` sans mot de passe déplacée en `/etc/sudoers.d/` | D9 (déplacée) | Séquence stricte à cinq étapes, provenance de la règle effective prouvée (`sudo -n -l -l`, pas seulement `sudo -n true`) avant tout retrait de l'ancienne ligne | `docs/machine-facts.md` § Décisions, D9, journal 2026-08-08 (SUD-1) |
-| Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne, sans erreur, l'ensemble des rôles orchestrés par `site.yml` sur **cette** machine (`bootstrap` jusqu'à `android_env`, chaîne de build Android CLI comprise) ; point d'arrêt exercé dans son état nominal réel — rejoué et confirmé le 2026-08-18, § refresh ci-dessus | `docs/orchestration.md` |
+| Séquence de reconstruction complète, un seul point d'arrêt | `site.yml` | `--check` complet enchaîne, sans erreur, l'ensemble des rôles orchestrés par `site.yml` sur **cette** machine (`bootstrap` jusqu'à `android_env`, chaîne de build Android CLI comprise) ; point d'arrêt exercé dans son état nominal réel — rejoué et confirmé le 2026-08-18, § refresh ci-dessus. **[À NUANCER depuis le 2026-11-18, L13]** `site.yml` joue désormais `cdi_login_notice` après `android_env`. Ce rôle n'y a été exercé que par `site.yml --tags cdi_login_notice` (rejeu à `changed=0`) : **aucun `--check` complet de `site.yml` depuis son ajout** — l'enchaînement « `bootstrap` jusqu'à `android_env` » reste le dernier vérifié de bout en bout | `docs/orchestration.md` |
 | Chaîne de build Android CLI (JDK, SDK, environnement shell) pour `glass-hud` (dépôt distinct) | D26/D27/D28 | Trois rôles enchaînés (`android_jdk` → `android_sdk` → `android_env`), chaque dépendance réelle vérifiée par l'effet, pas seulement par l'ordre de `site.yml`. Garde de contenu sur `~/.bashrc` démontrée dans les deux sens ; `ANDROID_HOME`/`PATH` posés uniquement via `~/.bashrc.d/`, jamais d'écriture dans `~/.bashrc` lui-même | `docs/machine-facts.md` § Décisions, `roles/android_jdk/README.md`, `roles/android_sdk/README.md`, `roles/android_env/README.md` |
 | Chaîne Ansible de ce dépôt | D3a | `ansible-core` système fait autorité pour l'exécution ET la vérification (pas seulement l'édition) | `docs/ansible-chain.md`, `docs/machine-facts.md` § Chaîne Ansible |
 
@@ -159,6 +180,7 @@ opposée (ici : « déjà stable ») a réussi.
 | Dépôt NVIDIA officiel (à la place du COPR) | COPR jugé équivalent avec des vérifications OpenPGP supplémentaires, un cran au-dessus du dépôt officiel sur ce point précis | D7 |
 | Coexistence de deux modèles en VRAM (chat + complétion résidents) | Mesurée, pas supposée — ne tient pas (chat seul à 32 K de contexte occupe déjà 12 294 Mio) ; chargement séquentiel retenu à la place | D22 |
 | Binaire `lsp-ai` précompilé (à la place de la compilation depuis les sources) | Aucune somme de contrôle publiée — ancrage de confiance plus faible que ce que fermer `npm` (D12) était censé éviter | D19 |
+| Régénération CDI automatique par les unités `nvidia-cdi-refresh` du paquet (livrées depuis `nvidia-container-toolkit` 1.20.1) | La détection n'avait pas manqué, l'alerte si ; la consignation exigée par `CLAUDE.md` § Matériel spécifique ne serait pas tenue ; plusieurs points non mesurés sur ce poste (lecture de `/run/cdi` sous SELinux, ordre au démarrage, précédence entre répertoires) — ajoutée le 2026-11-18 | Décision du propriétaire du 2026-11-18, non numérotée — `docs/gpu-containers.md` § 9.3 (fin) |
 
 ## Surfaces d'approvisionnement et ancrage de confiance
 
@@ -344,6 +366,36 @@ relecture ; non refaite dans ce livrable, hors de son objet.
   la suppression des instantanés (J1-c).** ÉTAIT : « en attente ».
   **[EFFECTIVE depuis le 2026-10-02 (J1-c)]** Instantanés supprimés à
   12:29:43 `+02:00`.
+- **[AJOUTÉ le 2026-11-18, série L08-L17] Ouverts par la série** — aucun
+  point ouvert antérieur de ce document n'est clos par elle :
+  - **Chaîne d'alerte de la garde CDI.** 617 échecs du 2026-10-09 au
+    2026-11-17 sans régénération ; `notify-send` en échec du 2026-11-02
+    11:01 au 2026-11-17 18:01 +01:00, et ses codes de succès antérieurs
+    n'attestent ni affichage ni réception. Le message à la connexion
+    (`cdi_login_notice`) s'y ajoute ; la notification de bureau elle-même
+    reste un point ouvert — `docs/gpu-containers.md` § 9.3 (fin,
+    motif 2), § 9.9.
+  - **Unités `nvidia-cdi-refresh`** : leur préréglage est `enable`, un
+    `systemctl preset` les activerait contre la décision du 2026-11-18 ;
+    masquage non décidé. Précédence entre `/etc/cdi` et `/var/run/cdi`
+    pour Podman 5.8.9 : lecture rapportée d'une source amont, marquée à
+    vérifier — `docs/gpu-containers.md` § 9.3 (fin).
+  - **`roles/gpu_cdi/tasks/regen_spec.yml`** : avertissement de gabarit
+    (`object of type 'dict' has no attribute 'path'`) chaque fois que le
+    bloc de régénération est sauté, sans effet observé, non corrigé ;
+    absence du fichier de travail après purge non relue —
+    `docs/gpu-containers.md` § 9.9. Somme de `/etc/cdi/nvidia.yaml` non
+    relue en L16/L17 — § 9.10.
+  - **Ollama** : état `inactive (dead)` et non `failed` après le refus du
+    2026-11-17, non expliqué ; valeur effective de `UserStopDelaySec` non
+    lue ; session qui a lancé le gestionnaire utilisateur le 2026-11-17 à
+    17:17 +01:00 non identifiée — `docs/local-ai.md` § 12.1, § 12.3.
+  - **`cdi_login_notice` sur une machine neuve** : faute de références
+    dans le journal, le rôle — donc `site.yml` — s'arrête bruyamment tant
+    que `cdi_login_notice_journal_proofs` n'est pas mis à `false` ; à
+    ajouter à la reconstruction sur machine neuve (§ non prouvé, point 1)
+    — `roles/cdi_login_notice/README.md`. Ses deux écarts de garde
+    connus : ligne du tableau ci-dessus.
 
 **Priorités, reprises de `docs/review-2026-08.md` § « Ce qu'il
 faudrait traiter en premier »** (statut détaillé de chacun des
