@@ -3334,6 +3334,14 @@ répertoires restent voulus sur ce poste après ce livrable).
   présents) : aucun mécanisme fourni par le fournisseur ou par
   l'outillage système ne couvre ni la détection de péremption ni la
   régénération conditionnelle — rien à réutiliser.
+  **[CORRIGÉ le 2026-11-18]** La phrase ci-dessus est périmée depuis
+  `nvidia-container-toolkit` 1.20.1, installé le 2026-09-25. Le paquet
+  livre `nvidia-cdi-refresh.path` et `nvidia-cdi-refresh.service`, à l'état
+  `disabled` avec un préréglage `enabled` (`rpm -ql`,
+  `systemctl list-unit-files`, constaté le 2026-11-17). Décision du
+  propriétaire du 2026-11-18, non numérotée : régénération manuelle
+  maintenue, unités non activées. Détail, motifs et risque résiduel :
+  `docs/gpu-containers.md` § 9.1 (correction) et § 9.3 (fin).
   Détection implémentée comme tâches réutilisables du rôle
   (`roles/gpu_cdi/tasks/check_spec.yml`, `verify_spec.yml`, tag
   `verify-cdi-spec`) : chemins de bibliothèques référencés vérifiés un à

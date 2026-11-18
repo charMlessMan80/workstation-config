@@ -1093,6 +1093,47 @@ akmod-nvidia` : uniquement les sources et un pointeur `.latest`).
 **Aucun mécanisme fourni par le fournisseur ne couvre ce besoin — rien à
 réutiliser, rien à éviter de dupliquer.**
 
+**[CORRIGÉ le 2026-11-18] Le paragraphe ci-dessus est périmé depuis
+`nvidia-container-toolkit` 1.20.1.** Il était exact pour la 1.19.1, lue à
+sa date (2026-08-06). La 1.20.1, installée le 2026-09-25 (`rpm -qa`, date
+d'installation), livre deux unités `systemd` et leur préréglage. Lu le
+2026-11-17 :
+
+```
+$ rpm -ql nvidia-container-toolkit        # extrait
+/etc/nvidia-container-toolkit/nvidia-cdi-refresh.env
+/usr/lib/systemd/system-preset/90-nvidia-container-toolkit.preset
+/usr/lib/systemd/system/nvidia-cdi-refresh.path
+/usr/lib/systemd/system/nvidia-cdi-refresh.service
+$ systemctl list-unit-files --no-pager 'nvidia*'   # extrait
+nvidia-cdi-refresh.path               disabled enabled
+nvidia-cdi-refresh.service            disabled enabled
+```
+
+- **Déclencheurs.** L'unité `.path` surveille par `PathChanged=`
+  `/lib/modules/%v/modules.dep`, `/lib/modules/%v/modules.dep.bin`
+  (`%v` : noyau en cours, `man systemd.unit`) et `/usr/bin/nvidia-ctk`.
+  Le `.service` porte `WantedBy=multi-user.target` : une fois activé, il
+  tourne aussi à chaque démarrage. **Aucun chemin de bibliothèque n'est
+  surveillé.**
+- **Commandes, en root.** `nvidia-smi -L`, puis
+  `nvidia-ctk system create-device-nodes …` (échec ignoré), puis
+  `nvidia-ctk cdi generate`. `Restart=on-failure`, au plus cinq
+  démarrages en dix secondes.
+- **Sortie.** `Environment=NVIDIA_CTK_CDI_OUTPUT_FILE_PATH=/var/run/cdi/nvidia.yaml`,
+  et le fichier `.env` est entièrement commenté. `/var/run` pointe vers
+  `../run`, monté en `tmpfs` (`readlink /var/run`, `findmnt /run`). Ce
+  n'est pas `/etc/cdi/nvidia.yaml`, le chemin que ce rôle écrit et que la
+  garde lit.
+- **État.** `disabled`, préréglage `enabled`. Le scriptlet `%post`
+  n'applique le préréglage qu'à la première installation
+  (`if [ $1 -eq 1 ]`, `rpm -q --scripts nvidia-container-toolkit`).
+  Inféré : le paquet a été installé pour la première fois en 1.19.1 le
+  2026-08-05 (`docs/packages.md`, transaction 26), puis mis à niveau ;
+  d'où l'état `disabled`.
+
+La décision prise sur cette base est consignée à la fin du § 9.3.
+
 **`dnf5` — mécanisme de déclenchement post-transaction** :
 ```
 $ rpm -q dnf5-plugins
@@ -1238,6 +1279,80 @@ assumé : la correction n'est pas automatique — un oubli de l'opérateur
 laisse la spécification périmée jusqu'au prochain `verify-cdi-spec`
 lancé. Ce coût est jugé inférieur au risque de silence résiduel de
 l'option `udev`/`systemd` (ci-dessus), pas nul.
+
+**[CONFIRMÉE le 2026-11-18, décision du propriétaire] Option retenue
+maintenue après examen des unités du fournisseur** (§ 9.1, correction du
+2026-11-18). La régénération reste manuelle, par `--tags regen-cdi-spec`.
+`nvidia-cdi-refresh.path` et `nvidia-cdi-refresh.service` restent
+désactivées. Décision datée mais **non numérotée** : les décisions du
+propriétaire portent d'ordinaire un numéro dans `docs/machine-facts.md`
+§ Décisions, et aucun ne lui a été attribué ici. Motifs retenus :
+
+1. **Aucun chemin surveillé ne concerne une bibliothèque.** Le
+   2026-10-09, seule `libnvidia-egl-wayland.so.1.1.22` manquait, à
+   version de pilote inchangée (§ 9.9). Seul un événement annexe aurait
+   déclenché l'unité : un redémarrage, ou une réécriture du
+   `modules.dep` du noyau en cours, non établie ce jour-là. Inféré, non
+   exercé.
+2. **La détection n'a pas manqué.** La garde a échoué à chaque passage,
+   617 fois du 2026-10-09 au 2026-11-17, sans aucune réussite (§ 9.9).
+   Ce qui a manqué, c'est une alerte suivie d'effet. Du 2026-10-09 au
+   2026-11-02, `notify-send` a rendu un code de succès pour chacun des
+   437 échecs de cette période : cela n'atteste ni affichage ni réception
+   (`journalctl --user -u local-ai-cdi-verify-notify.service`). Du
+   2026-11-02 11:01 au 2026-11-17 18:01 +01:00, il a échoué à chaque
+   fois. Il a de nouveau rendu un code de succès à 19:00:31 +01:00
+   (§ 9.9).
+3. **La consignation exigée par `CLAUDE.md` § Matériel spécifique ne
+   serait pas tenue.** Une régénération automatique à chaque démarrage
+   n'en relève pas la somme. Ses avertissements iraient au mieux au
+   journal de l'unité (inféré, non mesuré).
+4. **Plusieurs points ne sont pas mesurés sur ce poste :**
+   - la lecture de `/run/cdi/nvidia.yaml` par Podman sans privilège, sous
+     SELinux `Enforcing` (D8) ;
+   - l'ordre au démarrage entre cette unité système et le service
+     utilisateur Ollama ;
+   - l'atomicité de l'écriture par `nvidia-ctk` ;
+   - l'équivalence d'une génération faite en root et d'une génération
+     faite par l'utilisateur ;
+   - la liste effective des répertoires lus par Podman 5.8.9 :
+     `man podman` donne `/etc/cdi` seul, `man containers.conf` donne
+     `/etc/cdi` et `/var/run/cdi`.
+5. **Garder les deux spécifications ferait vérifier le mauvais fichier.**
+   La garde et l'`ExecStartPre` d'Ollama lisent `/etc/cdi/nvidia.yaml`
+   en dur (`roles/gpu_cdi/defaults/main.yml:65`,
+   `roles/local_ai/defaults/main.yml:215`, `ExecStartPre` sans `-e`).
+   Si `/var/run/cdi` est prioritaire, la garde vérifierait un fichier que
+   Podman n'utiliserait pas.
+
+**Précédence entre répertoires : lecture rapportée, non vérifiée ici.**
+Le pilote de session a lu le 2026-11-18, dans une source externe
+(`pkg/cdi/doc.go`, branche `main` de la bibliothèque amont
+`container-device-interface`), les règles suivantes. Les répertoires par
+défaut sont `/etc/cdi` puis `/var/run/cdi`, le dernier étant
+prioritaire. Un même périphérique défini deux fois est retenu dans le
+répertoire prioritaire.
+`@VERIF : version de container-device-interface embarquée par podman 5.8.9 et sa règle de priorité (pkg/cdi/doc.go à cette version)`
+
+**Ce que les déclencheurs auraient couvert.** Inféré à la lecture des
+unités, aucun n'a été exercé :
+- **2026-10-09** : voir le motif 1.
+- **2026-11-02** : l'exécution au démarrage, après le redémarrage de
+  10:41 +01:00.
+- **2026-11-17** : le `.path` se serait probablement déclenché à
+  l'écriture des modules pendant la transaction. Le module chargé
+  (`615.78.08`) et les bibliothèques (`620.70.06`) divergeaient alors ;
+  `nvidia-smi -L` aurait probablement échoué (non mesuré), et l'unité se
+  serait arrêtée sur sa limite de démarrages. C'est l'exécution au
+  démarrage suivant qui aurait régénéré.
+
+**Risque résiduel, consigné sans agir.** Le préréglage
+`90-nvidia-container-toolkit.preset` contient `enable` pour les deux
+unités. `systemctl preset` applique ce fichier et équivaut alors à
+`systemctl enable` (`man systemd.preset`, systemd 259.10). Une
+réinitialisation des préréglages activerait donc les unités, à l'encontre
+de cette décision. Le masquage serait une action privilégiée ; il n'est
+pas décidé.
 
 ### 9.4 — Preuve sans mise à jour du pilote (§ 5 de la demande)
 
