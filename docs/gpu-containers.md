@@ -1693,6 +1693,160 @@ vérifiée** : une génération témoin faite deux minutes avant le rôle a
 produit un fichier **bit pour bit identique** à celui installé (`diff`
 rc=0) — donc ces avertissements sont bien les siens.
 
+### 9.9 — Régénération du 2026-11-17 (pilote `620.70.06`)
+
+**Contexte, relevé dans `journalctl --user -u local-ai-cdi-verify.service`.**
+`verify-cdi-spec` échouait à chaque passage depuis le 2026-10-09
+16:00:56 +02:00 (dernière réussite : 15:00:14 +02:00), en trois phases
+successives. D'abord `libnvidia-egl-wayland.so.1.1.22` seul absent,
+versions concordantes (`615.71.09`). Puis pilote chargé `615.78.08` à
+partir du 2026-11-02 11:01 +01:00. Puis `620.70.06` à partir du
+2026-11-17 18:00 +01:00. 617 échecs au total, du 2026-10-09
+16:00:56 +02:00 au dernier passage avant la régénération, le
+2026-11-17 à 21:00:30 +01:00. Le compte porte sur les lignes
+`PLAY RECAP` du journal de l'unité ; aucune réussite dans l'intervalle.
+`/etc/cdi/nvidia.yaml` est resté daté du 2026-09-25 jusqu'à la
+régénération.
+
+**Chaîne d'alerte, sans suite donnée ici.** Du 2026-11-02 11:01 au
+2026-11-17 18:01 +01:00, chaque `notify-send` de
+`local-ai-cdi-verify-notify.service` a échoué (`Error calling
+StartServiceByName for org.freedesktop.Notifications: Timeout was
+reached`). Ces échecs s'étendent sur deux démarrages
+(`journalctl --list-boots`). Pendant le premier, du 2026-11-02 10:41:11
+au 2026-11-17 17:15:02 +01:00, `systemd-logind` n'a ouvert aucune
+session `wayland` pour ce compte. Le dernier échec, à 18:01 +01:00,
+appartient au démarrage suivant, commencé le 2026-11-17 à
+17:16:19 +01:00. Sur ce démarrage, la première session `wayland` de ce
+compte n'a été ouverte qu'à 18:18:31 +01:00 ; la notification suivante,
+à 19:00:31 +01:00, a abouti. **Point ouvert, non traité par cette
+régénération.**
+
+**Méthode : celle du § 9.8.** La tâche de génération du rôle n'affiche
+pas la sortie de `nvidia-ctk` : celle-ci est enregistrée dans
+`gpu_cdi_regen_generate` (`roles/gpu_cdi/tasks/regen_spec.yml:90`),
+variable que rien ne lit ensuite. Les avertissements viennent donc d'une
+génération témoin, non privilégiée, vers un fichier hors dépôt, faite
+juste avant le rôle :
+
+```
+$ nvidia-ctk cdi generate --output=<fichier témoin hors dépôt>   # 21:22:27 +01:00 ; code de retour non affiché, l'outil d'exécution (qui signale les codes non nuls) n'en a signalé aucun
+$ ansible-playbook roles/gpu_cdi/gpu_cdi.yml --tags regen-cdi-spec
+localhost : ok=53   changed=1    unreachable=0    failed=0    skipped=2    rescued=0    ignored=0
+$ cmp <fichier témoin> /etc/cdi/nvidia.yaml                      # aucune sortie
+```
+
+Seule tâche `changed` : l'installation du fichier de travail vérifié
+(`become: true`, `regen_spec.yml:98-107`). Le fichier de travail
+`/tmp/gpu_cdi_regen.li4ojw16.yaml` a d'abord passé la vérification :
+« Spécification à jour : version 620.70.06 == version chargée 620.70.06,
+60 chemins de bibliothèques référencés, tous présents sur l'hôte. »
+
+**Ce que la régénération a produit**, consigné comme l'exige
+`CLAUDE.md` § Matériel spécifique (`sha256sum`, `stat`, recherches dans
+le fichier) :
+
+| | Avant | Après |
+|---|---|---|
+| SHA-256 | `b38784620a60b1cf7444042991e59aca0a3966d0e3398f001887cd678316fb79` | `c380c959fb444f75fbeb6ca4f00d6c70d11e011946b5e114983b2b22b4d49495` |
+| Taille | 24 015 octets | 24 118 octets |
+| Modification | 2026-09-25 09:43:48 +02:00 | 2026-11-17 21:22:49 +01:00 (`Change` : 21:22:59 +01:00, installation) |
+| Réf. `615.71.09` / `620.70.06` | 103 / 0 | 0 / 104 |
+| Lignes `hostPath:` | 60 | 60 |
+| `cdiVersion`, `kind` | `0.7.0`, `nvidia.com/gpu` | inchangés |
+| Périphériques | `"0"`, `GPU-bd9088d2-…`, `all` | inchangés |
+| Propriétaire, mode, contexte | `root:root`, `0644`, `etc_t` | inchangés |
+
+Pilote chargé : `620.70.06` (`/proc/driver/nvidia/version`). Outil :
+`nvidia-container-toolkit` `1.20.1` (`rpm -qa`). Mode détecté par le
+témoin : `Auto-detected mode as 'nvml'`, `Using driver version 620.70.06`.
+
+**Écart 103 → 104 références, +103 octets : expliqué par lecture.**
+`diff` entre l'ancienne spécification (copie conservée hors dépôt
+avant la régénération, même SHA-256 `b3878462…`) et la nouvelle. Les
+substitutions `615.71.09` → `620.70.06` et `1.1.22` → `1.1.24`
+(`libnvidia-egl-wayland`) sont de même longueur. La seule autre
+différence est une entrée de plus dans la liste des liens du hook :
+
+```
+>             - --link
+>             - libnvidia-tileiras.so.620.70.06::/usr/lib64/libnvidia-tileiras.so.1
+```
+
+Toute la différence de taille tient donc dans ces deux lignes. Le
+`hostPath` de `libnvidia-tileiras.so.<version>` figurait déjà dans
+l'ancienne spécification : seul le lien est nouveau. Pourquoi l'outil
+le crée avec `620.70.06` et non avec `615.71.09` : non établi.
+
+**Avertissements de `nvidia-ctk` 1.20.1**, mot pour mot (témoin,
+21:22:27 +01:00, préfixe `time=… level=warning` omis). 15 lignes,
+13 éléments distincts :
+
+    msg="Could not locate libnvidia-vulkan-producer.so.620.70.06: libnvidia-vulkan-producer.so.620.70.06: not found\nlibnvidia-vulkan-producer.so.620.70.06: not found"
+    msg="Could not locate nvidia_drv.so: nvidia_drv.so: not found"
+    msg="Could not locate libglxserver_nvidia.so.620.70.06: libglxserver_nvidia.so.620.70.06: not found"
+    msg="Could not locate nvidia-xconfig: nvidia-xconfig: not found"
+    msg="Could not locate X11/xorg.conf.d/10-nvidia.conf: X11/xorg.conf.d/10-nvidia.conf: not found"
+    msg="Could not locate X11/xorg.conf.d/nvidia-drm-outputclass.conf: X11/xorg.conf.d/nvidia-drm-outputclass.conf: not found"
+    msg="Could not locate vulkan/icd.d/nvidia_icd.json: vulkan/icd.d/nvidia_icd.json: not found\nvulkan/icd.d/nvidia_icd.json: not found"
+    msg="Could not locate vulkan/icd.d/nvidia_layers.json: vulkan/icd.d/nvidia_layers.json: not found\nvulkan/icd.d/nvidia_layers.json: not found"
+    msg="Could not locate /nvidia-persistenced/socket: /nvidia-persistenced/socket: not found"
+    msg="Could not locate /nvidia-fabricmanager/socket: /nvidia-fabricmanager/socket: not found"
+    msg="Could not locate /tmp/nvidia-mps: /tmp/nvidia-mps: not found"
+    msg="Could not locate nvidia-imex: nvidia-imex: not found"
+    msg="Could not locate nvidia-imex-ctl: nvidia-imex-ctl: not found"
+    msg="Could not locate nvidia_drv.so: nvidia_drv.so: not found"
+    msg="Could not locate libglxserver_nvidia.so.620.70.06: libglxserver_nvidia.so.620.70.06: not found"
+
+**Sur le « 13 » du § 9.8** (laissé tel quel) : la liste des lignes
+1679-1684, avec ses deux « ×2 », totalise 15 occurrences. Les 13
+éléments sont les mêmes aujourd'hui, à la version près. Inféré : le
+« 13 » de 2026-09-25 compte des éléments distincts, pas des lignes ; il
+n'y a pas d'écart réel entre les deux relevés.
+
+**Reproductibilité.** Le témoin et le fichier installé sont identiques
+bit à bit (`cmp` sans sortie, SHA-256 égaux). Les avertissements
+ci-dessus sont rattachés au fichier installé par cette identité. La
+sortie de la génération faite par le rôle lui-même n'a pas été observée.
+
+**Vérifications après coup :**
+
+```
+$ ansible-playbook roles/gpu_cdi/gpu_cdi.yml --tags verify-cdi-spec
+"msg": "Spécification à jour : version 620.70.06 == version chargée 620.70.06, 60 chemins de bibliothèques référencés, tous présents sur l'hôte."
+localhost : ok=15   changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+$ ansible-playbook roles/gpu_cdi/gpu_cdi.yml --tags regen-cdi-spec     # idempotence
+"msg": "/etc/cdi/nvidia.yaml est déjà à jour (version 620.70.06 == version chargée 620.70.06, tous les chemins référencés présents) — aucune écriture, aucun changement."
+localhost : ok=22   changed=0    unreachable=0    failed=0    skipped=33   rescued=0    ignored=0
+```
+
+Somme relue après l'idempotence : `c380c959…49495`, inchangée.
+
+**Branches de `regen_spec.yml`.** Exercées : spécification périmée,
+bloc complet (fichier de travail, génération, vérification réussie,
+installation, revérification réussie, purge en `always:`) ; puis
+spécification à jour, « rien à faire ». **Non exercées, donc non
+prouvées ici** : échec de la vérification du fichier de travail (arrêt
+sans toucher à `/etc/cdi`), échec de l'installation, purge après un
+échec, branches d'échec des Gardes 0 à 3. La purge du fichier de
+travail a rendu `ok`, mais l'absence du fichier n'a pas été relue.
+`@VERIF : absence de /tmp/gpu_cdi_regen.*.yaml après une régénération (ls /tmp)`
+
+**Défaut connu, non corrigé.** Chaque fois que le bloc de régénération
+est sauté, en `--check` comme dans la branche « déjà à jour », Ansible
+émet :
+
+```
+[WARNING]: Encountered 1 template error.
+error 1 - object of type 'dict' has no attribute 'path'
+Origin: …/roles/gpu_cdi/tasks/regen_spec.yml:96:35
+```
+
+Il est sans effet observé (`failed=0` dans les deux cas). Il n'apparaît
+pas quand le bloc s'exécute.
+
+Ollama n'a pas été redémarré par cette régénération.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode

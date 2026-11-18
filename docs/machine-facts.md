@@ -535,6 +535,19 @@ aberrante.
   l'écart de 2026-08-06, faute des deux sorties de cette date
   précise — ils écartent seulement l'explication la plus simple
   (« l'avertissement suffit à lui seul à faire varier la taille »).
+- **[ÉTAT au 2026-11-17] `/etc/cdi/nvidia.yaml`** : 24 118 octets,
+  `root:root`, `0644`, contexte `etc_t`, SHA-256
+  `c380c959fb444f75fbeb6ca4f00d6c70d11e011946b5e114983b2b22b4d49495`.
+  Généré pour le pilote `620.70.06` (104 références, 0 à `615.71.09`,
+  60 `hostPath:`) par `nvidia-ctk` `1.20.1`. Installé le 2026-11-17 à
+  21:22:59 +01:00 par `--tags regen-cdi-spec` (`stat`, `sha256sum`).
+  Garde `verify-cdi-spec` revenue à `ok=15 failed=0`. Valeurs
+  précédentes, avertissements de génération et explication de l'écart
+  de taille : `docs/gpu-containers.md` § 9.9. Le marqueur ci-dessus sur
+  l'écart 19972 → 19954 octets **reste ouvert** : cette régénération a
+  eu lieu sur un changement de pilote (`615.71.09` → `620.70.06`), pas
+  dans les conditions de l'écart d'origine (deux générations le même
+  jour, même version).
 - **[ÉTAIT, jusqu'au 2026-08-05] `nvidia-container-toolkit` : non
   installé.** Depuis la Phase 1 : `nvidia-container-toolkit-1.19.1-1.fc44.x86_64`
   et `nvidia-container-toolkit-selinux-1.19.1-1.fc44.noarch`, source COPR
