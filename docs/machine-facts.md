@@ -5665,3 +5665,36 @@ skipped=1`, preuves 1 à 5 vertes.
 - une vraie connexion SSH, interactive ou avec commande. Le chargement de
   `~/.bashrc` par `ssh hôte 'commande'` est une mesure du pilote
   (2026-11-18), pas une preuve de ce rôle.
+
+## L16 — démarrage d'Ollama après le refus de la garde (2026-11-18)
+
+**Décision du propriétaire du 2026-11-18, non numérotée** : « Vérifier
+puis démarrer ». Consignée en L17.
+
+- **Avant** :
+  - `ollama.service` était `inactive` depuis le 2026-11-17 à
+    17:17:22 +01:00. C'était un démarrage automatique refusé par
+    l'`ExecStartPre`, sur une spécification CDI `615.71.09` face au pilote
+    `620.70.06`, pas un arrêt.
+  - La vérification périodique était verte au 2026-11-18 à 13:00:31 +01:00.
+  - Aucun conteneur résiduel ; image épinglée en cache.
+- **Écriture unique** : `systemctl --user start ollama.service`, rc 0 ;
+  garde passée et service `active (running)` depuis le 2026-11-18 à
+  13:13:00 +01:00.
+- **Après** :
+  - API sur `127.0.0.1:11434`, version `0.32.6` ;
+  - GPU visible depuis le conteneur (`nvidia-smi`, détection CUDA par Ollama) ;
+  - aucun modèle chargé (`/api/ps` vide à 13:13:05 et 13:20:08 +01:00).
+- **Durée de vie** :
+  - `Restart=no` ; `WantedBy=default.target` ; `Linger=no`.
+  - Le service suit donc la vie du gestionnaire utilisateur, et chaque
+    démarrage rejoue la garde.
+- **Détail et sources** : [`docs/local-ai.md`](local-ai.md) § 12 ;
+  garde : [`docs/gpu-containers.md`](gpu-containers.md) § 9.10.
+- **Restent ouverts** (marqués dans `docs/local-ai.md` § 12) :
+  - l'état `inactive (dead)` au lieu de `failed` après l'échec ;
+  - la valeur effective de `UserStopDelaySec` ;
+  - la session qui a lancé le gestionnaire le 2026-11-17 à 17:17 +01:00.
+- **Inféré, non prouvé** : aucun téléchargement d'image au démarrage.
+- **Actions privilégiées : aucune.** Trois lectures refusées par l'outil
+  de l'agent, ni élevées ni contournées (`docs/local-ai.md` § 12.4).

@@ -1978,6 +1978,61 @@ démontre pas (une vraie connexion SSH notamment), figure dans son
 `README.md`. Le point ouvert reste ouvert pour la notification de
 bureau elle-même, à laquelle ce rôle ne touche pas.
 
+### 9.10 — Garde de démarrage d'Ollama : refus du 2026-11-17, passage du 2026-11-18 (L16)
+
+**[AJOUTÉ le 2026-11-18, L16/L17]** L'`ExecStartPre` de `ollama.service`
+(`--tags verify-cdi-spec`) a été traversé dans les deux sens, en
+conditions réelles, de part et d'autre de la régénération du § 9.9. Ce
+n'est ni le premier refus réel (§ 9.6, GPU-4 ; § 9.8, U2c) ni le premier
+passage. Ce qui s'ajoute : le refus s'est produit **au démarrage
+automatique du gestionnaire utilisateur**, sans commande tapée, et le
+journal le date. Détail du service : [`docs/local-ai.md`](local-ai.md)
+§ 12.
+
+**Refus**, relu le 2026-11-18 (`journalctl --user -u ollama.service`,
+puis `journalctl --user … -o short-iso`, nom d'hôte omis) :
+
+```
+2026-11-17T17:17:12+01:00 systemd[2236]: Queued start job for default target default.target.
+2026-11-17T17:17:12+01:00 systemd[2236]: Starting ollama.service - Ollama — serveur d'inférence local (D14), roles/local_ai/...
+2026-11-17T17:17:22+01:00 systemd[2236]: ollama.service: Control process exited, code=exited, status=2/INVALIDARGUMENT
+2026-11-17T17:17:22+01:00 systemd[2236]: ollama.service: Failed with result 'exit-code'.
+2026-11-17T17:17:22+01:00 systemd[2236]: Failed to start ollama.service - Ollama — serveur d'inférence local (D14), roles/local_ai/.
+```
+
+Message de la garde (liste des chemins omise) : « Version attendue
+(pilote réellement chargé, lu dans /proc/driver/nvidia/version) =
+'620.70.06'. Version trouvée (encodée dans la spécification, via
+libcuda.so) = '615.71.09'. Chemins référencés absents de l'hôte (40) » ;
+`PLAY RECAP` : `ok=14 changed=0 unreachable=0 failed=1`.
+
+**Précision sur le § 9.9**, qui date le passage à `620.70.06` « à partir
+du 2026-11-17 18:00 +01:00 » d'après le journal de la vérification
+périodique : l'`ExecStartPre` lisait déjà `620.70.06` comme pilote chargé
+à 17:17:22 +01:00. Les deux relevés ne se contredisent pas : le § 9.9
+compte les passages de `local-ai-cdi-verify.service`, pas ceux de la
+garde de démarrage.
+
+**Passage**, `systemctl --user start ollama.service` (rc 0), 2026-11-18 :
+
+| Heure (+01:00) | Événement | Source |
+|---|---|---|
+| 13:12:48 | sortie de l'état inactif (début de l'`ExecStartPre`) | `systemctl --user show -p InactiveExitTimestamp` |
+| 13:13:00 | garde : « Spécification à jour : version 620.70.06 == version chargée 620.70.06, 60 chemins de bibliothèques référencés, tous présents sur l'hôte. » ; `ok=15 changed=0 unreachable=0 failed=0` | `journalctl --user -u ollama.service -n 60 --no-pager` |
+| 13:13:00 | `ExecStartPre=… (code=exited, status=0/SUCCESS)` ; conteneur créé puis démarré ; `Started ollama.service` | `systemctl --user status ollama.service`, même journal |
+| 13:13:03 | Ollama détecte le GPU : `library=CUDA compute=8.9 … description="NVIDIA GeForce RTX 4090 Laptop GPU" … total="15.6 GiB"` (horodatage Ollama `12:13:03.981Z`, UTC) | `journalctl --user -u ollama.service --since 13:13:00 -g …` |
+| 13:13:06 | `podman exec ollama nvidia-smi` : `NVIDIA-SMI 620.70.06`, `KMD Version: 620.70.06`, `33MiB / 16376MiB`, `No running processes found` (horodatage `nvidia-smi` `12:13:06`, UTC) | sortie de la commande |
+
+Le GPU est donc visible depuis le conteneur avec la spécification en
+place — celle installée au § 9.9, dont la somme n'a pas été relue dans
+L16/L17. `@VERIF : sha256sum /etc/cdi/nvidia.yaml, attendu c380c959…49495 (§ 9.9)`
+
+**Branches de la garde de démarrage dans cette série.** Exercées :
+refus sur spécification périmée, au démarrage automatique
+(2026-11-17) ; passage sur spécification à jour, au démarrage manuel
+(2026-11-18). **Non exercées ici** : refus pour fichier absent ; refus
+lors d'un démarrage manuel ; passage lors d'un démarrage automatique.
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanisme RTD3, méthode

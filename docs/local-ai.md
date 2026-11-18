@@ -2210,6 +2210,143 @@ touché par ce livrable — hors périmètre) ; aucun redémarrage système ;
 service `ollama.service` non redémarré (§ 11.6). `ansible-lint
 --profile production roles/local_ai/` : 0 défaut.
 
+## 12. L16 — état du service, démarrage du 2026-11-18
+
+**[AJOUTÉ le 2026-11-18, L16/L17]** Décision du propriétaire du
+2026-11-18, non numérotée : « Vérifier puis démarrer ». Une seule
+commande d'écriture : `systemctl --user start ollama.service`. Aucun
+`enable`, `restart`, `daemon-reload`, `reset-failed`, linger, playbook ni
+`sudo`. Aucune requête de génération, aucun modèle chargé.
+
+### 12.1 — Historique relu : un démarrage refusé, pas un arrêt
+
+Le service était `inactive` depuis le **2026-11-17 à 17:17:22 +01:00**.
+C'était un démarrage refusé, pas un arrêt. Le gestionnaire utilisateur
+(PID 2236) a mis `default.target` en file à 17:17:12 +01:00 et lancé
+`ollama.service` avec elle, après `ollama-network.service` et
+`ollama-models-volume.service`. L'`ExecStartPre` a refusé une
+spécification CDI périmée (615.71.09 contre 620.70.06) :
+[`docs/gpu-containers.md`](gpu-containers.md) § 9.10. C'est une nouvelle
+attestation du démarrage automatique par `WantedBy=default.target`, déjà
+constaté au § 7.7.
+
+**Écart non expliqué.** Le 2026-11-18 vers 13:12 +01:00, `systemctl
+--user status` affichait `inactive (dead)` et non `failed` après cet
+échec. Le journal utilisateur a été cherché entre 2026-11-17 17:17:00 et
+2026-11-18 13:12:30 (`-g "ollama|reset-failed|Reload|Reexecut"`). Il ne
+contient qu'un seul événement de cette nature : un rechargement du
+gestionnaire à 2026-11-17 18:18:31 +01:00, « Reload requested from client
+PID 5680 ('startplasma-way') », à l'ouverture de la première session
+graphique. Que ce rechargement ait effacé l'état `failed` n'est pas
+établi. `@VERIF : comportement documenté de systemd pour l'état failed d'une unité générée lors d'un daemon-reload (man systemctl, man systemd.generator), ou reproduction contrôlée`
+
+### 12.2 — Démarrage du 2026-11-18
+
+**Conditions, relues entre 13:12 et 13:13 +01:00** :
+- dernière vérification périodique réussie à 13:00:31 +01:00 (« Spécification à jour :
+  version 620.70.06 == version chargée 620.70.06 ») ;
+- aucun conteneur `ollama`, même arrêté (`podman ps -a --filter
+  name=ollama` : en-tête seul, rc 0) ;
+- image épinglée présente en cache (`podman images --digests`,
+  `sha256:b88c73ac…`, identifiant `cdcad7aac04c`, « 3.74 GB » affiché,
+  base non vérifiée).
+
+**Déroulé** : sortie de l'état inactif à 13:12:48, garde réussie et
+conteneur démarré à 13:13:00 +01:00 (horaires détaillés :
+`docs/gpu-containers.md` § 9.10). L'événement Podman `image pull` à
+13:13:00.084 précède la création du conteneur de 20 ms (13:13:00.104).
+**Inféré, non prouvé** : aucun téléchargement, ce délai étant
+incompatible avec le transfert de l'image.
+
+**Constaté dans les six secondes suivantes (13:13:01 → 13:13:06 +01:00)** :
+- `systemctl --user is-active ollama.service` → `active` ;
+- `podman ps --filter name=ollama` → `Up 3 seconds`,
+  `127.0.0.1:11434->11434/tcp` ;
+- `GET /api/version` → `{"version":"0.32.6"}` ;
+- `GET /api/tags` → deux modèles, `qwen2.5-coder:7b-instruct-q4_K_M`
+  (4 683 087 561 octets) et `mistral-nemo:12b-instruct-2407-q4_K_M`
+  (7 477 217 229 octets) ;
+- `GET /api/ps` → `{"models":[]}` ;
+- `podman exec ollama nvidia-smi` → pilote `620.70.06`, `33MiB /
+  16376MiB`, `P5`, aucun processus ;
+- journal : `Ollama cloud disabled: true`, `OLLAMA_NO_CLOUD:true`,
+  `OLLAMA_KEEP_ALIVE:2562047h47m16.854775807s`, détection `library=CUDA`
+  sur la RTX 4090, `total="15.6 GiB"`.
+
+**Relu à 13:20:08 +01:00 (L17)** :
+- `is-active` → `active` ;
+- `Active: active (running) since Wed 2026-11-18 13:13:00 CET` ;
+- `Memory: 1G (peak: 1.3G)` (unités de systemd telles qu'affichées) ;
+- `podman ps` → `Up 7 minutes` ;
+- `GET /api/ps` → `{"models":[]}`.
+
+**Sur D15** : `keep_alive` infini est actif (valeur ci-dessus), mais
+aucun modèle n'est chargé au démarrage. La résidence ne commence qu'au
+premier chargement, comme l'établissait déjà le § 7.6.
+
+### 12.3 — Durée de vie du service
+
+- **Pas de redémarrage automatique en cas de sortie** :
+  `systemctl --user show ollama.service -p Restart` → `Restart=no`
+  (2026-11-18, L17).
+- **Démarrage automatique au lancement du gestionnaire utilisateur** :
+  `WantedBy=default.target` (même commande) ; `systemctl --user
+  list-dependencies default.target` place `ollama.service` directement
+  sous `default.target`. Attesté le 2026-11-17 à 17:17:12 +01:00
+  (§ 12.1). Chaque démarrage rejoue la garde : le service refusera de
+  repartir si la spécification est de nouveau périmée.
+- **Linger** : `loginctl show-user 1000 -p Linger -p State` →
+  `State=active`, `Linger=no` (2026-11-18), conforme à la décision « pas
+  de linger » du 2026-11-18 (`docs/machine-facts.md` § L13).
+- **Ce que dit la documentation, lue sur ce poste** (`man loginctl`,
+  `man logind.conf`, systemd 259.10, 2026-11-18). Avec linger, « a user
+  manager is spawned for the user at boot and kept around after
+  logouts ». `UserStopDelaySec=` : « If set to zero, the per-user service
+  is terminated immediately when the last session of the user has ended
+  […] Defaults to 10s. »
+- **Valeur effective sur ce poste : non lue.** La lecture de
+  `/etc/systemd/logind.conf` a été refusée (L17). La recherche de
+  fichiers `logind.conf.d/*` n'a rien renvoyé, ce qui n'établit rien.
+  `@VERIF : UserStopDelaySec et KillUserProcesses effectifs (systemd-analyze cat-config systemd/logind.conf)`
+- **Inféré** : sans linger, le service s'arrête avec le gestionnaire
+  utilisateur, au plus tard après le délai `UserStopDelaySec`, quand la
+  dernière session du compte se ferme ; il repart à l'ouverture de
+  session suivante, sous réserve de la garde.
+- **Sessions le 2026-11-18 à 13:20 +01:00**
+  (`loginctl show-session <n> -p Type -p Service -p Class`) :
+
+  | Session | Type | Service | Class | Siège |
+  |---|---|---|---|---|
+  | 27 | `wayland` | `plasmalogin` | `user` | `seat0`, `tty2` |
+  | 3 | `unspecified` | `systemd-user` | `manager` | — |
+  | 172 | `tty` | `sshd` | `user` | — |
+
+  La session 168, vue vers 13:12 (L16), n'existait plus à 13:20
+  (`No session '168' known`). **Inféré** : les sessions `sshd` sont
+  éphémères, et c'est la session `wayland` 27 qui maintient le
+  gestionnaire.
+- **Point ouvert** : quelle session a lancé le gestionnaire le 2026-11-17
+  à 17:17 +01:00, avant la première session `wayland` de ce démarrage
+  (18:18:31 +01:00, `docs/gpu-containers.md` § 9.9) ? La lecture du
+  journal système de `systemd-logind` a été refusée (L17).
+  `@VERIF : journalctl -u systemd-logind entre 2026-11-17 17:16 et 17:18 +01:00`
+
+### 12.4 — Branches et actions privilégiées
+
+- **Branches exercées** : démarrage manuel avec garde passante (L16).
+- **Branches non exercées** : arrêt à la fermeture de la dernière session
+  (prévu par la documentation, jamais observé ici) ; sortie du conteneur
+  avec `Restart=no`.
+- **Actions privilégiées : aucune.** Toutes les lectures ont été faites
+  sans privilège ; toutes ont abouti, à quatre exceptions près. Trois ont
+  été refusées par l'outil d'exécution de l'agent en L17, et n'ont été ni
+  élevées ni contournées : `systemctl --user show-environment`,
+  `journalctl -u systemd-logind …` et la lecture de
+  `/etc/systemd/logind.conf`. Une a échoué sans rapport avec le
+  privilège : `loginctl show-session 168 -p Type -p Service -p Class` a
+  rendu rc 1 (`No session '168' known`), la session n'existant plus
+  (§ 12.3).
+
 ## Voir aussi
 
 - [`docs/dgpu-power.md`](dgpu-power.md) — mécanismes RTD3, méthode
